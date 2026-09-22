@@ -42,4 +42,5 @@ python ops.py state
 
 ## 许可
 
-GPL-3.0，见 [LICENSE](LICENSE)。派生自 KARDS AUTO (C) 2026 yumehanab1。
+GPL-3.0，见 [LICENSE](LICENSE)。
+派生关系与上游出处见 [NOTICE](NOTICE)。
