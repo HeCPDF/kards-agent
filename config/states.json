@@ -1,0 +1,9 @@
+{
+  "states": {
+    "post_match": {
+      "any_of": [
+        "continue_btn"
+      ]
+    }
+  }
+}

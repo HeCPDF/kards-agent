@@ -1,0 +1,13 @@
+{
+  "templates": {
+    "continue_btn": {
+      "path": "ui_templates/continue_btn.png",
+      "region": {
+        "x": 590,
+        "y": 655,
+        "w": 100,
+        "h": 50
+      }
+    }
+  }
+}
