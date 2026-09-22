@@ -4,8 +4,8 @@
 
 分层说明
 ========
-- "归一化盘面"（`Card` / `BoardState`，双后端可换）的唯一实现在
-  `OCR-Kards-Auto/src/board_api.py`，本模块**不重写**它：
+- "归一化盘面"（`Card` / `BoardState`）的唯一实现在
+  `kards-agent/board_api.py`（本项目自己的），本模块**不重写**它：
   `cards()` / `snapshot()` 直接调它的 mem 后端。
 - 本模块补的是**它没有的原始读数**：把一个 `UBaseCardObject` 的全部字段
   （明文身份 + 5 条加密记录 + FText 文本 + FName 资产名）一次性摊开，

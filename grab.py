@@ -16,7 +16,7 @@ WANT = (1280, 720)
 
 
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else r"D:\Kards\reverse-data\shots\now.png"
+    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(agentpath.shots(), "now.png")
     force = "--force" in sys.argv
     win.set_dpi_aware()
     wins = win.find_by_process("kards")

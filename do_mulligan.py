@@ -18,7 +18,7 @@ import win  # noqa: E402
 import actions  # noqa: E402
 import board_api as BA  # noqa: E402
 
-OUT = r"D:\Kards\reverse-data\shots\mull"
+OUT = agentpath.shots("mull")
 os.makedirs(OUT, exist_ok=True)
 REPO = agentpath.AGENT_ROOT
 CONFIRM = (638, 667)

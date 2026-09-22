@@ -25,8 +25,9 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import agentpath  # noqa: E402  —— 接上本项目根（工作区按标志物找，别硬编码）
 
-LOG = r"D:\Kards\reverse-data\logs\rowcalib.jsonl"
+LOG = os.path.join(agentpath.logs(), "rowcalib.jsonl")
 
 
 def _ops():

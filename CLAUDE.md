@@ -144,12 +144,15 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 
   外加 `config/`（18 个模板 + 8 个状态）和 `ui_templates/`。
   ⇒ **运行时完全不依赖上游那棵工作树**（`KARDS_OCR_ROOT=/nonexistent` 下已验证）。
-- 上游其余部分我们**不用**：OCR 读盘面、手牌扫描、官网卡表 json、自动打牌状态机。
+- 上游其余部分我们**不用**：官网卡表 json、自动打牌状态机、手牌扫描那整条 OCR 链。
+  （OCR 读盘面只在**核对**时可选走一下，见 `tools/field.py`；内存才是权威。）
 - **`D:\Kards\OCR-Kards-Auto/` 是别人的工作树，一个字都不要改**（已恢复到 `origin/main`）。
   要动它之前先 `cd OCR-Kards-Auto && git status` 确认干净。
-- `_archive/` 是被 `ops.py` 取代的一次性脚本和那个残废的自动打牌，留档不维护。
+- `_archive/` 是被 `ops.py` 取代的一次性脚本和那个残废的自动打牌，留档不维护；
+  `_archive/mem-era/` 是更早的内存探针（功能已并入 `kardsmem`）。
 - `D:\Kards` 这个仓库**不是**自动化专用：还有 `client/`、`server/`、`ue-project/`、
-  `game-installs/`，以及 `reverse-data/`（逆向资料与取材工具）。别把自动化的东西撒出去。
+  `game-installs/`，以及 `reverse-data/`（逆向资料与取材工具）。
+  **自动化 + mem 工具一律放在 `kards-agent/` 下**，别再撒出去。
 
 ## 目录
 
@@ -157,11 +160,13 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 |---|---|
 | `kards-agent/kardsmem/` | **读侧**（唯一入口）。`world/cards/gs/names/props/objects/kismet/pick` |
 | `kards-agent/ops.py` | **执行侧**（会动鼠标） |
-| `kards-agent/board_api.py` | 盘面模型 + 数据源（`mem` 是权威，`ocr` 只是核对） |
-| `kards-agent/vendor/` | 从上游搬过来的那几个模块（GPL-3.0） |
+| `kards-agent/board_api.py` | 盘面模型 + 数据源（`mem` 是权威，`ocr` 只作核对）—— **本项目自己的代码** |
+| `kards-agent/tools/` | 取材/标定工具（`mem_probe` `dumpmem` `mulverify` `pickwatch` `grid` `crop` `field` `pe_tools` …）。脚本里 `import _bootstrap` 就接好路径 |
+| `kards-agent/vendor/` | 从上游搬来的**六个**在用的模块（GPL-3.0，逐个查过引用） |
 | `kards-agent/config/` `ui_templates/` | 模板表与模板图（自足） |
+| `kards-agent/_archive/` `_archive/mem-era/` | 被取代的一次性脚本（含旧的内存探针），留档不维护 |
 | `reverse-data/reports/KARDS-AUTOMATION.md` | **主规格**，先读它 |
-| `reverse-data/tools/` | 逆向/取材工具（`dumpmem` `mdmp` `mulverify` `idmap_lookup` `FModel.exe` …）。要用 `kardsmem` 就 `import _agentpath` |
+| `reverse-data/tools/` | **只剩**逆向/静态/第三方工具（`idmap_lookup` `search_exports` `u4pak` `FModel.exe` …）—— 自动化与 mem 工具**不在这里** |
 | `reverse-data/sdk/<build>/` | Dumper-7 导出（SDK / Dumpspace / .usmap / .idmap） |
 | `reverse-data/exports-<build>/` | FModel 导出的 uasset + 反编译伪 C++ |
 | `H:\EpicGames\UE_5.6` | UE 引擎源码（opcode 表、`ScriptDisassembler.cpp`、`KismetMathLibrary`） |
@@ -172,8 +177,9 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 
 - Windows + PowerShell/Git Bash。**heredoc 里的反斜杠会被吞**（`\2026` → 控制字符，
   `\\n` → 真换行）。改文件优先用 Edit 工具，或用 `chr()` 拼接。
-- 同名 `kards-Win64-Shipping.exe` 磁盘上有多份，**按 SizeOfImage 认构建**，不认 md5
-  （私服 URL 补丁不改 RVA 但改 md5）。见 `reports/EXE-IDENTITY.md`。
+- 同名 `kards-Win64-Shipping.exe` 磁盘上有多份，**按 SizeOfImage 认构建**：
+  它直接决定 RVA 有没有效。md5 只说明这份副本有没有被本地改动过，**不作否决**
+  （同构建的两份副本 md5 本来就可以不同，见 `kardsmem/exes.py`）。
 - **窗口没焦点会把鼠标点击吃掉**：事件发出去了、游戏没反应、内存零变化，
   看起来和「坐标错了」一模一样。焦点已经收进 `ops.hwnd()`，但
   `mull_auto.py` / `do_mulligan.py` 还没修。

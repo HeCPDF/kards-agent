@@ -25,7 +25,7 @@ import actions  # noqa: E402
 import board_api as BA  # noqa: E402
 
 REPO = agentpath.AGENT_ROOT
-OUT = r"D:\Kards\reverse-data\shots\mull"
+OUT = agentpath.shots("mull")
 os.makedirs(OUT, exist_ok=True)
 BTN = cv2.imread(os.path.join(REPO, "ui_templates", "mulligan_ok_btn.png"))
 END = cv2.imread(os.path.join(REPO, "ui_templates", "end_turn_btn.png"))

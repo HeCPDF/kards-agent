@@ -375,7 +375,7 @@ def _read_card_name(m: "_Mem", card: int):
     之前"全库 0 命中"是因为拿 UE4 的头格式（`0E 00 "UObject"`）去扫 UE5 的池；
     真池在 **RVA `0x0911B9C0`**（`GNames=0x090E2E28` 只是 Dumper-7 的 null 兜底常量）。
     实机已解出 `card_unit_104th_infantry_regiment` / `card_unit_p40_warhawk` 这类资产名，
-    见 `reverse-data/tools/kardsmem/names.py` 与 `python -m kardsmem names`。
+    见 `kards-agent/kardsmem/names.py` 与 `python -m kardsmem names`。
 
     本函数仍走 **FText 路线**（更快、且与名字池解耦）：
     `card+0x58 -> FTextData -> +0x20` 的本地化字符串是普通 FString（明文 UTF-16）。

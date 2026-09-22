@@ -9,7 +9,7 @@ import agentpath  # noqa: F401  —— 接上 vendor/ 和本项目根
 import win  # noqa: E402
 import cv2  # noqa: E402
 
-out = sys.argv[1] if len(sys.argv) > 1 else r"D:\Kards\reverse-data\shots\live.png"
+out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(agentpath.shots(), "live.png")
 
 win.set_dpi_aware()
 wins = win.find_by_process("kards")

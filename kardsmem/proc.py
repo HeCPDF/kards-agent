@@ -8,7 +8,7 @@
 **不注入、不 WriteProcessMemory、不远程线程、不 hook。**
 
 本模块**不重复实现** Win32 原语：`OpenProcess/ReadProcessMemory/Toolhelp32`
-的唯一实现在 `OCR-Kards-Auto/src/board_api.py`（已验证、带 34 项 selftest），
+的唯一实现在 `board_api.py`（**本项目自己的**，就在 `kards-agent/`；已验证、带 34 项 selftest），
 这里只是继承它、补上"原子读 / 定长读 / u16,u64"三个缺口。
 以前 `mem_probe.py`、`fname_live.py`、`board_api.py` 各自抄了一份 —— 现在只有一份。
 
@@ -44,7 +44,7 @@ try:
     import board_api as board_api          # noqa: E402
 except ImportError as e:                   # pragma: no cover - 环境缺失时的明确报错
     raise ImportError(
-        "找不到 board_api（预期在 %s）。设 KARDS_SRC 环境变量指向 OCR-Kards-Auto/src。"
+        "找不到 board_api（预期在 %s）。设 KARDS_SRC 环境变量指向它所在目录。"
         % B.BOARD_API_SRC) from e
 
 _find_pid = board_api._find_pid
@@ -226,18 +226,10 @@ class Session:
         except OSError:
             pass
 
-        # ★ md5 不匹配时先怀疑"服务器 URL 补丁"（私服）：它只改 .rdata 里的字符串常量，
-        #   SizeOfImage 与所有 RVA 都不变 ⇒ 偏移表照样有效。旁边 `.orig-backup` 是原件。
-        patched = orig_md5 = None
-        want = B.BUILDS[B.CURRENT]
-        if md5 and md5 != want["md5"] and size == want["image_size"]:
-            from .exes import inspect as _inspect_exe
-            rec = _inspect_exe(path, do_md5=False)
-            patched = bool((rec.get("url") or {}).get("patched"))
-            if rec.get("orig_backup"):
-                orig_md5 = B.md5_file(rec["orig_backup"]["path"])
-
-        info = B.validate(size, md5, file_size, patched=patched, orig_md5=orig_md5)
+        # ★ 判据只有 SizeOfImage（决定 RVA 有没有效）。md5 不同不是拒绝理由 ——
+        #   同构建的两份副本字节可以不同（本地改动通常只碰 .rdata 常量），
+        #   `validate()` 会把它记成 `md5_match=False`，如实但不否决。
+        info = B.validate(size, md5, file_size)
         info.pid, info.base, info.module_path = pid, base, path
         self.info = info
 

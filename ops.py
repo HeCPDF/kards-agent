@@ -58,7 +58,7 @@ FRONT_Y = 380
 # 支援排的 y 下界（用来判"这次移动是不是往支援阵线拖"，见 act_move 的移动单向校验）。
 SUPPORT_ROW_MIN_Y = 430
 SETTLE_HAND = 0.30
-SHOTS = r"D:\Kards\reverse-data\shots\play"
+SHOTS = agentpath.shots("play")
 os.makedirs(SHOTS, exist_ok=True)
 
 

@@ -33,8 +33,12 @@ import argparse
 import json
 import os
 import re
+import sys
 
-WORKSPACE = r"D:\Kards"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import agentpath  # noqa: E402  —— 工作区根按标志物找，别硬编码
+
+WORKSPACE = agentpath.workspace()
 CARDS_CPP_ROOT = os.path.join(WORKSPACE, r"reverse-data\exports-1.58.27125.Steam\kards\Content\Blueprints\Cards")
 CARDS_JSON = os.path.join(WORKSPACE, r"server\data\cards.json")
 

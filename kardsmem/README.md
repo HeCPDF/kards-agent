@@ -1,8 +1,8 @@
 # `kardsmem` —— KARDS 内存侧（只读）工具链
 
-> 这是 `D:\Kards\reverse-data\tools\` 里**唯一**该用的内存读取入口。
-> 以前散在 18 个一次性探针里的逻辑已并入本包，旧文件移到 `tools/_archive/`
-> （见 `_archive/MANIFEST.md` 的"旧 → 新"对照）。
+> 这是**内存侧（读）唯一该用的入口**，就在 `kards-agent/kardsmem/`。
+> 以前散在十几个一次性探针里的逻辑已并入本包，旧文件移到 `../_archive/mem-era/`
+> （见其 `MANIFEST.md` 的"旧 → 新"对照）。
 
 ## 红线（用户给的权威前提）
 
@@ -13,7 +13,7 @@ OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ) + ReadProcessMemory
 ```
 
 **没有**注入、`WriteProcessMemory`、远程线程、hook。执行侧（鼠标）不在本包内，
-见 `tools/ops.py` / `tools/ctl.py`。
+见 `../ops.py`。
 
 ## 60 秒上手
 
@@ -34,10 +34,10 @@ s.close()
 一样的东西走 CLI：
 
 ```powershell
-cd D:\Kards\reverse-data\tools
+cd D:\Kards\kards-agent
 python -m kardsmem selftest      # 离线断言（含 board_api 的 34 项）+ 实机探测
 python -m kardsmem verify        # pid/基址/md5 + 定位链 + 与规格 JSON 的一致性
-python -m kardsmem exes          # ★ 本机每份 exe 的指纹 + 私服 URL 补丁状态（"为什么对不上"）
+python -m kardsmem exes          # ★ 本机每份 exe 的指纹（"为什么 md5 对不上"）
 python -m kardsmem state         # 盘面：手牌/场上/弃牌/牌库/HQ/指挥点/回合
 python -m kardsmem cards --raw   # 每张卡的**全部原始字段**（含效果文本、加密当前值）
 python -m kardsmem deck local    # 物理牌库（同名牌多份在这里才看得见）
@@ -64,36 +64,35 @@ python -m kardsmem dump --out D:\Kards\reverse-data\logs\snapshot.json
 | `rendered.py` | 503 | `ABP_BaseCard_C` 家族 actor：**屏幕上摆着的每一张卡**（不读图） |
 | `pick.py` | 334 | 选择界面状态（`chooseOneActive` 等）+ 候选聚合 |
 | `snapshot.py` | 192 | 全部聚合成一份 JSON 快照（任何一层失败只进 `notes`，不炸整体） |
-| `exes.py` | 250 | 本机每份 `kards-Win64-Shipping.exe` 的指纹 + **私服 URL 补丁状态**（"为什么 md5 对不上"） |
+| `exes.py` | 236 | 本机每份 `kards-Win64-Shipping.exe` 的指纹（"为什么 md5 对不上"） |
 | `cli.py` | 500 | `python -m kardsmem <cmd>` |
 
 （合计 ~4,150 行 / 174 KB。）
 
-**为什么底层不重复实现**：`OCR-Kards-Auto/src/board_api.py` 是
-`OpenProcess/ReadProcessMemory` 和"归一化盘面（`Card`/`BoardState`，mem/ocr 双后端）"
-的**唯一**实现在。本包继承/调用它，只补它缺的几层（FName、屏幕卡、选择界面、牌库）。
+**为什么底层不重复实现**：`board_api.py`（**本项目自己的**，在 `kards-agent/`）是
+`OpenProcess/ReadProcessMemory` 和"归一化盘面（`Card`/`BoardState`）"
+的**唯一**实现处。本包继承/调用它，只补它缺的几层（FName、屏幕卡、选择界面、牌库）。
 `kardsmem selftest` 的 B 段会断言两边的常量仍然一致，防止两层再次漂移。
 
 ## ★ exe 身份：md5 对不上 ≠ 构建对不上
 
-本机有 **5 个** 名字含 `shipping` 的 exe 文件（3 棵安装树 + 1 个 `.orig-backup`
-+ `kards-Win64-Shipping2.exe`），其中 **2 份被私服 URL 补丁**改过
-（`D:\Kards\server\tools\patch_exe.py`：把 `https://kards.live.1939api.com[/config]`
-换成 `http://127.0.0.1:5231/` + NUL 填充）。
+本机有多份**同名** `kards-Win64-Shipping.exe`（几棵安装树 + 备份件），md5 互不相同。
+**判据只有一条：SizeOfImage 决定这是哪一份构建、偏移表能不能用**；
+md5 只说明这一份**副本**的字节有没有被本地改动过。
 
 | 判据 | 说明什么 | 用途 |
 |---|---|---|
-| **SizeOfImage**（PE 头 = 进程 toolhelp 的 module size） | 是哪份**构建** | **决定偏移表能不能用**；URL 补丁不动节、不改代码 ⇒ **RVA 全不变** |
-| **md5** | 字节级是否一致 | 只说明"有没有被动过"（补丁版 md5 必然不同） |
-| **URL 字面量 / `.orig-backup` / 同目录同大小的未补丁孪生** | 是否补丁版 / 原件指纹 | `python -m kardsmem exes` |
+| **SizeOfImage**（PE 头 = 进程 toolhelp 的 module size） | 是哪份**构建** | **决定偏移表能不能用**；只改 `.rdata` 常量的本地改动不动节、不改代码 ⇒ **RVA 全不变** |
+| **md5** | 字节级是否一致 | 只说明这份副本"有没有被动过" |
+| **文件大小** | 只是旁证 | 别拿它跟 SizeOfImage 相提并论（曾经因此把"多出来的进程"当悬案） |
 
-`Session.attach()` 因此**放行**"同构建 + URL 补丁版"（`info.patched=True`，检查项里记 `url_patched`），
-但**另一个构建仍然拒绝**（抛 `BuildMismatch`）。完整指纹表见
-`reverse-data/reports/EXE-IDENTITY.md`。
+`Session.attach()` 因此**放行**"同构建、字节不同"的副本（`info.md5_match=False`，如实记录），
+但**另一个构建仍然拒绝**（抛 `BuildMismatch`）。本机副本一览：
+`python -m kardsmem exes`。
 
 > ⚠ **枚举 exe 别用精确文件名**：本模块早先用 `if "kards-Win64-Shipping.exe" in name` 过滤，
-> **整个漏掉了 `kards-Win64-Shipping2.exe`**（default 树里那份补丁版）。现在按"名字含 `shipping`"
-> 子串匹配，并支持 `.orig-backup`/`.bak`；`python -m kardsmem exes --all` 会把目录里其它 `.exe` 也列出来。
+> **整个漏掉了**同名的变体与备份件。现在按"名字含 `shipping`"子串匹配，
+> 并支持 `.bak` 之类的备份件；`python -m kardsmem exes --all` 会把目录里其它 `.exe` 也列出来。
 
 ## 本包补上的能力（相对 board_api）
 
@@ -211,7 +210,8 @@ wrapper = `Content\Library\cardsCheckFunctions.cpp::CanAttack`。
 5. **`movementLeft@0x268 / attackLeft@0x26C` 的语义（用户 2026-09-21 权威）**：**把 Fury(奋战) 算在内**（奋战单位=2），**但不含 Blitz** ⇒ 不能用它们判「当回合能不能动」；判据是 `enterPlayOnTurn@0x270` + **`has_blitz@0x1DA`**（闪击要自己读，计数器里没有）。计数器仍可用于「还剩几次」。**另：移动单向（支援阵线 → 前线）**，把前线单位往支援阵线拖会被拒（百科「撤退」条；SDK 只有 `OnMoveToFrontline`）。
    权威判据是 `enterPlayOnTurn@0x270` vs `BoardState.turn`（闪击例外）→ `cards.can_act_now()`。
 6. **`.idmap` 的 `*_VFT` 不能用来比实例 vptr** ⇒ 一律用 `PropertiesSize` 沿 `SuperStruct` 认类。
-7. **多份同名 exe**：`Session` 默认校验 md5 + SizeOfImage；**md5 不同但 SizeOfImage 相同**时再探测私服 URL 补丁，确认后放行（`patched=True`）；只有 SizeOfImage 不同才抛
+7. **多份同名 exe**：`Session` 的判据是 **SizeOfImage**（决定 RVA 有效性）；
+   同构建、字节不同的副本会放行并记 `md5_match=False`；只有 SizeOfImage 不同才抛
    `BuildMismatch`，**不要**绕过它读偏移（读出来全是垃圾）。诊断用 `python -m kardsmem procs`。
 8. `locations 5/6` = **整个后排**（HQ + 支援线），HQ 是 `Type == 1` 的那张。
 9. 弃牌堆里阵亡单位的加密 `defense` 是**负值**。
@@ -219,6 +219,6 @@ wrapper = `Content\Library\cardsCheckFunctions.cpp::CanAttack`。
 ## 环境
 
 - Python 3.14（`mss/cv2/numpy/pywin32` 有，**没有** `rapidocr_onnxruntime`）。
-- `KARDS_SRC` 环境变量可覆盖 `board_api.py` 所在目录（默认
-  `D:\Kards\OCR-Kards-Auto\src`）；`KARDS_WORKSPACE` 覆盖工作区根。
+- `KARDS_SRC` 环境变量可覆盖 `board_api.py` 所在目录（默认就是 `kards-agent/` 自己）；
+  `KARDS_WORKSPACE` 覆盖工作区根。
 - 游戏/Steam 若以管理员运行，非管理员进程连只读句柄都拿不到（`OpenProcess` 失败）。

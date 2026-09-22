@@ -61,7 +61,7 @@ def cmd_procs(a) -> int:
 
 
 def cmd_exes(a) -> int:
-    """本机每一份 kards-Win64-Shipping.exe 的指纹 + URL 补丁状态（解释"为什么对不上"）。"""
+    """本机每一份 kards-Win64-Shipping.exe 的指纹（解释 md5 为什么对不上）。"""
     from . import exes as E
     argv = []
     if a.json:
@@ -357,8 +357,9 @@ def cmd_dump(a) -> int:
 
 def cmd_docs(a) -> int:
     p = B.TOOLS_DIR / "README.md"
-    print("内存侧工具链索引：%s" % p)
-    print("库说明：%s" % (B.TOOLS_DIR / "kardsmem" / "README.md"))
+    print("项目索引：%s" % p)
+    print("读侧库说明：%s" % (B.TOOLS_DIR / "kardsmem" / "README.md"))
+    print("取材/标定工具：%s" % B.TOOLS_SUB)
     print("归档（被取代的一次性探针）：%s" % (B.TOOLS_DIR / "_archive"))
     if p.exists():
         print("-" * 60)
@@ -381,25 +382,21 @@ def cmd_selftest(a) -> int:
     print("== A. 构建指纹表（纯函数） ==")
     good = B.validate(B.BUILDS[B.CURRENT]["image_size"], B.BUILDS[B.CURRENT]["md5"])
     chk("current build ok", good.ok, True)
+    chk("current build md5_match", good.md5_match, True)
     # 另一个构建（1.57.26586 树）——SizeOfImage 不同 ⇒ 不能用偏移表
     other = B.validate(0x9CBB000, "65866f78b3bc56138f3fa20030659b55")
     chk("other build not ok", other.ok, False)
     chk("other build matched", other.matched, "launcher_157_orig")
-    # 同一个构建 + 私服 URL 补丁 ⇒ md5 不同但**必须放行**（RVA 未变）
-    patched_ok = B.validate(B.BUILDS[B.CURRENT]["image_size"],
-                            "ffffffffffffffffffffffffffffffff", patched=True)
-    chk("URL 补丁版（同构建）放行", patched_ok.ok, True)
-    # 但"另一个构建"即使打了补丁也不能放行（SizeOfImage 不同 ⇒ 偏移表不适用）
-    patched_other = B.validate(0x9CBB000, "201773bc49f52ff8b9e6c8aae172ae03", patched=True)
-    chk("URL 补丁版（另一构建）仍拒绝", patched_other.ok, False)
-    chk("URL-patched matched", patched_other.matched, "launcher_157_patched")
-    # default 树里的第二份 exe（Shipping2，同构建 + 私服补丁）也按"另一构建"拒绝
-    ship2 = B.validate(0x9CC4000, "724728d23007c6c4a087f03d384e5465", patched=True)
-    chk("Shipping2（另一构建）仍拒绝", ship2.ok, False)
-    chk("Shipping2 matched", ship2.matched, "launcher_default_patched")
-    # 同构建但没标 patched ⇒ 不放行（防止把"被改过"当成没事）
-    unmarked = B.validate(0x9CBB000, "201773bc49f52ff8b9e6c8aae172ae03")
-    chk("同构建但未标 patched: 不放行", unmarked.ok, False)
+    # 同一个构建、字节不同（本地改动过）⇒ **必须放行**：SizeOfImage 决定 RVA 有效性
+    same_img = B.validate(B.BUILDS[B.CURRENT]["image_size"],
+                          "ffffffffffffffffffffffffffffffff")
+    chk("同构建·字节不同 放行", same_img.ok, True)
+    chk("同构建·字节不同 md5_match=False", same_img.md5_match, False)
+    chk("同构建·字节不同 仍认出构建", same_img.matched, B.CURRENT)
+    # 另一个构建（SizeOfImage 不同）⇒ 一律不放行
+    other2 = B.validate(0x9CC4000, "7c6a83c7d002d57d3581b87296eda98b")
+    chk("另一构建 仍拒绝", other2.ok, False)
+    chk("另一构建 matched", other2.matched, "launcher_default")
     chk("FNamePool rva", B.RVA["FNamePool"], 0x0911B9C0)
     chk("GNames is decoy", B.RVA["GNames_decoy"], 0x090E2E28)
     from . import cards as _C
@@ -506,7 +503,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_procs)
 
-    p = sub.add_parser("exes", help="本机每份 kards exe 的指纹 + 服务器 URL 补丁状态")
+    p = sub.add_parser("exes", help="本机每份 kards exe 的指纹表")
     p.add_argument("--json", action="store_true")
     p.add_argument("--no-md5", action="store_true")
     p.add_argument("--probe", action="append", metavar="DIR", help="额外扫一个目录")

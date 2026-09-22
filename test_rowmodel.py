@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """行模型离线回归：用 2026-09-21 实机快照的真实 slot 分布喂 screen_map。"""
-import sys, json, io
-sys.path.insert(0, r"D:\Kards\reverse-data\tools")
+import sys, json, io, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ops
 
 

@@ -4,10 +4,11 @@
 
 为什么单独一层
 ==============
-磁盘上有**多份同名** `kards-Win64-Shipping.exe`（多棵安装树），偏移各不相同；
-私服 URL 补丁还会在不改 RVA 的前提下改掉 md5 —— **同一个构建的 md5 也会不同**。
-所以"这个文件是不是偏移表对应的构建"必须按 **SizeOfImage** 判断，
-详见 `exes.py` 与 `reverse-data/reports/EXE-IDENTITY.md`。
+磁盘上有**多份同名** `kards-Win64-Shipping.exe`（多棵安装树），偏移各不相同。
+判据只有一条：**SizeOfImage 决定这是哪一份构建、偏移表能不能用**；
+md5 只说明这一份副本的字节有没有被动过 —— **同一个构建的两份副本，md5 允许不同**
+（本地改动常常只碰 `.rdata` 里的常量：不移动节、不改代码 ⇒ RVA 全部保持有效）。
+详见 `exes.py`（本机副本指纹表）。
 任何"先 attach 再读"的代码都必须先证明自己 attached 到的是哪一份，否则读出来的全是垃圾。
 
 本模块把"哪个构建 + 哪些 RVA"集中在一处，其余模块只 import 常量，不各自抄一份地址。
@@ -44,8 +45,9 @@ def _find_workspace() -> Path:
 WORKSPACE = Path(os.environ.get("KARDS_WORKSPACE") or _find_workspace())
 AGENT_ROOT = Path(__file__).resolve().parents[1]    # kards-agent/
 REPORTS_DIR = WORKSPACE / "reverse-data" / "reports"
-TOOLS_DIR = AGENT_ROOT                      # 执行侧脚本（ops.py 等）现在和 kardsmem 同级
-RE_TOOLS_DIR = WORKSPACE / "reverse-data" / "tools"   # 逆向工具仍在那边
+TOOLS_DIR = AGENT_ROOT                      # 自动化脚本根（`ops.py` 等和 kardsmem 同级）
+TOOLS_SUB = AGENT_ROOT / "tools"            # 取材/标定/PE 等工具（2026-09-22 从 reverse-data 搬来）
+RE_TOOLS_DIR = WORKSPACE / "reverse-data" / "tools"   # 逆向/静态/第三方工具（FModel、u4pak、idmap…）
 SPEC_JSON = REPORTS_DIR / "kards-offsets.json"      # 机器可读规格（人工维护）
 # `board_api.py` 是**我们的**代码。它原先寄放在上游 `OCR-Kards-Auto/src/` 里，
 # 2026-09-22 搬回自己家 `kards-agent/`（上游是别人的 GPL-3.0 仓库，不该被我们污染）。
@@ -62,6 +64,7 @@ OLD = "old"                # IDA .i64 对应的上一版
 BUILDS = {
     CURRENT: {
         "module": "kards-Win64-Shipping.exe",
+        "version": "1.60.27292.Steam",    # 命名规则见 reports/GAME-VERSIONS.md：<版本号>.<渠道>
         "image_size": 0x9CC8000,          # toolhelp 报告的 modBaseSize（不是文件大小）
         "exe_size": 160489984,            # 文件字节数
         "md5": "395e470f06837f6e60ce5c53c6df2a22",
@@ -69,38 +72,25 @@ BUILDS = {
         "ue": "5.6.1-44394996 Shipping / ++UE5+Release-5.6-Fork-kards",
     },
     # ---- 下面几份是**本机真实存在的其它副本**，用来解释"为什么指纹对不上" ----
-    # ★ 2026-09-21 实测（`python -m kardsmem exes`）：
-    #   同名 exe 有 **4 个文件**（3 棵树 + 1 个 .orig-backup），其中一份被改过**服务器 URL**
-    #   ⇒ **同一个构建也会有不同的 md5**。判据分工见 exes.py / reports/EXE-IDENTITY.md。
+    # ★ 实测（`python -m kardsmem exes`）：同名 exe 有多个文件（几棵安装树 + 备份件），
+    #   同一个构建的不同副本 md5 可以不同（本地改动只碰 .rdata 常量）。
+    #   判据分工：**SizeOfImage 决定偏移能不能用**，md5 只说明字节有没有被动过 —— 见 exes.py。
     "launcher_157_orig": {
         "module": "kards-Win64-Shipping.exe",
+        "version": "1.57.26586.launcher",
         "image_size": 0x9CBB000,
         "exe_size": 160441344,
         "md5": "65866f78b3bc56138f3fa20030659b55",
         "path_hint": r"D:\Kards\game-installs\1.57.26586.launcher\game\kards\Binaries\Win64\kards-Win64-Shipping.exe",
         "ue": "5.6.1（另一个游戏版本 1.57.26586，launcher 渠道）",
         "_note": "这份**原件**就是 IDA 那个 2 GB `.i64` 分析的构建 —— 不是「缺失的第 4 个构建」。"
-                 "★ 2026-09-21：整棵树搬到 `D:\\Kards\\game-installs\\1.57.26586.launcher\\`，"
-                 "且**原件已接管正名**（原来正名是 patch 版、原件叫 `.exe.orig-backup`，现已对调，"
-                 "patch 版删除）。`.i64` 跟着树一起搬，就在同目录。",
-    },
-    "launcher_157_patched": {
-        "module": "kards-Win64-Shipping.exe",
-        "image_size": 0x9CBB000,
-        "exe_size": 160441344,
-        "md5": "201773bc49f52ff8b9e6c8aae172ae03",
-        "path_hint": r"（按需生成）…\1.57.26586.launcher\game\…\kards-Win64-Shipping.patched.exe",
-        "ue": "5.6.1（另一个游戏版本 1.57.26586，launcher 渠道）",
-        "_note": "★ **同一构建 + 私服 URL 补丁**：文件大小/SizeOfImage 与 launcher_157_orig 完全相同，"
-                 "只有 `.rdata` 里两个 URL 字面量被替换成 http://127.0.0.1:5231/ ⇒ md5 必然不同。"
-                 "RVA 没动，所以偏移表照样能用。"
-                 "⚠ 2026-09-21：磁盘上**已删除**，正名留给原版。需要时用 "
-                 "`python D:\\Kards\\server\\tools\\patch_exe.py <原版exe> --root http://127.0.0.1:5231/ --apply` "
-                 "重新生成，产物是同目录的 `kards-Win64-Shipping.patched.exe`（脚本不再改源文件）。"
-                 "本条目保留是为了认出这个 md5。",
+                 "★ 2026-09-21：整棵树搬到 `D:\\Kards\\game-installs\\1.57.26586.launcher\\`；"
+                 "正名留给原版（另一份被本地改动过的同名副本已删除）。"
+                 "`.i64` 跟着树一起搬，就在同目录。",
     },
     "launcher_default": {
         "module": "kards-Win64-Shipping.exe",
+        "version": "1.58.27125.launcher",
         "image_size": 0x9CC4000,
         "exe_size": 160476160,
         "md5": "7c6a83c7d002d57d3581b87296eda98b",
@@ -109,29 +99,12 @@ BUILDS = {
         "_note": ("★ 2026-09-21：整棵树**复制**进 `D:\\Kards\\game-installs\\1.58.27125.launcher\\`；"
                   "`…\\Games\\KARDS\\default\\` **原地那份保留不删**（Xsolla launcher 的注册表 "
                   "`HKCU\\SOFTWARE\\XSOLLA\\…\\default :: prefix` 指着它）⇒ 同一份会被扫到两次，正常。"
-                  "原来旁边的 `kards-Win64-Shipping2.exe`（私服补丁版）**已删除**。"
                   "实测生效的 mod pak `card_740th_research_develop_P.pak` 也在这棵树。"
                   "⚠ 目录名 `default` 是 Xsolla 的**分支名**，不是版本号。"),
     },
-    "launcher_default_patched": {
-        "module": "kards-Win64-Shipping.patched.exe",
-        "image_size": 0x9CC4000,
-        "exe_size": 160476160,
-        "md5": "724728d23007c6c4a087f03d384e5465",
-        "path_hint": r"（按需生成）…\1.58.27125.launcher\game\…\kards-Win64-Shipping.patched.exe",
-        "ue": "5.6.1 / 1.58.27125 launcher 渠道",
-        "_note": ("★ **同一构建 + 私服 URL 补丁**（文件长度/SizeOfImage 与 launcher_default 完全相同，"
-                  "只有两个 URL 字面量被换成 http://127.0.0.1:5231/）。"
-                  "⚠ 2026-09-21：原来那份叫 `kards-Win64-Shipping2.exe`，**已删除**，正名留给原版。"
-                  "需要时用 `patch_exe.py <原版exe> --root … --apply` 重新生成，"
-                  "产物固定叫 `kards-Win64-Shipping.patched.exe`（md5 应当还是 724728d2…）。"),
-    },
 }
 MODULE_NAME = BUILDS[CURRENT]["module"]
-
-# 被改过服务器 URL 的已知副本：它们的 md5 与"原件"不同，但**构建相同**。
-# `build.validate()` 与 `Session.attach()` 允许这类副本（记 patched=True）。
-KNOWN_URL_PATCHED = {"launcher_157_patched", "launcher_default_patched"}
+BUILD_VERSION = BUILDS[CURRENT]["version"]     # `<版本号>.<渠道>`，与 reports/GAME-VERSIONS.md 同一套命名
 
 # --------------------------------------------------------------------------
 # 全局 RVA（本 build）
@@ -144,6 +117,7 @@ RVA = {
     "FName_AppendString": 0x0137F000,
     "UObject_ProcessEvent": 0x0159CBF0,   # vtable idx 0x4C
 }
+PROCESS_EVENT_IDX = 0x4C                  # vtable 里 ProcessEvent 的下标
 
 # 原生取值口（用来核对内存读数，本工具链不调用它们）
 NATIVE_RVA = {
@@ -209,21 +183,20 @@ class BuildInfo:
     file_size: Optional[int] = None
     matched: Optional[str] = None      # BUILDS 里的 key
     ok: bool = False
-    patched: bool = False              # 被改过服务器 URL（同构建，RVA 未变）
-    orig_md5: Optional[str] = None     # 旁边 .orig-backup 的 md5（= 干净指纹）
+    md5_match: bool = False            # 字节是否与偏移表目标完全一致（**信息性，不作否决**）
     checks: list = field(default_factory=list)
 
     def describe(self) -> str:
-        return ("pid=%s base=0x%X image=0x%X md5=%s matched=%s ok=%s%s"
+        return ("pid=%s base=0x%X image=0x%X md5=%s%s matched=%s ok=%s"
                 % (self.pid, self.base, self.image_size or 0, self.md5 or "?",
-                   self.matched or "-", self.ok,
-                   ("  patched(URL)" if self.patched else "")))
+                   "" if (self.md5_match or self.md5 is None) else "(≠表内)",
+                   self.matched or "-", self.ok))
 
     def as_dict(self) -> dict:
         return {"pid": self.pid, "base": self.base, "image_size": self.image_size,
                 "md5": self.md5, "file_size": self.file_size, "module_path": self.module_path,
-                "matched": self.matched, "ok": self.ok, "patched": self.patched,
-                "orig_md5": self.orig_md5, "checks": list(self.checks)}
+                "matched": self.matched, "ok": self.ok, "md5_match": self.md5_match,
+                "checks": list(self.checks)}
 
 
 def md5_file(path: str, chunk: int = 1 << 20) -> Optional[str]:
@@ -241,8 +214,9 @@ def identify(image_size: Optional[int], md5: Optional[str],
              file_size: Optional[int] = None) -> Optional[str]:
     """反查是 BUILDS 里的哪一个。
 
-    ★ **先比 md5，再比 SizeOfImage**：md5 能区分"同构建 + URL 补丁"的孪生副本，
-    而 SizeOfImage 只能定位到**构建**（所以 `.orig-backup` 与补丁版会映到同一个构建族）。
+    ★ **先比 md5（精确到副本），再比 SizeOfImage（定位到构建）**：
+    两份同构建的副本 md5 可以不同，这时只能落到"构建"那一层 —— 这已经够用，
+    因为**偏移表是按构建给的**。
     """
     if md5:
         for key, b in BUILDS.items():
@@ -256,70 +230,85 @@ def identify(image_size: Optional[int], md5: Optional[str],
 
 
 def validate(image_size: Optional[int], md5: Optional[str],
-             file_size: Optional[int] = None, patched: Optional[bool] = None,
-             orig_md5: Optional[str] = None) -> BuildInfo:
+             file_size: Optional[int] = None) -> BuildInfo:
     """纯函数版校验（不碰进程），供 selftest 与 `Session.attach()` 用。
 
-    `patched=True` 表示"这份 exe 被改过服务器 URL"（同构建、RVA 未变）——
-    此时 md5 必然与原件不同，但**偏移表照样有效**，所以放行并如实标注。
+    **放行条件只有一条：SizeOfImage 与偏移表目标相同** —— 它直接决定 RVA 有没有效。
+    md5 用来记录"这份副本的字节有没有被动过"，**只信息、不否决**：
+    本地改动通常只碰 `.rdata` 里的常量，不移动节、不改代码 ⇒ 所有 RVA 照样有效。
     """
-    info = BuildInfo(image_size=image_size, md5=md5, file_size=file_size,
-                     orig_md5=orig_md5, patched=bool(patched))
+    info = BuildInfo(image_size=image_size, md5=md5, file_size=file_size)
     want = BUILDS[CURRENT]
-    ok_img = image_size == want["image_size"]
+    ok_img = (image_size == want["image_size"])
     ok_md5 = (md5 == want["md5"])
+    info.md5_match = ok_md5
     info.matched = identify(image_size, md5, file_size)
     info.checks.append(("image_size", image_size, want["image_size"], ok_img))
     info.checks.append(("md5", md5, want["md5"], ok_md5))
     if file_size is not None:
         info.checks.append(("exe_size", file_size, want["exe_size"],
                             file_size == want["exe_size"]))
-    if ok_img and (ok_md5 or md5 is None):
-        info.ok = True
-    elif ok_img and patched:
-        # 同构建 + 服务器 URL 补丁：md5 不同是**预期**的，URL 只在 .rdata 里，RVA 没动
-        info.ok = True
-        info.checks.append(
-            ("url_patched", "已打私服 URL 补丁（SizeOfImage 相同 ⇒ RVA 未变，偏移有效）",
-             "允许读数", True))
-        if orig_md5:
-            info.checks.append(("orig_md5(.orig-backup)", orig_md5, want["md5"],
-                                orig_md5 == want["md5"]))
-    if info.matched and info.matched not in (CURRENT,) and md5 and not info.ok:
-        info.checks.append(("warning", "attach 到的是 %s，偏移表不适用" % info.matched,
-                            CURRENT, False))
+    if not ok_img:
+        if info.matched and info.matched != CURRENT:
+            info.checks.append(("warning", "attach 到的是 %s，偏移表不适用" % info.matched,
+                                CURRENT, False))
+        return info
+    info.ok = True
+    if ok_md5:
+        info.checks.append(("bytes", "与偏移表目标字节一致", "一致", True))
+    elif md5 is None:
+        info.checks.append(("bytes", "md5 未校验（调用方跳过）", "跳过", True))
+    else:
+        info.checks.append(("bytes", "这份副本的字节与偏移表目标不同（本地改动过）",
+                            "SizeOfImage 相同 ⇒ RVA 仍有效", True))
     return info
 
 
 def spec_consistency() -> list:
     """把代码里的常量与 `reports/kards-offsets.json` 对一遍，返回不一致列表。
 
-    "整理"的一半工作是防止**文档与代码再次漂移** —— 这个函数就是那道闸。
+    规格里的偏移记录照 Dumper-7 的 `OffsetsInfo.json` 格式：
+    `build.data` 是 `[[名字, 值], ...]`。所以"防漂移"就是逐条比这张表。
     """
     out = []
     if not SPEC_JSON.exists():
         return [("spec_missing", str(SPEC_JSON), "存在", False)]
     spec = json.loads(SPEC_JSON.read_text(encoding="utf-8"))
 
-    def note(name, got, want):
-        if want is not None and got != want:
-            out.append((name, got, want, False))
+    data = (spec.get("build") or {}).get("data")
+    if not isinstance(data, list):
+        return [("build.data", None, "[[名字, 值], ...]（照 Dumper-7 OffsetsInfo.json）", False)]
+    got = {}
+    for row in data:
+        if isinstance(row, list) and len(row) == 2:
+            got[str(row[0])] = row[1]
 
-    g = spec.get("globals_rva", {})
-    for key, js_key in (("GWorld", "GWorld"), ("GObjects", "GObjects"),
-                        ("GNames_decoy", "GNames"), ("FNamePool", "FNamePool")):
-        if js_key in g:
-            note("globals_rva.%s" % js_key, RVA[key], _as_int(g[js_key]))
-    fp = spec.get("fname_pool", {})
-    if isinstance(fp.get("address_rva"), str):
-        note("fname_pool.address_rva", RVA["FNamePool"], _as_int(fp["address_rva"]))
-    b = spec.get("build", {})
-    for key, js_key in (("image_size", "image_size"), ("exe_size", "exe_size"), ("md5", "md5")):
-        if js_key in b:
-            note("build.%s" % js_key, BUILDS[CURRENT][key],
-                 _as_int(b[js_key]) if key != "md5" else b[js_key])
+    cur = BUILDS[CURRENT]
+    want = {
+        "VERSION": BUILD_VERSION,
+        "SIZE_OF_IMAGE": cur["image_size"],
+        "EXE_SIZE": cur["exe_size"],
+        "MD5": cur["md5"],
+        "OFFSET_GWORLD": RVA["GWorld"],
+        "OFFSET_GOBJECTS": RVA["GObjects"],
+        "OFFSET_GNAMES": RVA["GNames_decoy"],
+        "OFFSET_FNAMEPOOL": RVA["FNamePool"],
+        "OFFSET_APPENDSTRING": RVA["FName_AppendString"],
+        "OFFSET_PROCESSEVENT": RVA["UObject_ProcessEvent"],
+        "INDEX_PROCESSEVENT": PROCESS_EVENT_IDX,
+        "OLD_OFFSET_GWORLD": RVA_OLD["GWorld"],
+        "OLD_OFFSET_GOBJECTS": RVA_OLD["GObjects"],
+        "OLD_OFFSET_GNAMES": RVA_OLD["GNames_decoy"],
+        "OLD_OFFSET_PROCESSEVENT": RVA_OLD["UObject_ProcessEvent"],
+    }
+    for name, w in want.items():
+        if name in got:
+            g = _as_int(got[name])
+            if g != w:
+                out.append(("%s" % name, g, w, False))
+        else:
+            out.append(("%s 缺失" % name, None, w, False))
     return out
-
 
 def _as_int(v):
     if isinstance(v, int):

@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""kardsmem.exes —— 认 exe：本机每一份 `kards-Win64-Shipping.exe` 的指纹与**补丁状态**。
+"""kardsmem.exes —— 认 exe：本机每一份 `kards-Win64-Shipping.exe` 的指纹。
 
 为什么必须有这一层
 ==================
-本机有多份**同名** exe，而且**有几份被人改过服务器 URL**（私服补丁：
-把 `https://kards.live.1939api.com[/config]` 换成 `http://127.0.0.1:5231/` + NUL 填充，
-工具是 `D:\\Kards\\server\\tools\\patch_exe.py`，旁边留 `.orig-backup`）。
-于是**同一个构建**的两份副本会有**不同的 md5** —— 这就是"为什么对不上"。
+本机有多份**同名** exe（多棵安装树 + 若干备份件），它们的 md5 互不相同。
+"这个文件是不是偏移表对应的构建"**只按 SizeOfImage 判断** —— 它直接决定 RVA 有没有效。
 
 ★ 判据分工（别混）：
 
 | 判据 | 说明什么 | 用途 |
 |---|---|---|
-| **SizeOfImage**（PE 头；= 进程里 toolhelp 报的 module size） | 是哪一份**构建** | **决定偏移表能不能用**。URL 补丁只改 `.rdata` 里的字符串常量：不移动节、不改代码 ⇒ **所有 RVA 保持有效** |
-| **md5** | 字节级是否完全一致 | 判断有没有被动过（含补丁） |
-| **URL 字面量**（live / 本地） | 这份有没有被打过私服补丁 | 见 `server/tools/patch_exe.py`；`.orig-backup` 是打补丁前的原件 |
+| **SizeOfImage**（PE 头；= 进程里 toolhelp 报的 module size） | 是哪一份**构建** | **决定偏移表能不能用** |
+| **md5** | 字节级是否完全一致 | 只说明这份**副本**有没有被动过；同构建的两份副本 md5 允许不同 |
+| **文件大小** | 只是个旁证 | 不要拿它和 SizeOfImage 相提并论（曾经因此把"多出来的进程"当悬案） |
 
 所以：**md5 不匹配 ≠ 构建不匹配**。只要 SizeOfImage 对得上，偏移就能用；
-`Session.attach()` 也按这条规则放行"同构建 + URL 补丁版"（记 `patched=True`）。
+`Session.attach()` 也按这条规则放行"同构建、字节不同"的副本（`info.md5_match=False`）。
 
 用法
 ====
-    python -m kardsmem exes            # 本机全部副本的指纹/补丁状态表
+    python -m kardsmem exes            # 本机全部副本的指纹表
     python -m kardsmem exes --json
 """
 
@@ -55,19 +53,11 @@ KNOWN_TREES = [
                                     r"\Games\KARDS\default\game\kards\Binaries\Win64"),
 ]
 
-# ★ 用**子串**匹配，不用精确文件名：历史上本机出现过 `kards-Win64-Shipping2.exe`
-#   （default 树下那份打了私服补丁的副本）。早先用 `EXE_NAME in name` 的精确匹配
-#   会**整个漏掉它** —— 这正是"还有一份对不上"的来源。子串匹配保留着，因为
-#   `patch_exe.py` 现在产出的是 `kards-Win64-Shipping.patched.exe`（同样要被扫到）。
-#   下面同时支持 `.orig-backup` / `.bak` / `-Copy` 之类的后缀。
-#   ⚠ 2026-09-21 起磁盘上**不再常驻** patch 版：正名一律是原版，patch 版按需生成。
+# ★ 用**子串**匹配，不用精确文件名：同一棵树下出现过 `kards-Win64-Shipping2.exe`
+#   这类变体（外加 `.bak` 之类的备份件）。早先用 `EXE_NAME in name` 的精确匹配
+#   会**整个漏掉它们** —— 那正是"还有一份对不上"的来源。
 SHIPPING_MARK = "shipping"
 SKIP_SUFFIXES = (".i64", ".pdb", ".ilk", ".exp", ".lib", ".zip", ".rar", ".7z")
-LIVE_MARKER = b"kards.live.1939api.com"
-LIVE_ROOT = b"https://kards.live.1939api.com/"
-LIVE_CONFIG = b"https://kards.live.1939api.com/config"
-LOCAL_MARKERS = (b"127.0.0.1:5231", b"localhost:5231", b"127.0.0.1:5232")
-PATCH_TOOL = r"D:\Kards\server\tools\patch_exe.py"
 
 
 def is_exe_candidate(name: str) -> bool:
@@ -79,9 +69,9 @@ def is_exe_candidate(name: str) -> bool:
 
 # --------------------------------------------------------------------------
 def _pe_image_size(path: str) -> Optional[int]:
-    """PE 头的 SizeOfImage。复用 `tools/pe_tools.py`（PE 解析的唯一实现处）。"""
-    if str(B.TOOLS_DIR) not in sys.path:
-        sys.path.insert(0, str(B.TOOLS_DIR))
+    """PE 头的 SizeOfImage。优先复用 `tools/pe_tools.py`（PE 解析的唯一实现处）。"""
+    if str(B.TOOLS_SUB) not in sys.path:
+        sys.path.insert(0, str(B.TOOLS_SUB))
     try:
         import pe_tools                                    # noqa: PLC0415
     except ImportError:
@@ -114,37 +104,6 @@ def _md5(path: str, chunk: int = 1 << 22) -> Optional[str]:
         return None
 
 
-def _count(data: bytes, needle: bytes, cap: int = 8) -> list:
-    out, start = [], 0
-    while len(out) < cap:
-        i = data.find(needle, start)
-        if i < 0:
-            break
-        out.append(i)
-        start = i + 1
-    return out
-
-
-def _url_state(path: str) -> dict:
-    """扫 URL 字面量：live 有没有、本地有没有、各在哪些文件偏移。
-
-    计数用**不含 scheme/后缀**的 `kards.live.1939api.com`：`.../config` 那条字面量
-    以 root 为前缀，用整串去数会把同一条算两次（早期版本就吃过这个亏）。
-    """
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-    except OSError as e:
-        return {"error": str(e)}
-    live = sorted(_count(data, LIVE_MARKER))
-    local = []
-    for m in LOCAL_MARKERS:
-        local += _count(data, m)
-    return {"live": live, "local": sorted(local),
-            "live_n": len(live), "local_n": len(local),
-            "patched": bool(local) and not live}
-
-
 def inspect(path: str, do_md5: bool = True) -> dict:
     """一份 exe 的全部事实（不判断"该不该用"，那是 `classify` 的事）。"""
     rec = {"path": path, "name": os.path.basename(path), "exists": os.path.isfile(path)}
@@ -153,67 +112,43 @@ def inspect(path: str, do_md5: bool = True) -> dict:
     rec["size"] = os.path.getsize(path)
     rec["size_of_image"] = _pe_image_size(path)
     rec["md5"] = _md5(path) if do_md5 else None
-    rec["url"] = _url_state(path)
     rec["matched"] = B.identify(rec["size_of_image"], rec["md5"], rec["size"])
-    backup = path + ".orig-backup"
-    rec["orig_backup"] = None
-    if os.path.isfile(backup):
-        b = {"path": backup, "size": os.path.getsize(backup),
-             "size_of_image": _pe_image_size(backup),
-             "md5": _md5(backup) if do_md5 else None}
-        b["matched"] = B.identify(b["size_of_image"], b["md5"], b["size"])
-        rec["orig_backup"] = b
     return rec
 
 
 def classify(rec: dict) -> dict:
-    """给一份 exe 下结论：构建身份 + 补丁状态 + 偏移表能不能用。"""
+    """给一份 exe 下结论：构建身份 + 字节是否与偏移表目标一致。"""
     if not rec.get("exists"):
         return {"verdict": "missing", "usable": False, "note": "文件不存在"}
     size_img = rec.get("size_of_image")
     md5 = rec.get("md5")
-    url = rec.get("url") or {}
     want = B.BUILDS[B.CURRENT]
-    orig = rec.get("orig_backup")
-    effective_md5 = md5
-    src = "自身"
-    if md5 != want["md5"] and orig and orig.get("md5"):
-        # 打补丁后 md5 变了；旁边备份才是"干净"指纹
-        if orig["md5"] == want["md5"]:
-            effective_md5, src = orig["md5"], ".orig-backup"
     same_build = (size_img == want["image_size"])
     exact = (md5 == want["md5"])
     out = {
-        "build": B.identify(size_img, effective_md5, rec.get("size")),
-        "matched_by": src,
+        "build": B.identify(size_img, md5, rec.get("size")),
         "size_of_image": size_img,
         "same_build_as_offsets": same_build,
         "byte_exact": exact,
-        "url_patched": bool(url.get("patched")),
-        "url_note": ("live×%d 本地×%d" % (url.get("live_n", 0), url.get("local_n", 0))),
-        "backup": (orig or {}).get("md5"),
     }
-    if exact:
-        out.update(verdict="exact", usable=same_build,
-                   note="字节级与偏移表一致")
-    elif same_build and out["url_patched"]:
-        out.update(verdict="same-build-url-patched", usable=True,
-                   note=("同一构建 + 私服 URL 补丁（RVA 不变 ⇒ 偏移照用；md5 必然不同）。"
-                         "原件指纹见 .orig-backup。补丁工具：%s" % PATCH_TOOL))
-    elif same_build:
-        out.update(verdict="same-build-modified", usable=True,
-                   note="SizeOfImage 相同但字节与偏移表不同（非 URL 补丁）—— 偏移仍有效，但要留意改动内容")
-    else:
-        kb = out["build"]
+    if not same_build:
         extra = ""
+        kb = out["build"]
         if kb and kb in B.BUILDS:
             extra = "；该文件是 **%s**（%s）" % (kb, B.BUILDS[kb].get("ue") or "?")
-            if kb in B.KNOWN_URL_PATCHED:
-                extra += "，且已打过私服 URL 补丁"
         note = ("SizeOfImage 0x%s ≠ 偏移表的 0x%s ⇒ **不是**同一份构建，"
                 "不要用本偏移表读数%s"
                 % (("%X" % size_img) if size_img else "?", "%X" % want["image_size"], extra))
         out.update(verdict="other-build", usable=False, note=note)
+    elif md5 is None:
+        out.update(verdict="same-build", usable=True,
+                   note="SizeOfImage 与偏移表目标相同 ⇒ RVA 有效；md5 本次未校验")
+    elif exact:
+        out.update(verdict="exact", usable=True, note="字节级与偏移表目标一致")
+    else:
+        out.update(verdict="same-build-modified", usable=True,
+                   note="SizeOfImage 与偏移表目标相同（⇒ RVA 全有效），但字节不同"
+                        "（这份副本被本地改动过）—— 读数可用，但要记得它不是原版字节")
     return out
 
 
@@ -235,27 +170,15 @@ def scan(trees=None, do_md5: bool = True, all_exe: bool = False) -> list:
         for name in names:
             rec = inspect(os.path.join(d, name), do_md5=do_md5)
             rec["tree"] = label
-            rec["is_backup"] = name.lower().endswith((".orig-backup", ".bak", ".backup"))
             rec["verdict"] = classify(rec)
             rows.append(rec)
-        # 同目录里"同大小、未打补丁"的孪生文件 = 补丁版的原件候选（没有 .orig-backup 时靠它）
-        for r in rows:
-            if r.get("missing") or r.get("tree") != label:
-                continue
-            twins = [o for o in rows
-                     if o.get("tree") == label and o is not r
-                     and o.get("size") == r.get("size")
-                     and not (o.get("url") or {}).get("patched")
-                     and not (o.get("verdict") or {}).get("url_patched")]
-            r["sibling_clean"] = [{"name": t["name"], "md5": t.get("md5"),
-                                   "path": t["path"]} for t in twins]
     return rows
 
 
 # --------------------------------------------------------------------------
 def main(argv=None) -> int:
     import argparse
-    ap = argparse.ArgumentParser(description="本机 kards exe 指纹与补丁状态")
+    ap = argparse.ArgumentParser(description="本机 kards exe 指纹表")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--no-md5", action="store_true", help="跳过 md5（快，但认不出字节级差异）")
     ap.add_argument("--probe", metavar="DIR", action="append", default=[],
@@ -272,9 +195,8 @@ def main(argv=None) -> int:
     print("★ 偏移表对应的是：image=0x%X size=%d md5=%s"
           % (B.BUILDS[B.CURRENT]["image_size"], B.BUILDS[B.CURRENT]["exe_size"],
              B.BUILDS[B.CURRENT]["md5"]))
-    print("★ 规则：SizeOfImage 决定偏移能不能用；md5 只说明字节有没有被动过"
-          "（URL 补丁会改 md5 但不动 RVA）")
-    print("★ 匹配的是**名字含 shipping 的所有文件**（含 `-Shipping2.exe`、`.orig-backup`、`.bak`）；"
+    print("★ 规则：**SizeOfImage 决定偏移能不能用**；md5 只说明这份副本的字节有没有被动过")
+    print("★ 匹配的是**名字含 shipping 的所有文件**（含 `-Shipping2.exe`、`.bak` 备份件）；"
           "`--all` 连其它 exe 一起列\n")
     for r in rows:
         if r.get("missing"):
@@ -283,17 +205,11 @@ def main(argv=None) -> int:
         v = r["verdict"]
         print("【%s】%s" % (r["tree"], r["name"]))
         print("   path   : %s" % r["path"])
-        print("   size   : %-12s SizeOfImage=%-10s md5=%s%s"
+        print("   size   : %-12s SizeOfImage=%-10s md5=%s"
               % (r.get("size"), ("0x%X" % r["size_of_image"]) if r.get("size_of_image") else "?",
-                 r.get("md5") or "(跳过)", "  ← 备份件" if r.get("is_backup") else ""))
-        print("   url    : %s" % v.get("url_note"))
-        if r.get("orig_backup"):
-            b = r["orig_backup"]
-            print("   backup : %s  md5=%s" % (b["path"], b.get("md5")))
-        if r.get("sibling_clean") and (v.get("url_patched") or r.get("is_backup")):
-            for t in r["sibling_clean"]:
-                print("   原件候选: %s  md5=%s  （同目录同大小、未打补丁）" % (t["name"], t["md5"]))
-        print("   判定   : %s  usable=%s" % (v.get("verdict"), v.get("usable")))
+                 r.get("md5") or "(跳过)"))
+        print("   判定   : %s  usable=%s  构建=%s"
+              % (v.get("verdict"), v.get("usable"), v.get("build") or "-"))
         print("   %s" % v.get("note"))
         print()
     return 0
