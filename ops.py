@@ -33,22 +33,25 @@ import os
 import sys
 import time
 
-SRC = r"D:\Kards\OCR-Kards-Auto\src"
-sys.path.insert(0, SRC)
+import agentpath  # noqa: F401,E402  —— 接上 vendor/ 和本项目根
 
 import cv2  # noqa: E402
-import win  # noqa: E402
-import actions  # noqa: E402
-import deploy  # noqa: E402
-import board as B  # noqa: E402
+import win  # noqa: E402          vendor：窗口/DPI/坐标/截图
+import actions  # noqa: E402      vendor：鼠标原语
+import deploy  # noqa: E402       vendor：drag_deploy
+import handedge as HC  # noqa: E402   vendor：手牌扇形左右边缘（内存里没有的量）
 import board_api as BA  # noqa: E402
 
-try:
-    import hand_calibrate as HC  # noqa: E402
-except Exception:  # pragma: no cover
-    HC = None
-
-REPO = r"D:\Kards\OCR-Kards-Auto"
+# OCR 读盘面（上游的 board.read_field）**只作核对手段**，不是对等后端。
+# 盘面的权威来源是内存；实测两者完全对得上之后，OCR 就退居验证角色了。
+# 上游没 checkout 时 B 为 None，`--ocr` 之类的核对路径自己跳过。
+if agentpath.upstream_src():
+    try:
+        import board as B  # noqa: E402
+    except Exception:  # pragma: no cover
+        B = None
+else:
+    B = None
 HAND_Y = 700
 FRONT_Y = 380
 # 三行的 y（本会话实测：敌方排 174~184 / 前线 349~352 / 我方支援排 523~527）。
@@ -103,7 +106,7 @@ def read_all(park=True):
             pass
     f = snap(h)
     st = src().snapshot()
-    field = B.read_field(f, debug=False) if f is not None else {}
+    field = B.read_field(f, debug=False) if (B and f is not None) else {}
     return h, f, st, field
 
 
@@ -200,7 +203,7 @@ def screen_map(st, field):
 
 # ---------------------------------------------------------------- 手牌 x
 def _layouts():
-    p = os.path.join(REPO, "config", "hand_layout.json")
+    p = os.path.join(agentpath.AGENT_ROOT, "config", "hand_layout.json")
     with open(p, encoding="utf-8") as fh:
         return json.load(fh)["layouts"]
 
@@ -455,7 +458,7 @@ def act_deploy(card_id, target_id=None):
 
 def read_field_fresh(h):
     f = win.capture_client_bgr(h, allow_screen_fallback=True)
-    return B.read_field(f, debug=False) if f is not None else {}
+    return B.read_field(f, debug=False) if (B and f is not None) else {}
 
 
 def deploy_slots(occupied, y, lo=300, hi=985, pitch=143, min_gap=105, center=640):

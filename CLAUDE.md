@@ -11,11 +11,21 @@
 推论：蓝图字节码可以**读出来在 Python 里解释**，但求值器必须是纯的
 （`EX_Let*` 只能写影子堆，绝不回写游戏内存）。
 
-## 两条框架级硬约束
+## 这个项目要做的四件事
 
-1. **读侧严格只读**
-2. **读与执行解耦** —— 同一个调用方，`mem` / `ocr` 后端可换
-   （`board_api.py` 已做到；执行侧的 `ActionSink` 抽象**还没做**，是欠项）
+1. **高层 API：从内存读游戏实时状态**（`kardsmem`）
+2. **高层 API：用鼠标操纵客户端**（`ops.py`）
+3. （future）MCP server
+4. （future）NN
+
+框架级硬约束只剩一条：**读侧严格只读**。
+
+> 「读/执行后端可换（mem ↔ ocr）」这条**已撤销**。OCR 能做到的有限，
+> 它一直只是**核对手段**，而且最终证明与内存完全对得上 ⇒ 内存是唯一权威。
+> `board.read_field` 那条 OCR 读盘面的路留着但是可选：上游没 checkout 时
+> `ops.B is None`，不影响任何功能。
+> 反过来，**手牌扇形的 x 坐标内存里没有**（纯客户端排版），那一块必须走像素 ——
+> 用的就是上游的边缘检测算法（`vendor/handedge.py`）。
 
 ## 查一个字段/一段逻辑，按这个顺序
 
@@ -91,11 +101,22 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 
 - 它 **fork 自** [OCR-Kards-Auto](https://github.com/yumehanab1/OCR-Kards-Auto)
   （yumehanab1，GPL-3.0）⇒ **本项目同样是 GPL-3.0**，见 `LICENSE`。
-- **`D:\Kards\OCR-Kards-Auto/` 是别人的工作树，一个字都不要改。**
-  它提供 `win` / `actions` / `ui_state` 这些原语和模板图基线；
-  我们自己加的状态和模板放 `kards-agent/config/` 当 **overlay**，
-  启动时由 `board_api.py` 盖上去。这样上游随时能 `git pull`。
-  改之前先 `cd OCR-Kards-Auto && git status` 确认它是干净的。
+- **只搬了用得上的一小块**，都在 `vendor/`（带来源头注释，尽量别改）：
+
+  | vendor | 干什么 | 为什么留着 |
+  |---|---|---|
+  | `win.py` | 窗口 / DPI / 客户区坐标 / 截图 / 置前 | 目标②的地基 |
+  | `actions.py` | 鼠标原语 | 同上 |
+  | `deploy.py` | `drag_deploy` 拖拽出牌手势 | 同上 |
+  | `ui_state.py` `cv_io.py` | 模板匹配、界面分类 | 开局/菜单流程（`startmatch.py`） |
+  | `handedge.py` | 手牌扇形左右边缘 | **内存里没有这个量** |
+
+  外加 `config/`（18 个模板 + 8 个状态）和 `ui_templates/`。
+  ⇒ **运行时完全不依赖上游那棵工作树**（`KARDS_OCR_ROOT=/nonexistent` 下已验证）。
+- 上游其余部分我们**不用**：OCR 读盘面、手牌扫描、官网卡表 json、自动打牌状态机。
+- **`D:\Kards\OCR-Kards-Auto/` 是别人的工作树，一个字都不要改**（已恢复到 `origin/main`）。
+  要动它之前先 `cd OCR-Kards-Auto && git status` 确认干净。
+- `_archive/` 是被 `ops.py` 取代的一次性脚本和那个残废的自动打牌，留档不维护。
 - `D:\Kards` 这个仓库**不是**自动化专用：还有 `client/`、`server/`、`ue-project/`、
   `game-installs/`，以及 `reverse-data/`（逆向资料与取材工具）。别把自动化的东西撒出去。
 
@@ -105,8 +126,9 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 |---|---|
 | `kards-agent/kardsmem/` | **读侧**（唯一入口）。`world/cards/gs/names/props/objects/kismet/pick` |
 | `kards-agent/ops.py` | **执行侧**（会动鼠标） |
-| `kards-agent/board_api.py` | mem / ocr 双后端（硬约束②的落点） |
-| `kards-agent/config/` | 盖在上游之上的状态/模板 overlay |
+| `kards-agent/board_api.py` | 盘面模型 + 数据源（`mem` 是权威，`ocr` 只是核对） |
+| `kards-agent/vendor/` | 从上游搬过来的那几个模块（GPL-3.0） |
+| `kards-agent/config/` `ui_templates/` | 模板表与模板图（自足） |
 | `reverse-data/reports/KARDS-AUTOMATION.md` | **主规格**，先读它 |
 | `reverse-data/tools/` | 逆向/取材工具（`dumpmem` `mdmp` `mulverify` `idmap_lookup` `FModel.exe` …）。要用 `kardsmem` 就 `import _agentpath` |
 | `reverse-data/sdk/<build>/` | Dumper-7 导出（SDK / Dumpspace / .usmap / .idmap） |

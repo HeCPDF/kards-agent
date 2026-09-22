@@ -56,36 +56,14 @@ from typing import Optional
 # --------------------------------------------------------------------------
 # 零、本仓库 / 上游仓库的位置
 # --------------------------------------------------------------------------
-# 上游 `OCR-Kards-Auto`（yumehanab1，GPL-3.0）是**别人的项目**，我们只读不改。
-# 自己加的状态和模板放在 `kards-agent/config/` 当 overlay，启动时盖在上游之上。
-# 这样上游随时能 `git pull` 而不产生冲突，我们的改动也不会混进别人的工作树。
+# 本项目 fork 自 OCR-Kards-Auto（yumehanab1，GPL-3.0），但只搬了用得上的那几块：
+# `vendor/` 下的 win / actions / deploy / ui_state / cv_io / handedge，
+# 加上 `config/` 与 `ui_templates/`。**运行时不再需要上游那棵工作树存在。**
+# 上游其余部分（OCR 读盘面、手牌扫描、官网卡表 json、自动打牌状态机）我们不用。
 AGENT_ROOT = os.path.dirname(os.path.abspath(__file__))
-AGENT_UPSTREAM = os.environ.get("KARDS_OCR_ROOT") or os.path.join(
-    os.path.dirname(AGENT_ROOT), "OCR-Kards-Auto")
-
-
-def _overlay_json(name: str) -> dict:
-    p = os.path.join(AGENT_ROOT, "config", name)
-    if not os.path.exists(p):
-        return {}
-    with open(p, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _overlay_templates() -> dict:
-    """我们自己的模板。★ path 要转成**绝对路径** —— 上游的 `load_templates`
-    把相对路径接在它自己的 PROJECT_ROOT 上，否则会去上游树里找我们的图。"""
-    out = {}
-    for k, v in (_overlay_json("templates.json").get("templates") or {}).items():
-        v = dict(v)
-        if not os.path.isabs(v.get("path", "")):
-            v["path"] = os.path.join(AGENT_ROOT, v["path"])
-        out[k] = v
-    return out
-
-
-def _overlay_states() -> dict:
-    return _overlay_json("states.json").get("states") or {}
+for _p in (os.path.join(AGENT_ROOT, "vendor"), AGENT_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 
 # --------------------------------------------------------------------------
@@ -897,19 +875,17 @@ class OcrBoardSource(BoardSource):
     # ---- 前置 ----------------------------------------------------------
     @staticmethod
     def project_root() -> str:
-        """**上游** OCR-Kards-Auto 的根（模板图、config 的基线都在那儿）。
+        """本项目根。模板图在 `ui_templates/`，状态/模板表在 `config/`。
 
-        ★ 2026-09-22：本文件原先就放在上游的 `src/` 里，`project_root()` 靠
-          `dirname(dirname(__file__))` 自然得到上游根。现在它搬进了 `kards-agent/`，
-          那个算法会算成仓库根 —— 所以改成显式定位上游树。
-          上游是**别人的仓库（GPL-3.0）**，我们不改它一个字；
-          自己加的状态/模板走 `kards-agent/config/` 的 overlay。
+        ★ 2026-09-22：本文件原先寄居在上游 `OCR-Kards-Auto/src/` 里，
+          靠 `dirname(dirname(__file__))` 恰好得到上游根。搬回 `kards-agent/` 后
+          那个算法会算成仓库根，所以改成显式用 AGENT_ROOT。
         """
-        return str(AGENT_UPSTREAM)
+        return AGENT_ROOT
 
     @classmethod
     def _src_dir(cls) -> str:
-        d = os.path.join(cls.project_root(), "src")
+        d = os.path.join(cls.project_root(), "vendor")
         if d not in sys.path:
             sys.path.insert(0, d)
         return d
@@ -930,12 +906,11 @@ class OcrBoardSource(BoardSource):
         if self._templates is None:
             meta_path = os.path.join(self.project_root(), "config", "templates.json")
             meta = ui_state.load_meta(meta_path) if os.path.exists(meta_path) else {}
-            meta.setdefault("templates", {}).update(_overlay_templates())
-            self._templates = ui_state.load_templates(meta) if meta["templates"] else {}
+            self._templates = (ui_state.load_templates(meta)
+                               if meta.get("templates") else {})
         if self._states is None:
             st_path = os.path.join(self.project_root(), "config", "states.json")
             self._states = ui_state.load_states(st_path) if os.path.exists(st_path) else {}
-            self._states.update(_overlay_states())
         return win, ui_state
 
     def available(self) -> bool:

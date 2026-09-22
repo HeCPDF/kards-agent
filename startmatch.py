@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """startmatch.py —— 从任意界面走到"对局中"。
 
-界面识别复用 OCR-Kards-Auto 的模板状态机（`config/states.json` + `templates.json`），
+界面识别用 vendor/ui_state 的模板状态机（来自上游）（`config/states.json` + `templates.json`），
 **点击坐标另记**：模板框的是标题/图案，不一定是按钮本身
 （例：`defeat_btn` 框的是"失败"二字，按钮"继续"在下面）。
 
@@ -22,8 +22,9 @@ import os
 import sys
 import time
 
-SRC = r"D:\Kards\OCR-Kards-Auto"
-sys.path.insert(0, os.path.join(SRC, "src"))
+import agentpath  # noqa: F401,E402
+
+SRC = agentpath.AGENT_ROOT
 
 import win                                                    # noqa: E402
 import actions                                                # noqa: E402
@@ -89,7 +90,7 @@ def find_start_btn(frame):
 def _load():
     meta = json.load(open(os.path.join(SRC, "config", "templates.json"), encoding="utf-8"))
     cwd = os.getcwd()
-    os.chdir(SRC)                # 模板路径是相对 OCR-Kards-Auto 根的
+    os.chdir(SRC)                # 模板路径是相对本项目根的
     try:
         tpls = U.load_templates(meta)
     finally:

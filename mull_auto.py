@@ -16,8 +16,7 @@ import os
 import sys
 import time
 
-SRC = r"D:\Kards\OCR-Kards-Auto\src"
-sys.path.insert(0, SRC)
+import agentpath  # noqa: F401  —— 接上 vendor/ 和本项目根
 
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
@@ -25,7 +24,7 @@ import win  # noqa: E402
 import actions  # noqa: E402
 import board_api as BA  # noqa: E402
 
-REPO = r"D:\Kards\OCR-Kards-Auto"
+REPO = agentpath.AGENT_ROOT
 OUT = r"D:\Kards\reverse-data\shots\mull"
 os.makedirs(OUT, exist_ok=True)
 BTN = cv2.imread(os.path.join(REPO, "ui_templates", "mulligan_ok_btn.png"))

@@ -4,8 +4,7 @@
 import os
 import sys
 
-SRC = r"D:\Kards\OCR-Kards-Auto\src"
-sys.path.insert(0, SRC)
+import agentpath  # noqa: F401  —— 接上 vendor/ 和本项目根
 
 import win  # noqa: E402
 import cv2  # noqa: E402

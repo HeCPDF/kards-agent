@@ -7,7 +7,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, r"D:\Kards\OCR-Kards-Auto\src")
+import agentpath  # noqa: F401  —— 接上 vendor/ 和本项目根
 
 import cv2            # noqa: E402
 import win            # noqa: E402
