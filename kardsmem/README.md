@@ -35,7 +35,7 @@ s.close()
 
 ```powershell
 cd D:\Kards\kards-agent
-python -m kardsmem selftest      # 离线断言（含 board_api 的 34 项）+ 实机探测
+python -m kardsmem selftest      # 离线断言（含 board_api 的 30 项）+ 实机探测
 python -m kardsmem verify        # pid/基址/md5 + 定位链 + 与规格 JSON 的一致性
 python -m kardsmem exes          # ★ 本机每份 exe 的指纹（"为什么 md5 对不上"）
 python -m kardsmem state         # 盘面：手牌/场上/弃牌/牌库/HQ/指挥点/回合
@@ -55,19 +55,26 @@ python -m kardsmem dump --out D:\Kards\reverse-data\logs\snapshot.json
 
 | 模块 | 行数 | 职责 |
 |---|---|---|
-| `build.py` | 249 | **唯一真源**：多份同名 exe 的指纹 + 本/旧 build 的 RVA 表 + `kards-offsets.json` 一致性校验 |
-| `proc.py` | 319 | 只读接入：进程/模块枚举、`Session`、`MemRO`（定长读 / **原子读** / u16,u64 / hexdump） |
-| `world.py` | 189 | `GWorld → UWorld / GameState / Board / PlayerController / Level Actors`（全靠 `PropertiesSize` 认类） |
-| `gs.py` | 250 | GameState 字段 + 侧值块原子解密 + **物理牌库 id** + 静态卡表 + 重连表 |
-| `names.py` | 874 | FNamePool（RVA `0x0911B9C0`）→ 字符串；FText 明文回退 |
-| `cards.py` | 428 | 盘面卡：`AllCardsInBattle`（24B 步长）枚举 + 全部字段原始读数 + 加密解密 |
+| `build.py` | 321 | **唯一真源**：多份同名 exe 的指纹 + 本/旧 build 的 RVA 表 + `kards-offsets.json`（`build.data`）一致性校验 |
+| `proc.py` | 379 | 只读接入：进程/模块枚举、`Session`、`MemRO`（定长读 / **原子读** / u16,u64 / hexdump） |
+| `world.py` | 193 | `GWorld → UWorld / GameState / Board / PlayerController / Level Actors`（全靠 `PropertiesSize` 认类） |
+| `gs.py` | 281 | GameState 字段 + 侧值块原子解密 + **物理牌库 id** + 静态卡表 + 重连表 |
+| `names.py` | 883 | FNamePool（RVA `0x0911B9C0`）→ 字符串；FText 明文回退 |
+| `cards.py` | 868 | 盘面卡：`AllCardsInBattle`（24B 步长）枚举 + 全部字段原始读数 + 加密解密 + 逐实例效果/限制 |
 | `rendered.py` | 503 | `ABP_BaseCard_C` 家族 actor：**屏幕上摆着的每一张卡**（不读图） |
-| `pick.py` | 334 | 选择界面状态（`chooseOneActive` 等）+ 候选聚合 |
-| `snapshot.py` | 192 | 全部聚合成一份 JSON 快照（任何一层失败只进 `notes`，不炸整体） |
-| `exes.py` | 236 | 本机每份 `kards-Win64-Shipping.exe` 的指纹（"为什么 md5 对不上"） |
-| `cli.py` | 500 | `python -m kardsmem <cmd>` |
+| `pick.py` | 439 | 选择界面状态（`chooseOneActive` 等）+ 候选聚合 + 换牌标记 |
+| `props.py` | 167 | **按名字**走反射链算蓝图字段偏移（跨构建自洽；`FField`/`FProperty`） |
+| `objects.py` | 186 | 遍历 `GUObjectArray`，拿到 UMG widget 这类**非 Actor** 对象 |
+| `kismet.py` | 469 | 反汇编运行时 Kismet 字节码（逻辑的权威来源） |
+| `notify.py` | 148 | 读游戏自己弹的提示文本（动作回执 / 事件流，规格 §7.6f） |
+| `exes.py` | 219 | 本机每份 `kards-Win64-Shipping.exe` 的指纹（"为什么 md5 对不上"） |
+| `snapshot.py` | 193 | 全部聚合成一份 JSON 快照（任何一层失败只进 `notes`，不炸整体） |
+| `cli.py` | 601 | `python -m kardsmem <cmd>` |
 
-（合计 ~4,150 行 / 174 KB。）
+（合计 5922 行 / 250 KB。）
+
+> ⚠ 这张表是 2026-09-22 实测的行数。**改完代码顺手更新它**，不然它比代码还旧 ——
+> 上一版就整表过期过一次（漏列 `kismet/props/objects/notify`，行数全对不上）。
 
 **为什么底层不重复实现**：`board_api.py`（**本项目自己的**，在 `kards-agent/`）是
 `OpenProcess/ReadProcessMemory` 和"归一化盘面（`Card`/`BoardState`）"
@@ -148,10 +155,10 @@ python -m kardsmem effects <CardID|UID> # 单卡：谁贴的、贴了什么、�
 >
 > ⚠ **压制（pin）是另一回事**（百科）：「被压制的单位**不能移动或攻击**，于所有者下个回合结束时移除」。
 > 内存里记为 `receivedAbilitiesFromCards['pinned']` + `buffsFromCards[…]['combat_pinned']`；
-> `ops.py` 的 `act_attack/act_move` 会先查它并拒绝。规则全文见 `reports/KARDS-RULES-ENCYCLOPEDIA.md`。
+> `ops.py` 的 `act_attack/act_move` 会先查它并拒绝。规则全文见 `reports/spec/KARDS-RULES-ENCYCLOPEDIA.md`。
 
 **指向判据另有一个进程外工具**：`tools/card_targets.py`（把 20 个 `IsValidHandTarget` 蓝图覆写
-搬出进程执行，已 18/20 可跑）。见 `reports/TARGETING-EXTERNAL-EVAL.md`。
+搬出进程执行，已 18/20 可跑）。见 `reports/report/TARGETING-EXTERNAL-EVAL.md`。
 
 ## ★ 卡级限制与「能不能打 / 能不能动」（用户逐条补充，2026-09-21）
 

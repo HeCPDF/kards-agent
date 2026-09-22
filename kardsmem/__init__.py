@@ -31,7 +31,7 @@
 ====
 **只读**。全部路径只用 `PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` +
 `ReadProcessMemory`；没有写入、注入、hook。（执行侧（模拟鼠标）不在本包内，
-见 `tools/ops.py`；本包只负责"读"。）
+见 `../ops.py`；本包只负责"读"。）
 
 底层原语不重复实现：`board_api.py` 是 `OpenProcess/ReadProcessMemory` 与
 "盘面卡"逻辑的唯一实现处，本包继承/调用它，只补它缺的那几块。
@@ -47,7 +47,8 @@ from .proc import (BuildMismatch, MemRO, ProcessNotFound, Session,  # noqa: F401
                    attach, list_kards_processes, probe)
 
 # 其余子模块按需加载（写它们的文件可能在整理过程中被移动，避免 import 期炸）
-_LAZY = ("cards", "cli", "gs", "names", "pick", "rendered", "snapshot")
+_LAZY = ("cards", "cli", "exes", "gs", "kismet", "names", "notify", "objects",
+         "pick", "props", "rendered", "snapshot")
 
 
 def __getattr__(name):

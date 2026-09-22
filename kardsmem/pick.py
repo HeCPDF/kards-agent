@@ -4,7 +4,7 @@
 
 权威
 ====
-`reports/KARDS-AUTOMATION.md` §7.6：
+`reports/spec/KARDS-AUTOMATION.md` §7.6：
 
 | 判据 | 位置 | 取法 |
 |---|---|---|

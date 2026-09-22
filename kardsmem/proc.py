@@ -8,7 +8,7 @@
 **不注入、不 WriteProcessMemory、不远程线程、不 hook。**
 
 本模块**不重复实现** Win32 原语：`OpenProcess/ReadProcessMemory/Toolhelp32`
-的唯一实现在 `board_api.py`（**本项目自己的**，就在 `kards-agent/`；已验证、带 34 项 selftest），
+的唯一实现在 `board_api.py`（**本项目自己的**，就在 `kards-agent/`；已验证、带 30 项 selftest），
 这里只是继承它、补上"原子读 / 定长读 / u16,u64"三个缺口。
 以前 `mem_probe.py`、`fname_live.py`、`board_api.py` 各自抄了一份 —— 现在只有一份。
 

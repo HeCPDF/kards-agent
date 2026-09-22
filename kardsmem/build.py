@@ -64,7 +64,7 @@ OLD = "old"                # IDA .i64 对应的上一版
 BUILDS = {
     CURRENT: {
         "module": "kards-Win64-Shipping.exe",
-        "version": "1.60.27292.Steam",    # 命名规则见 reports/GAME-VERSIONS.md：<版本号>.<渠道>
+        "version": "1.60.27292.Steam",    # 命名规则见 reports/ledger/GAME-VERSIONS.md：<版本号>.<渠道>
         "image_size": 0x9CC8000,          # toolhelp 报告的 modBaseSize（不是文件大小）
         "exe_size": 160489984,            # 文件字节数
         "md5": "395e470f06837f6e60ce5c53c6df2a22",
@@ -104,7 +104,7 @@ BUILDS = {
     },
 }
 MODULE_NAME = BUILDS[CURRENT]["module"]
-BUILD_VERSION = BUILDS[CURRENT]["version"]     # `<版本号>.<渠道>`，与 reports/GAME-VERSIONS.md 同一套命名
+BUILD_VERSION = BUILDS[CURRENT]["version"]     # `<版本号>.<渠道>`，与 reports/ledger/GAME-VERSIONS.md 同一套命名
 
 # --------------------------------------------------------------------------
 # 全局 RVA（本 build）

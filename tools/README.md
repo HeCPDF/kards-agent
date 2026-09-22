@@ -1,7 +1,8 @@
 # `kards-agent/tools/` —— 取材 / 标定 / 探针工具
 
 > 2026-09-22 从 `reverse-data/tools/` **搬进这里**：自动化相关的东西一律归 `kards-agent/`。
-> 全部脚本 `import _bootstrap` 就接好路径（**不要再写 `D:\` 绝对路径**）。
+> **要读内存/路径的脚本**用 `import _bootstrap` 接好路径（**不要再写 `D:\` 绝对路径**）；
+> 纯像素/纯 PE 的（`crop` `crop_grid` `grid` `pick_cards` `find_tpl` `pe_tools` 等）不需要它。
 
 两个入口在上一层：读 **`python -m kardsmem <cmd>`**，动鼠标 **`python ops.py <cmd>`**。
 

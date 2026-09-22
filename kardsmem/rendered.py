@@ -4,7 +4,7 @@
 
 来源与权威
 ==========
-`reports/KARDS-AUTOMATION.md` §5（屏幕上的卡也从内存读）：
+`reports/spec/KARDS-AUTOMATION.md` §5（屏幕上的卡也从内存读）：
 `ABP_BaseCard_C` 及其子类的 **actor**，类大小 `0x830`：
     CardID          @ +0x03C8  (int32)        —— 对局内临时实例 id
     selfBaseCardRef @ +0x0808  (UBaseCardObject*)

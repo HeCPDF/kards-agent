@@ -23,12 +23,17 @@ Fork 自 [OCR-Kards-Auto](https://github.com/yumehanab1/OCR-Kards-Auto)（GPL-3.
 | `kardsmem.objects` | 遍历 `GUObjectArray`，拿到 UMG widget 这类非 Actor 对象 |
 | `kardsmem.kismet` | 反汇编运行时 Kismet 字节码（全游戏 10861 个函数解析通过） |
 | `ops.py` | 执行侧：出牌 / 上前线 / 移动 / 攻击 / 结束回合 / 选择界面 |
+| `tools/` | 取材 / 标定 / 探针（内存探针、minidump、坐标标定、PE 解析…） |
 
 ```bash
+cd D:\Kards\kards-agent
 python -m kardsmem selftest     # 自检
 python -m kardsmem              # 看当前盘面
 python ops.py state
 ```
+
+接续任务先读 **`CLAUDE.md`**（红线 / 判据原则 / 已知弯路 / 发布纪律 / 下一步），
+主规格在 `..\reverse-data\reports\spec\KARDS-AUTOMATION.md`。
 
 ## 版本
 

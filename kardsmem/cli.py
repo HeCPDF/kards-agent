@@ -21,7 +21,7 @@ r"""kardsmem.cli —— 内存侧工具链的统一命令行。
 | `candidates` | 选择界面的候选 + 与盘面卡的配对 |
 | `targets <id\|名字>` | 读侧近似的"可指向目标"（**近似**，非权威） |
 | `dump [--out F]` | 聚合快照（JSON），回归样本就存这个 |
-| `selftest`   | 离线断言（含 board_api 的 34 项）+ 实机探测 |
+| `selftest`   | 离线断言（含 board_api 的 30 项）+ 实机探测 |
 
 退出码：0 正常 / 2 读不到（游戏没开、不在对局）/ 1 断言失败。
 """
@@ -440,7 +440,7 @@ def cmd_selftest(a) -> int:
     finally:
         k32.VirtualFree(ctypes.c_void_p(addr), 0, 0x8000)
 
-    print("== E. board_api 自带 selftest（34 项，合成目标） ==")
+    print("== E. board_api 自带 selftest（30 项，合成目标） ==")
     rc = BA._run_selftest()
     chk("board_api selftest rc", rc, 0)
 

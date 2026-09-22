@@ -1,11 +1,5 @@
-# -*- coding: utf-8 -*-
-# vendored from OCR-Kards-Auto (yumehanab1), GPL-3.0 -- see ../LICENSE
-# https://github.com/yumehanab1/OCR-Kards-Auto
-# ★ 这是上游的代码，**不要随意改**；要改先想想能不能在我们自己那层包一下。
-# 只搬了高层 API 真正用得上的那几个：
-#   win     窗口/DPI/客户区坐标/截图/置前
-#   actions 鼠标原语
-#   deploy  drag_deploy（拖拽出牌的手势）
+# vendored from OCR-Kards-Auto (yumehanab1) @ 576aa19, GPL-3.0 -- see ../LICENSE
+# 原样保留（上游是别人的仓库，别把它当我们的代码改）。更新流程见 vendor/README.md。
 """
 deploy.py - drag a hand card onto the battlefield to deploy it (M3).
 
@@ -147,6 +141,17 @@ def deploy_candidates(field, debug=False):
         y = FALLBACK_DROP_Y
     y = max(DROP_Y_LIMIT[0], min(DROP_Y_LIMIT[1], y))
     return slot_candidates(occupied, y, debug=debug)
+
+
+def fallback_drop():
+    """
+    算不出空槽位时的兜底落点(我方支援线上一个固定点)。
+
+    ★ 2026-09-20(指令卡):**指令不占槽位** —— 支援线满 4 个单位时
+      `deploy_candidates()` 会把所有候选都过滤掉、返回空列表,但指令照样能打,
+      这时用它。单位**不要**用这个点(那里多半已经有卡,丢上去就是回手)。
+    """
+    return DEFAULT_SLOT_XS[0], FALLBACK_DROP_Y
 
 
 def drag_deploy(hwnd: int, card_x: int, card_y: int = 700,

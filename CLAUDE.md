@@ -144,6 +144,11 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 
   外加 `config/`（18 个模板 + 8 个状态）和 `ui_templates/`。
   ⇒ **运行时完全不依赖上游那棵工作树**（`KARDS_OCR_ROOT=/nonexistent` 下已验证）。
+  **上游对齐版本：`576aa19`（v0.1.8_beta）**；怎么更新、每个模块谁在用、上游那批新东西里
+  哪几样值得接，都写在 `vendor/README.md`。其中**窗口消息输入**（`actions.INPUT_MODE="message"`,
+  `PostMessage`/`SendMessage`，不移动真实光标）能治"窗口没焦点点击被吃掉"的老毛病 —— 但
+  **用户 2026-09-22 定调：它将来要被「基于内存的实现」替换，是过渡手段，别把架构压在它上面**；
+  目前我们**还没接**（用的仍是 vendor 默认的物理光标路径）。
 - 上游其余部分我们**不用**：官网卡表 json、自动打牌状态机、手牌扫描那整条 OCR 链。
   （OCR 读盘面只在**核对**时可选走一下，见 `tools/field.py`；内存才是权威。）
 - **`D:\Kards\OCR-Kards-Auto/` 是别人的工作树，一个字都不要改**（已恢复到 `origin/main`）。
@@ -165,7 +170,7 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 | `kards-agent/vendor/` | 从上游搬来的**六个**在用的模块（GPL-3.0，逐个查过引用） |
 | `kards-agent/config/` `ui_templates/` | 模板表与模板图（自足） |
 | `kards-agent/_archive/` `_archive/mem-era/` | 被取代的一次性脚本（含旧的内存探针），留档不维护 |
-| `reverse-data/reports/KARDS-AUTOMATION.md` | **主规格**，先读它 |
+| `reverse-data/reports/spec/KARDS-AUTOMATION.md` | **主规格**，先读它 |
 | `reverse-data/tools/` | **只剩**逆向/静态/第三方工具（`idmap_lookup` `search_exports` `u4pak` `FModel.exe` …）—— 自动化与 mem 工具**不在这里** |
 | `reverse-data/sdk/<build>/` | Dumper-7 导出（SDK / Dumpspace / .usmap / .idmap） |
 | `reverse-data/exports-<build>/` | FModel 导出的 uasset + 反编译伪 C++ |
@@ -192,7 +197,7 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 （`git -C D:\Kards\kards-agent rev-parse --show-toplevel` → `D:/Kards`）。
 在它里面跑 `git push` 推的是**整个伞仓库** —— `reverse-data/`、`game-installs/` 会一起上公网。
 2026-09-22 就是这么泄的（2507 个跟踪文件 / 1.55 GiB，2 分 50 秒后才发现，见
-`reverse-data/reports/INCIDENT-2026-09-22-public-push.md`）。
+`reverse-data/reports/report/INCIDENT-2026-09-22-public-push.md`）。
 
 公开 = **只推拆分出来的那一个分支**：
 
@@ -205,6 +210,62 @@ git -C D:\Kards push https://github.com/HeCPDF/kards-agent 'publish/kards-agent:
 ```
 
 伞仓库 `D:\Kards` **不要**挂指向公开库的 remote。
+
+## 现在做到哪、下一步做什么（2026-09-22 本轮收尾时的状态）
+
+**先读这个**：`reverse-data/reports/spec/KARDS-AUTOMATION.md` §10 交付状态 + §11 未解决（**唯一权威清单，别在别处抄一份**）。
+
+**已交付**
+- 读侧：R1 场上卡 / R2 双方手牌 / R4 弃牌堆 / R5 FName / R7 当前属性 / R9 位置 / R10 临时 CardID ✅；
+  R3 候选牌 ⚠ 半；**R8 可指向目标 ❌**（唯一正路：把 `cardsCheckFunctions.cpp` + 438 个
+  `CanPlayFromHand` 覆写移植成 Python，`card_targets.py` 已 18/20）。
+- 执行侧：E1 出牌 / E2 指向 / E3 部署后选目标 / E4 攻击 / E5 上线 / E6 结束回合 / E7 抉择点选 /
+  E8 换牌 / E10 回读判成败 ✅；E9 投降坐标已标定（规格 §7.6e），**还没封进 `ops.py`**。
+- 自检：`cd D:\Kards\kards-agent && python -m kardsmem selftest` → 全 PASS（含 board_api 30 项 +
+  与 `kards-offsets.json` 的一致性 + 行模型 7 组）。**改完代码必须跑这个。**
+
+**本轮新增但还没实机验证**（当时游戏没开，只过了离线断言）
+`kismet.py`（Kismet 字节码反汇编）· `objects.py`（GUObjectArray 遍历）· `props.py`（按名字的反射链）
+· `notify.py`（读游戏提示文本＝动作回执）· `tools/` 里搬过来的那批脚本。
+⇒ 下次游戏在跑时，按这个顺序验：`python -m kardsmem notify` → `tools/mulverify.py <before.DMP> <after.DMP>`
+→ `tools/pickwatch.py` → `tools/mem_probe.py --selftest`。
+
+**P0（按优先级）**
+1. `kardsmem.notify` 接进 `ops.py` 的动作回执：动作发出后开 1~2s poll 窗口，把提示文本连同回读结果一起返回（规格 §7.6f）。
+2. 提示轮询的采样率：提示淡入淡出后 widget 就销毁，间隔太大会整条漏掉 ⇒ 实测存活时长。
+3. **前线行标定样本全部重采**：旧 133 行被预报面板污染作废（隔离在 `logs/rowcalib.jsonl.suspect-20260922`）；`rowcalib.sample` 已加"选择界面开着就拒采"的护栏。
+4. `keepOrder=true` 的 10 张候选 → 屏幕第几个：坐标已标定，缺的是运行时按名字读卡对象上的 `_forecastOptions` 这类 TArray（有反射链了，不用再 diff）。
+5. `keepOrder=false` 的 26 张：抽样/排序在**原生代码**里 ⇒ 进 IDA 找 `GetChooseSpawnCards` 的调用方。
+
+**判据的用法**：进程外重算合法性只用来**排序和挑选**，**绝不用来否决**动作 —— 缺漏是必然的
+（卡池两千张、效果互相叠、还有原生代码）。动作发出去，让游戏裁决，再读 `notify` 拿权威理由。
+
+## 近期大事（2026-09-22，读一次就够）
+
+1. **公开库事故**：在 `kards-agent/` 里裸跑 `git push` 把**整个伞仓库**（2507 个文件 / 1.55 GiB）推上了公开库，
+   约 2 分 50 秒后转 private、随即删库重建，现在只发 `kards-agent` 子树。
+   留档：`reverse-data/reports/report/INCIDENT-2026-09-22-public-push.md`；规矩写在本文件「发布纪律」。
+2. **大扫除**：kardsmem 里的**私服改造细节全清**（判据改成「SizeOfImage 决定 RVA 有效性，md5 只作信息」）；
+   自动化/mem 工具**全部归位 `kards-agent/`**（`tools/` + `_archive/mem-era/`）；
+   `reverse-data/tools/` 只剩逆向/静态/第三方。偏移记录并入 `kards-offsets.json` 的 `build.data`
+   （照 Dumper-7 `OffsetsInfo.json` 格式），版本命名按 `GAME-VERSIONS.md` 的 `<版本号>.<渠道>`。
+3. **上游对齐到 `576aa19`**（v0.1.8_beta）：`vendor/actions.py`、`vendor/deploy.py` 已更新；
+   上游新增的**窗口消息输入**（不移动真实光标）与 `fallback_drop` 还没接，见 `vendor/README.md`。
+4. **撤销了一条"硬约束"**：「读/执行后端可换（mem↔ocr）」不再是约束 —— OCR 只是核对手段，
+   内存是唯一权威。唯一硬约束＝**读侧只读**。
+
+## 会话与文档
+
+| 想干什么 | 去哪 |
+|---|---|
+| 接续任务 | 本文件 → `reverse-data/reports/spec/KARDS-AUTOMATION.md`（主规格）→ 其 §11 |
+| 读 exe 指纹 / 为什么 md5 对不上 | `reverse-data/reports/ledger/EXE-IDENTITY.md`、`python -m kardsmem exes` |
+| 版本 ↔ dump ↔ 导出 | `reverse-data/reports/ledger/GAME-VERSIONS.md`（命名规则 `<版本号>.<渠道>`） |
+| 游戏规则原文 | `reverse-data/reports/spec/KARDS-RULES-ENCYCLOPEDIA.md` |
+| 哪些卡自动化做不了 | `reverse-data/reports/ledger/CARD-AUTOMATION-COVERAGE.md` |
+| 坐标/读图账本 | `reverse-data/reports/ledger/VISION-AND-COORDINATES.md` |
+| 读 Claude/DSH 的会话日志（zstd jsonl → 可读 markdown） | `_session_claude/extract_claude.py`（Claude Code）· `_session_extract/extract.py`（DSH） |
+| 发布（**只发 kards-agent 子树**） | 见下面「发布纪律」 |
 
 ## 工作方式
 

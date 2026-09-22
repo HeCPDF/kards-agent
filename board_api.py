@@ -263,7 +263,7 @@ class BoardSource:
 # --------------------------------------------------------------------------
 #
 # 构建指纹：三个同名的 kards-Win64-Shipping.exe 只有这一个与 idmap/dump 对应，
-# 换构建必须重新核对偏移（判定方法见 reverse-data/reports/EXE-IDENTITY.md）。
+# 换构建必须重新核对偏移（判定方法见 reverse-data/reports/ledger/EXE-IDENTITY.md）。
 #
 MEM_BUILD = {
     "module": "kards-Win64-Shipping.exe",
@@ -675,7 +675,7 @@ class MemoryBoardSource(BoardSource):
             st.complete = False
             return st
 
-        # kredits / slots：一条原子读，见 reports/KARDS-AUTOMATION.md §8「坑清单」
+        # kredits / slots：一条原子读，见 reports/spec/KARDS-AUTOMATION.md §8「坑清单」
         blk = m.blob(gs + GS_SIDE_BLOCK_OFF, GS_SIDE_BLOCK_LEN)
         if blk:
             key = struct.unpack_from("<i", blk, OFF_AGS_KEY - GS_SIDE_BLOCK_OFF)[0]
