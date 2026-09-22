@@ -180,6 +180,26 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 - **选择界面开着时，出牌/移动/攻击全部无效**，而且面板可能被翻页收到屏幕右侧
   （看不见但 `chooseOneActive` 仍为 1）。
 
+## 发布纪律（2026-09-22 那次事故换来的，别重犯）
+
+**`kards-agent/` 不是独立仓库**，它是伞仓库 `D:\Kards` 的一个子树
+（`git -C D:\Kards\kards-agent rev-parse --show-toplevel` → `D:/Kards`）。
+在它里面跑 `git push` 推的是**整个伞仓库** —— `reverse-data/`、`game-installs/` 会一起上公网。
+2026-09-22 就是这么泄的（2507 个跟踪文件 / 1.55 GiB，2 分 50 秒后才发现，见
+`reverse-data/reports/INCIDENT-2026-09-22-public-push.md`）。
+
+公开 = **只推拆分出来的那一个分支**：
+
+```powershell
+git -C D:\Kards subtree split -P kards-agent -b publish/kards-agent
+# 这两个 tree 必须相等，不等就停手
+git -C D:\Kards rev-parse 'publish/kards-agent^{tree}'
+git -C D:\Kards rev-parse master:kards-agent
+git -C D:\Kards push https://github.com/HeCPDF/kards-agent 'publish/kards-agent:master'
+```
+
+伞仓库 `D:\Kards` **不要**挂指向公开库的 remote。
+
 ## 工作方式
 
 - 用户在旁边看着屏幕。**开对局/动鼠标前先确认**。
