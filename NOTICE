@@ -1,0 +1,23 @@
+kards-agent
+Copyright (C) 2026 HeCPDF
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.  See LICENSE for the full text.
+
+--------------------------------------------------------------------------
+Derived from
+--------------------------------------------------------------------------
+
+KARDS AUTO
+Copyright (C) 2026 yumehanab1
+https://github.com/yumehanab1/OCR-Kards-Auto
+GPL-3.0
+
+The files under vendor/ are taken from that project (see the header of each
+file).  vendor/handedge.py additionally extracts four functions from its
+src/hand_calibrate.py.  config/ and ui_templates/ are derived from its
+configuration and template images.
+
+Everything else in this repository is original work.
