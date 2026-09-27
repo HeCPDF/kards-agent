@@ -45,7 +45,7 @@ def _find_workspace() -> Path:
 WORKSPACE = Path(os.environ.get("KARDS_WORKSPACE") or _find_workspace())
 AGENT_ROOT = Path(__file__).resolve().parents[1]    # kards-agent/
 REPORTS_DIR = WORKSPACE / "reverse-data" / "reports"
-TOOLS_DIR = AGENT_ROOT                      # 自动化脚本根（`ops.py` 等和 kardsmem 同级）
+TOOLS_DIR = AGENT_ROOT                      # 自动化脚本根（`ops_inject.py` 等和 kardsmem 同级）
 TOOLS_SUB = AGENT_ROOT / "tools"            # 取材/标定/PE 等工具（2026-09-22 从 reverse-data 搬来）
 RE_TOOLS_DIR = WORKSPACE / "reverse-data" / "tools"   # 逆向/静态/第三方工具（FModel、u4pak、idmap…）
 SPEC_JSON = REPORTS_DIR / "kards-offsets.json"      # 机器可读规格（人工维护）
@@ -58,11 +58,17 @@ UPSTREAM_OCR = Path(os.environ.get("KARDS_OCR_ROOT") or (WORKSPACE / "OCR-Kards-
 # --------------------------------------------------------------------------
 # 构建指纹：本 build = 唯一与 idmap / SDK dump / IDA 对应的一份
 # --------------------------------------------------------------------------
-CURRENT = "current"        # 正在跑的这一份（偏移表就是为它写的）
+CURRENT = os.environ.get("KARDS_BUILD", "current")
+# ★ 2026-09-25：**本机现在可能跑的是 launcher 渠道那份**（SizeOfImage `0x9CC4000`，
+#   与 Steam 那份 `0x9CC8000` 不是同一个二进制）。选表：
+#       KARDS_BUILD=launcher_default python -m kardsmem selftest
+#   不设 = `current`（Steam），行为与以前完全一样。
 OLD = "old"                # IDA .i64 对应的上一版
 
 BUILDS = {
-    CURRENT: {
+    "current": {       # ← 键是**字面量**，不是 CURRENT！否则 KARDS_BUILD=launcher_default
+                       #   时会把这条覆盖掉（2026-09-25 踩过：BUILDS 只剩两条，
+                       #   `BUILDS["current"]` 查不到，selftest §B 全 FAIL）
         "module": "kards-Win64-Shipping.exe",
         "version": "1.60.27292.Steam",    # 命名规则见 reports/ledger/GAME-VERSIONS.md：<版本号>.<渠道>
         "image_size": 0x9CC8000,          # toolhelp 报告的 modBaseSize（不是文件大小）
@@ -81,45 +87,115 @@ BUILDS = {
         "image_size": 0x9CBB000,
         "exe_size": 160441344,
         "md5": "65866f78b3bc56138f3fa20030659b55",
-        "path_hint": r"D:\Kards\game-installs\1.57.26586.launcher\game\kards\Binaries\Win64\kards-Win64-Shipping.exe",
+        "path_hint": r"D:\Kards\game-installs\1.57.26586.launcher\kards\Binaries\Win64\kards-Win64-Shipping.exe",
         "ue": "5.6.1（另一个游戏版本 1.57.26586，launcher 渠道）",
         "_note": "这份**原件**就是 IDA 那个 2 GB `.i64` 分析的构建 —— 不是「缺失的第 4 个构建」。"
                  "★ 2026-09-21：整棵树搬到 `D:\\Kards\\game-installs\\1.57.26586.launcher\\`；"
                  "正名留给原版（另一份被本地改动过的同名副本已删除）。"
-                 "`.i64` 跟着树一起搬，就在同目录。",
+                 "`.i64` 跟着树一起搬，就在同目录。"
+                 "★ 2026-09-25 更正路径：收编后的树**没有 `game\\` 那一层**"
+                 "（`<版本目录>\\kards\\Binaries\\Win64\\…`）。",
     },
     "launcher_default": {
         "module": "kards-Win64-Shipping.exe",
-        "version": "1.58.27125.launcher",
+        "version": "1.60.27292.launcher",
         "image_size": 0x9CC4000,
         "exe_size": 160476160,
         "md5": "7c6a83c7d002d57d3581b87296eda98b",
-        "path_hint": r"D:\Kards\game-installs\1.58.27125.launcher\game\kards\Binaries\Win64\kards-Win64-Shipping.exe",
-        "ue": "5.6.1 / **1.58.27125 launcher 渠道**（与 Steam 的 1.58.27125 同版本号、不同二进制）",
-        "_note": ("★ 2026-09-21：整棵树**复制**进 `D:\\Kards\\game-installs\\1.58.27125.launcher\\`；"
+        "path_hint": r"D:\Kards\game-installs\1.60.27292.launcher\kards\Binaries\Win64\kards-Win64-Shipping.exe",
+        "ue": "5.6.1 / **launcher 渠道**（与 Steam 的 1.60.27292 同版本号、不同二进制）",
+        "_note": ("★ **同一个 exe 横跨两个版本号**：1.58.27125.launcher 与 1.60.27292.launcher "
+                  "的 md5、大小、SizeOfImage 完全相同（launcher 渠道 1.58→1.60 只换了 pak，"
+                  "7,937,841,342 → 7,937,814,718）⇒ 两份的 RVA 也完全相同。"
+                  "dump 用的是 `sdk\\1.60.27292.launcher\\`（2026-09-25 做的）。"
+                  "★ 2026-09-21：`1.58.27125.launcher\\` 整棵树**复制**进 game-installs；"
                   "`…\\Games\\KARDS\\default\\` **原地那份保留不删**（Xsolla launcher 的注册表 "
-                  "`HKCU\\SOFTWARE\\XSOLLA\\…\\default :: prefix` 指着它）⇒ 同一份会被扫到两次，正常。"
-                  "实测生效的 mod pak `card_740th_research_develop_P.pak` 也在这棵树。"
+                  "`HKCU\\SOFTWARE\\XSOLLA\\…\\default :: prefix` 指着它）"
+                  "—— 2026-09-25 19:19 它被更新到 1.60.27292，于是又复制了一份 "
+                  "`1.60.27292.launcher\\`。⇒ 同一份被扫到两次，正常。"
                   "⚠ 目录名 `default` 是 Xsolla 的**分支名**，不是版本号。"),
     },
 }
+if CURRENT not in BUILDS:
+    raise SystemExit("KARDS_BUILD=%r 不在 BUILDS 里（可选：%s）"
+                     % (CURRENT, ", ".join(BUILDS)))
 MODULE_NAME = BUILDS[CURRENT]["module"]
 BUILD_VERSION = BUILDS[CURRENT]["version"]     # `<版本号>.<渠道>`，与 reports/ledger/GAME-VERSIONS.md 同一套命名
 
 # --------------------------------------------------------------------------
-# 全局 RVA（本 build）
+# 全局 RVA（**按构建一套**；`RVA` 是"当前选中构建"的别名）
 # --------------------------------------------------------------------------
-RVA = {
-    "GWorld": 0x08F625B0,
-    "GObjects": 0x091FF4E0,
-    "GNames_decoy": 0x090E2E28,   # ⚠ 不是名字池本体！见 FNAME_POOL_RVA
-    "FNamePool": 0x0911B9C0,      # ★ 真名字池（反汇编 FName::AppendString 得到）
-    "FName_AppendString": 0x0137F000,
-    "UObject_ProcessEvent": 0x0159CBF0,   # vtable idx 0x4C
+# 为什么按构建分：`GObjects/GNames/FNamePool` 这类全局在 .data 里，
+# 不同渠道的 exe 布局不同 —— launcher 那份整体比 Steam 那份低 0x3000~0x3080，
+# 代码段（AppendString/ProcessEvent）低 0x140。拿错表读进程 = 全是垃圾。
+#
+# ★★ 2026-09-25：偏移**不再手抄在这里**。真源是
+#   `reverse-data\sdk\<版本>.<渠道>\Dumpspace\OffsetsInfo.json` + exe 本身，
+#   由 `kardsmem/buildsrc.py` 提取成 `kardsmem/build_tables.json`（数据文件，跟着包走）。
+#   下面这份 `RVA_FALLBACK` 只是"JSON 丢了/坏了"时的兜底，**不要往里加新构建**。
+RVA_FALLBACK = {
+    "current": {                       # 1.60 / 1.58 Steam（0x9CC8000）
+        "GWorld": 0x08F625B0,
+        "GObjects": 0x091FF4E0,
+        "GNames_decoy": 0x090E2E28,    # ⚠ 不是名字池本体！见 FNamePool
+        "FNamePool": 0x0911B9C0,       # ★ 真名字池（反汇编 FName::AppendString 得到）
+        "FName_AppendString": 0x0137F000,
+        "UObject_ProcessEvent": 0x0159CBF0,   # vtable idx 0x4C
+    },
+    "launcher_default": {              # 1.58 + 1.60 launcher（0x9CC4000，同一个 exe）
+        # 来源：`sdk\1.60.27292.launcher\Dumpspace\OffsetsInfo.json`
+        #   GObjects 0x091FC460 / GNames 0x090DFDA8 / AppendString 0x0137EEC0 / ProcessEvent 0x0159CAB0
+        # 但 dump 里 **GWorld = 0**（Dumper-7 没解析出来），另两处是自己求的：
+        #   FNamePool：capstone 反汇编 `FName::AppendString`（+0x20 的 `lea r8,[rip+…]`）
+        #              —— 同一方法在 Steam 那份上复现出已知值 0x0911B9C0，见 _nn_scratch/find_fnamepool.py
+        #   GWorld  ：实机试出来的（0x08F625B0-0x3080 是错的，-0x3000 才对），
+        #              判据是 `world` 指向的对象 `PropertiesSize==2536(UWorld)`、
+        #              且 `+0x1B0` 的 GameState `PropertiesSize==1960(ABP_GameState_Battle_C)`
+        #              —— 见 _nn_scratch/verify_launcher_rva.py
+        "GWorld": 0x08F5F5B0,
+        "GObjects": 0x091FC460,
+        "GNames_decoy": 0x090DFDA8,
+        "FNamePool": 0x09118940,
+        "FName_AppendString": 0x0137EEC0,
+        "UObject_ProcessEvent": 0x0159CAB0,
+    },
 }
+TABLES_JSON = Path(__file__).with_name("build_tables.json")
+
+RVA_SOURCES: dict = {}          # build_key -> {rva 名: 值从哪来}     （buildsrc 生成）
+BUILD_TABLE_NOTES: dict = {}    # build_key -> [生成时的告警]
+
+
+def _load_generated_tables(path: Path = TABLES_JSON) -> dict:
+    """读 `buildsrc` 生成的数据文件 → {build_key: {rva 名: 值}}，顺带记下来源。"""
+    global RVA_SOURCES, BUILD_TABLE_NOTES
+    if not path.exists():
+        return {}
+    try:
+        j = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:                                          # noqa: BLE001
+        return {}
+    out = {}
+    src, notes = {}, {}
+    for k, t in (j.get("builds") or {}).items():
+        rva = t.get("rva") or {}
+        if not rva:
+            continue
+        out[k] = {kk: int(vv) for kk, vv in rva.items()}
+        src[k] = t.get("sources") or {}
+        notes[k] = t.get("notes") or []
+    RVA_SOURCES, BUILD_TABLE_NOTES = src, notes
+    return out
+
+
+RVA_BY_BUILD = {k: dict(v) for k, v in RVA_FALLBACK.items()}
+for _k, _v in _load_generated_tables().items():
+    RVA_BY_BUILD.setdefault(_k, {}).update(_v)      # 生成的数据**覆盖**兜底值
+RVA = dict(RVA_BY_BUILD[CURRENT])
 PROCESS_EVENT_IDX = 0x4C                  # vtable 里 ProcessEvent 的下标
 
 # 原生取值口（用来核对内存读数，本工具链不调用它们）
+# ⚠ 这一组**只对 Steam 构建**采过证；换构建要重新采（它们不在 RVA_BY_BUILD 里）。
 NATIVE_RVA = {
     "getKreditBySide": 0x4A65030,
     "getKreditSlotBySide": 0x4A65110,
@@ -269,8 +345,13 @@ def spec_consistency() -> list:
 
     规格里的偏移记录照 Dumper-7 的 `OffsetsInfo.json` 格式：
     `build.data` 是 `[[名字, 值], ...]`。所以"防漂移"就是逐条比这张表。
+
+    ⚠ 规格 JSON 里登记的只有 **Steam 那份**（`current`）。用
+    `KARDS_BUILD=launcher_default` 跑时不能拿它判漂移 —— 那些值本来就该不同。
     """
     out = []
+    if CURRENT != "current":
+        return out
     if not SPEC_JSON.exists():
         return [("spec_missing", str(SPEC_JSON), "存在", False)]
     spec = json.loads(SPEC_JSON.read_text(encoding="utf-8"))

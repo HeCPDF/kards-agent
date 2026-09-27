@@ -13,10 +13,15 @@
 它回答的问题
 ============
 **哪些卡需要额外交互**（选目标 / 从 N 张里选 1 / 从牌库或对手手牌选牌 / 多目标 / 抉择），
-以及这些交互在现有执行层（`ops.py`）里**能不能点**：
-- 已标定坐标的界面：抉择 2 张、预报/候选 3 张（两级）→ `ops.PICK_X = {2:[537,741], 3:[420,639,858]}`
-- 未标定：牌库选牌、看对手手牌、>3 张候选（滚动）
-- 完全没有流程：抉择之后再选目标（两阶段）、目标在**手牌**里
+以及这些交互在现有执行层（`ops_inject.py`）里**能不能点**：
+- 抉择/预报候选：`pick_choice(index, kind=)` / `pick_layers()`（不依赖屏幕坐标，走候选 actor）
+- 两阶段指向（单位部署后点目标）：`deploy_unit_with_target()`；选项层之后再指目标走
+  `pick_choice()` → `select_unit_target()`
+- 目标在**手牌**里：`select_hand_target()`
+- 结构性缺口（滚动候选 >3 等）仍见 `reports/ledger/CARD-AUTOMATION-COVERAGE.md`
+
+★ 2026-09-27：本文件里 `ops.PICK_X` 那类**屏幕坐标**判据已经作废 —— 执行侧换成合成事件后，
+候选是**按 actor**点的，与坐标无关。旧的物理鼠标实现归档在 `_archive/ops_mouse.py`。
 
 结论沉淀在 `reports/ledger/CARD-AUTOMATION-COVERAGE.md`。
 

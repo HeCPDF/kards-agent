@@ -45,10 +45,16 @@ from . import build as B
 #   下面都列出来，免得"多出来一份"又变成悬案。
 KNOWN_TREES = [
     ("steam", r"D:\SteamLibrary\steamapps\common\KARDS\kards\Binaries\Win64"),
+    # ★ 2026-09-25 修正路径：收编进 game-installs 的树**没有 `game\` 那一层**
+    #   （`<版本目录>\kards\Binaries\Win64`）；以前写成 `…\game\kards\…` ⇒ 一直报"目录不存在"。
     ("1.57.26586.launcher", r"D:\Kards\game-installs\1.57.26586.launcher"
-                            r"\game\kards\Binaries\Win64"),
+                            r"\kards\Binaries\Win64"),
     ("1.58.27125.launcher", r"D:\Kards\game-installs\1.58.27125.launcher"
-                            r"\game\kards\Binaries\Win64"),
+                            r"\kards\Binaries\Win64"),
+    ("1.60.27292.launcher", r"D:\Kards\game-installs\1.60.27292.launcher"
+                            r"\kards\Binaries\Win64"),
+    ("1.60.27292.Steam(副本)", r"D:\Kards\game-installs\1.60.27292.Steam"
+                               r"\kards\Binaries\Win64"),
     ("launcher(default, 原地副本)", r"D:\Program Files\KARDS - The WWII Card Game"
                                     r"\Games\KARDS\default\game\kards\Binaries\Win64"),
 ]
@@ -57,7 +63,9 @@ KNOWN_TREES = [
 #   这类变体（外加 `.bak` 之类的备份件）。早先用 `EXE_NAME in name` 的精确匹配
 #   会**整个漏掉它们** —— 那正是"还有一份对不上"的来源。
 SHIPPING_MARK = "shipping"
-SKIP_SUFFIXES = (".i64", ".pdb", ".ilk", ".exp", ".lib", ".zip", ".rar", ".7z")
+# IDA 的松散工作文件（`.id0/.id1/.id2/.nam/.til`）也含 "shipping"，必须跳过。
+SKIP_SUFFIXES = (".i64", ".pdb", ".ilk", ".exp", ".lib", ".zip", ".rar", ".7z",
+                 ".id0", ".id1", ".id2", ".idc", ".nam", ".til")
 
 
 def is_exe_candidate(name: str) -> bool:

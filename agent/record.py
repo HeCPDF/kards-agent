@@ -3,7 +3,9 @@
 """agent.record —— 只读录制器（KARDS-NN.md §1.2/§1.3 的 P0 实现）。
 
 ★ 红线：只读。全靠 `AgentSession`（快照/动作流/提示）+ 只读的
-  `ops.pick_state`/`ops.in_mulligan`/`kardsmem.pick`，不动鼠标。
+  `ops_inject.pick_pending`/`mulligan_marks`/`kardsmem.pick`，不动鼠标。
+  （2026-09-27：原来走 `ops.py` 的 `pick_state`/`mulligan_marks` —— 旧鼠标实现已归档，
+  只读查询一律走 `agent.precheck.call_read(...)` → `ops_inject`。）
 
 用法：
 
@@ -18,13 +20,25 @@
     - `main`（出牌/攻击/移动/结束）：出牌/攻击/hand_target 走动作流具名字段
       解析，`label_src="matchlog"`；移动暂时解不出字段，`label_available=False`
       但 `raw` 照记（§11.1 G3，纯解析活，留给下一步）。
-    - `pick`/`forecast`（二/三选一）：不信任动作流的
-      `XActionCardToDrawSelected` 解析（KARDS-NN.md §1.5 标了"未实机"），
-      改用更硬的信号——对比 `choose_candidates()` 里 `SelectedCard` 翻转前后
-      的 actor 集合，`label_src="pick_actor"`。
+    - `pick`/`forecast`（二/三选一）：动作流其实有专属类型
+      `XActionCardToDrawSelected`（develop 类三选一和预报**共用同一个**，
+      2026-09-25 顺着 `BP_CardFunctions::Forecast()` 追字节码坐实——两者在
+      `BP_PlayerMoves::ResolvePlayerMoveQueue()` 里走的是同一个 case，见
+      `KARDS-AUTOMATION.md` §7.5、`KARDS-NN.md` §1.5：字段号也已经从伪 C++
+      读出来了（`0=cardTriggeringDraw 1=cardToDraw 2=cardNameToSpawn
+      3=isEffect`）。**但这整条链目前只有字节码证据，从没有对着一次真实
+      `AllMatchActions` 条目核对过**——这里仍然只信更硬的信号：对比
+      `choose_candidates()` 里 `SelectedCard` 翻转前后的 actor 集合，
+      `label_src="pick_actor"`。下次真撞上三选一/预报，应该把
+      `matchlog.since()` 里这条的原始 `data` 也顺手记进 `raw`（不要拿它
+      当 label，只作为跟 actor 判据交叉核对的旁证），借真实样本把这条
+      "未实机"的尾巴解决掉，而不是继续凭字节码假设。
     - `mulligan`：`XActionMulligan` 大概率不进 `AllMatchActions`（同上，受
-      服务端闸门控制，未验），改用 `mulligan_marks()` 前后对比，
-      `label_src="inferred"`。
+      服务端闸门控制，未验），改用 `starting_cards()`（直接的 `Logic` 字段）
+      跟换牌结束那一刻的 `mulligan_marks()` 比对——这本质上是**行为推断**
+      （拿"现在手牌跟起手比少了哪张"猜结论），不是读到了一条换牌动作，
+      `label_src="inferred"`（2026-09-25 改对：原先这里错标成
+      `"matchlog"`，见 `_poll_mulligan` 那条同一天的修正）。
     - `deploy_target`（部署后点场上目标）：**没有独立的等待态判据**
       （不是 `isSelectingHandTarget`，那是"选手牌"专属——本轮会话已确认，
       见规格），第一版先不单独识别这个 phase，它会被吸收进触发它的那条
@@ -137,6 +151,7 @@ class Recorder:
         self._mulligan_sample_written = False
         self._pick_pending_rounds = []            # 正在追踪、还没见到翻转的三选一轮次
         self._pick_seen_actors = set()            # 已经分过轮的候选 actor 指针（防重复开新轮）
+        self._pick_matchlog_echo = deque(maxlen=8)  # XActionCardToDrawSelected 原始行，只作旁证不当 label（见下方 _poll_pick 说明）
         self._n_written = 0
 
     # ------------------------------------------------------------ 基础
@@ -175,21 +190,14 @@ class Recorder:
 
     def _ensure_deck_roster(self, st):
         """§2.2：己方卡组名单只取一次——手牌+牌库+场上+弃牌的并集就是完整卡组
-        （换牌/抽牌只是在这几个区之间挪动，不改变总数），所以**换牌刚结束、
-        turn 1 一开始**取最安全：既凑得齐全 30+ 张，又躲开下面这条坑。
+        （换牌/抽牌只是在这几个区之间挪动，不改变总数），随时取都行。
 
-        ⚠ **换牌早期 `st.our_side`/双方 side 标注不可靠**（2026-09-24 实机撞见，
-        见规格 §7.6d）——这里按 `side==LOCAL` 筛的名单如果在那个窗口取，
-        可能把对手的卡组记成己方的。换牌完全结束（`ops.in_mulligan() is False`）
-        前不取，宁可晚一点定型，不要定错。
+        ★ 2026-09-24 曾经在这里挡"换牌早期 `st.our_side` 不可靠"（§7.6d）——
+        现在 `board_api.read_my_side()` 换牌期间读不出时会兜底走 kardsmem
+        `Logic.mySide`（见 `board_api.py` 同日的改动），这个坑已经堵上了，
+        不用再等 `in_mulligan() is False` 才敢取。
         """
         if self._deck_roster is not None:
-            return
-        try:
-            from ops import in_mulligan
-            if in_mulligan() is not False:      # True 或 None（读不出）都不取
-                return
-        except Exception:                        # noqa: BLE001
             return
         try:
             from kardsmem.names import FNamePool
@@ -224,6 +232,13 @@ class Recorder:
         me = self._my_player_id(log.all())
         for r in rows:
             typ = r.get("action_type")
+            if typ == "XActionCardToDrawSelected":
+                # ★ 2026-09-25：不建成独立样本（会跟 _poll_pick 的 actor 判据
+                #   重复计数），只留原始行当旁证——攒够一次真实数据就能核对
+                #   KARDS-NN.md §1.5 那套字节码字段号（0=cardTriggeringDraw
+                #   1=cardToDraw 2=cardNameToSpawn 3=isEffect）到底对不对。
+                self._pick_matchlog_echo.append({"row": r, "t_seen": self._t()})
+                continue
             if typ not in ACTION_TO_TYPE:
                 continue      # StartOfTurn 之类不建样本，只是时序标记
             mine = r.get("action_id") == -1
@@ -311,11 +326,11 @@ class Recorder:
     #   理论上存在"旧指针恰好被复用、被误判成同一轮"的小概率窗口，先接受
     #   这个风险，真出问题再收紧（比如叠加 index/name 一致性校验）。
     def _poll_pick(self, st):
-        from ops import pick_state
-        ps = pick_state()
-        if not ps or not ps.get("choose_active"):
+        from . import precheck
+        ps = precheck.call_read("pick_pending") or {}
+        if not (ps.get("choose_one_active") or ps.get("pending")):
             if self._pick_pending_rounds:
-                print("  [pick 缺漏] choose_active 已关闭，还有 %d 轮候选没见到翻转就消失了"
+                print("  [pick 缺漏] chooseOneActive 已关闭，还有 %d 轮候选没见到翻转就消失了"
                       % len(self._pick_pending_rounds))
             self._pick_pending_rounds = []
             return
@@ -337,6 +352,12 @@ class Recorder:
             if flipped:
                 chosen = flipped[0]
                 prev_rows = list(rnd["rows"].values())
+                # ★ 把这段时间内收到的 XActionCardToDrawSelected 原始行一并存进
+                #   raw——不当 label（label 仍然是 actor 判据给的），纯粹留给
+                #   事后核对："matchlog_echo" 里那条的字段跟这里的 chosen 是否
+                #   对得上，能不能验证 KARDS-NN.md §1.5 猜的字段号。
+                echo = [e["row"] for e in self._pick_matchlog_echo]
+                self._pick_matchlog_echo.clear()
                 sample = _schema().make_sample(
                     game=self.game, patch=self.patch, seat="local",
                     turn=st.turn, t=self._t(), phase="pick",
@@ -347,8 +368,9 @@ class Recorder:
                     label={"type": "pick", "subject": chosen.get("trigger_card_id"),
                            "target": None, "option": chosen.get("name")},
                     label_src="pick_actor", label_available=True,
-                    raw=[{"name": r["name"], "index": r["index"], "selected": r["selected"]}
-                         for r in prev_rows],
+                    raw={"candidates": [{"name": r["name"], "index": r["index"],
+                                          "selected": r["selected"]} for r in prev_rows],
+                         "matchlog_echo": echo},
                     receipt={"accepted": True, "action_id": None},
                     events=[dict(e, text_zh=None) for e in self.sess.events()],
                 )
@@ -408,12 +430,13 @@ class Recorder:
             return
         self._mulligan_sample_written = True     # 不管下面成不成，这一局只判定一次
         # ★ 用户指出：不用扯上 `st`/`board_api` 那套通用快照（还绑着 st.our_side）
-        #   ——`ops.mulligan_marks()` 本来就是查"现在手牌是哪几张"最直接的路，
+        #   ——`ops_inject.mulligan_marks()` 本来就是查"现在手牌是哪几张"最直接的路，
         #   自带 side 过滤（跟 `st.our_side` 无关，见 §7.6d 的更正说明），
         #   换牌确认后立刻调它，读到的就是当前真实手牌。
         try:
-            from ops import mulligan_marks
-            current_hand_ids = {r.get("card_id") for r in (mulligan_marks() or [])}
+            from . import precheck
+            current_hand_ids = {r.get("card_id")
+                                for r in (precheck.call_read("mulligan_marks") or [])}
         except Exception:                        # noqa: BLE001
             current_hand_ids = set()
         option_list = [{"name": c.get("name"), "card_id": c.get("card_id"),
@@ -428,7 +451,7 @@ class Recorder:
             verdict={},
             label={"type": "mulligan", "subject": None, "target": None,
                    "option": {c["name"]: c["discarded"] for c in option_list}},
-            label_src="matchlog", label_available=True,
+            label_src="inferred", label_available=True,
             raw=option_list,
             receipt={"accepted": None, "action_id": None},
             events=[],

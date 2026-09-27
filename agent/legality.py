@@ -98,6 +98,12 @@ REASON_HELPBUBBLE = {
     "has_already_attacked": "notify_cant_attack_already_attacked_this_turn",
     "no_attack_left": "notify_cant_attack_cant_move_and_attack_same_turn",
     "not_enough_kredits": "notify_cant_attack_out_of_kredits",
+    # ★ 2026-09-25 实机补：`CanAttack(27 -> 54)` 在 2 指挥点时返回
+    #   `not_enough_kredits_to_target`（"打**这个目标**要多花指挥点"，跟打得起别的
+    #   目标是两回事）。`helpbubbles` 下有对应英文原文
+    #   `notify_cant_attack_target_out_of_kredits` = "You don't have enough Kredits
+    #   to attack this target with this unit" —— 语义逐字对应，不是猜的。
+    "not_enough_kredits_to_target": "notify_cant_attack_target_out_of_kredits",
     "not_a_unit": "notify_cant_attack_only_units_can_attack",
 }
 
@@ -407,6 +413,22 @@ class Legality:
 
     def can_move(self, st, unit) -> dict:
         """能不能移动：借 `CanAttack` 的"这个单位本回合还能不能行动"子集判据。
+
+        ⚠ **这不是权威判据**。游戏自己有 `BattleUtilityFunctions_C::CanMoveCardToLocation
+        (ECardLocationEnum, __WorldContext, bool* bResult)`——**能注入时直接问游戏**：
+        `agent.precheck.can_move_to(card_id, location_enum)`。
+        2026-09-25 用户定调：**只留游戏的那个**；这里保留 VM 路径只是为了"不能注入"的场合
+        （它跑的是同一份蓝图字节码），并且**不要再往这里加我们自己拍的花费/启发式**。
+
+        ★★ 2026-09-25 晚**第二次更正**（这条注释之前也写错过）：
+          旧话"那个游戏函数会看指挥点"**是错的**——把它的字节码全量 dump 之后看清楚了，
+          它**一条指挥点检查都没有**（`_nn_scratch/dump_lib_fn.py`）。它读的是
+          `PlayerController->SelectedCard`（"当前正在拖的那张卡"，`// 0x0950`）、
+          `SelectedCard.CardLocation`（`// 0x03B0`）、`IsLocationFull`、
+          `IsSelectedCardOrder`、`DoesSideControlTheFrontline`。
+          没有真实拖拽时 `SelectedCard` 是 `None` ⇒ 它**恒回 False**（实测 6/6 组合）。
+          ⇒ `agent/session.can_move` 只信它的 **True**；它的 False 退回这条 VM 路径
+          （因为移动的指挥点闸门在提交路径上，不在这个函数里）。
 
         `stopped` 非空 = 没算出来（缺原语/找不到探测用的敌方目标），
         这时 `can` 是 None——当作"不知道"，不是"不合法"（§7.6f，只挑不判）。

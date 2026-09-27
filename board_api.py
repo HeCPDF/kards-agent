@@ -167,6 +167,7 @@ class Card:
     kredit_cost: Optional[int] = None
     operation_cost: Optional[int] = None
     kredits_tax_as_enemy_target: Optional[int] = None   # 被敌方指向时额外加费
+    gotcha_activated: Optional[int] = None   # 反制(gotcha)已激活的次序编号；0/None = 没激活
     is_suppressed: Optional[bool] = None
     is_revealed: Optional[bool] = None
     # ★ 被守护：**游戏自己维护的字段**（`isBeingGuarded@0x288`），不是按相邻关系推算的。
@@ -267,19 +268,87 @@ class BoardSource:
 # 三、mem 后端：只读进程内存
 # --------------------------------------------------------------------------
 #
-# 构建指纹：三个同名的 kards-Win64-Shipping.exe 只有这一个与 idmap/dump 对应，
+# 构建指纹：磁盘上有**多份同名** `kards-Win64-Shipping.exe`，只有一份与 idmap/dump 对应，
 # 换构建必须重新核对偏移（判定方法见 reverse-data/reports/ledger/EXE-IDENTITY.md）。
 #
-MEM_BUILD = {
-    "module": "kards-Win64-Shipping.exe",
-    "image_size": 0x9CC8000,           # toolhelp 的 modBaseSize，不是文件大小
-    "exe_size": 160489984,
-    "md5": "395e470f06837f6e60ce5c53c6df2a22",
+# ★ 2026-09-25：本机现在**两个渠道都可能跑**，所以这里是按构建分的一张表，
+#   用环境变量选：`KARDS_BUILD=launcher_default python …`（不设 = Steam，行为不变）。
+#   ⚠ **偏移值优先从 `kardsmem/build_tables.json` 读**（由 `kardsmem/buildsrc.py`
+#     从 SDK dump + exe 提取，别手抄）；这张表只负责两件事：
+#       ① 身份（image_size / exe_size / md5）—— 人工登记，`build.py` 同样登记一份；
+#       ② JSON 缺失/损坏时的兜底偏移。
+#     board_api 之所以不直接 import kardsmem：`kardsmem.proc` 反过来 import 本模块的
+#     `_find_pid`，顶层 import 会成环。两边的**一致性由 `python -m kardsmem selftest`
+#     §B 检查**（两个构建都查），别让它们漂。
+_BUILD_TABLE = {
+    "current": {                       # 1.58 / 1.60 Steam（0x9CC8000）
+        "image_size": 0x9CC8000,       # toolhelp 的 modBaseSize，不是文件大小
+        "exe_size": 160489984,
+        "md5": "395e470f06837f6e60ce5c53c6df2a22",
+        "gworld": 0x08F625B0,
+        "gobjects": 0x091FF4E0,
+        "gnames": 0x090E2E28,
+    },
+    "launcher_default": {              # 1.58 + 1.60 launcher（0x9CC4000，同一个 exe）
+        "image_size": 0x9CC4000,
+        "exe_size": 160476160,
+        "md5": "7c6a83c7d002d57d3581b87296eda98b",
+        "gworld": 0x08F5F5B0,          # dump 里 GWorld=0，这份是实机扫 .data 得到的
+        "gobjects": 0x091FC460,
+        "gnames": 0x090DFDA8,
+    },
 }
 
-RVA_GWORLD = 0x08F625B0
-RVA_GOBJECTS = 0x091FF4E0
-RVA_GNAMES = 0x090E2E28
+
+def _load_offsets_json():
+    """`kardsmem/build_tables.json` → {key: {"GWorld":…, "GObjects":…, "GNames_decoy":…}}。
+
+    读不到就返回 {}（用表里的兜底偏移）。**只读文件，不 import kardsmem**。
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    p = _Path(__file__).with_name("kardsmem") / "build_tables.json"
+    if not p.exists():
+        return {}
+    try:
+        j = _json.loads(p.read_text(encoding="utf-8"))
+    except Exception:                                          # noqa: BLE001
+        return {}
+    out = {}
+    for k, t in (j.get("builds") or {}).items():
+        rva = t.get("rva") or {}
+        if not rva:
+            continue
+        out[k] = rva
+        tbl = _BUILD_TABLE.setdefault(k, {})
+        for src_key, dst_key in (("GWorld", "gworld"), ("GObjects", "gobjects"),
+                                 ("GNames_decoy", "gnames")):
+            if src_key in rva:
+                tbl[dst_key] = int(rva[src_key])
+        for k2 in ("image_size", "exe_size", "md5"):
+            if t.get(k2):
+                tbl.setdefault(k2, t[k2])
+    return out
+
+
+OFFSET_TABLES = _load_offsets_json()      # 生成的数据（为空 = 用兜底）
+
+_BUILD_KEY = os.environ.get("KARDS_BUILD", "current")
+if _BUILD_KEY not in _BUILD_TABLE:
+    raise SystemExit("KARDS_BUILD=%r 不在 board_api 的构建表里（可选：%s）"
+                     % (_BUILD_KEY, ", ".join(_BUILD_TABLE)))
+_B = _BUILD_TABLE[_BUILD_KEY]
+
+MEM_BUILD = {
+    "module": "kards-Win64-Shipping.exe",
+    "image_size": _B["image_size"],
+    "exe_size": _B["exe_size"],
+    "md5": _B["md5"],
+}
+
+RVA_GWORLD = _B["gworld"]
+RVA_GOBJECTS = _B["gobjects"]
+RVA_GNAMES = _B["gnames"]
 
 OFF_UOBJECT_FLAGS = 0x08
 OFF_UOBJECT_CLASS = 0x10
@@ -362,6 +431,11 @@ CARD_I32 = {
     #   对刚部署的单位仍然读到 1 —— 所以真正的判据是 enterPlayOnTurn 和当前回合数比较。
     "enter_play_turn": 0x270,
     "max_attack": 0x2A4, "max_defense": 0x2A8, "choose_one_index": 0x310,
+    # ★ 2026-09-26 补：`UBaseCardObject::gotchaActivated`（= 反制在手里"已激活"的次序编号，
+    #   0 = 没激活）。来自 `kards_classes.hpp`（1.60.27292：`// 0x0308`）。
+    #   为什么必须读它：`BP_HandCard::ToggleGotcha` 是**开关** —— 已经激活的反制再 play 一次
+    #   会**取消激活**（实机踩过）。有它才能"防重复激活"。
+    "gotcha_activated": 0x308,
 }
 CARD_PTR = {"current_target": 0x2B0, "target_override": 0x548}
 OFF_CARD_TITLE = 0x58          # FText title —— 牌名的正解（FText 不是 FName，不受名字池混淆影响）
@@ -869,6 +943,7 @@ class MemoryBoardSource(BoardSource):
                          else (vals["kredit"] or 0) + (vals["kreditBuff"] or 0)),
             operation_cost=i32["operation_cost"],
             kredits_tax_as_enemy_target=i32["kredits_tax"],
+            gotcha_activated=i32["gotcha_activated"],
             is_suppressed=None if u8["is_suppressed"] is None else bool(u8["is_suppressed"]),
             is_being_guarded=(None if u8["is_being_guarded"] is None
                               else bool(u8["is_being_guarded"])),
@@ -1220,7 +1295,11 @@ def _run_selftest() -> int:
 
     fd, path = tempfile.mkstemp(suffix=".py", prefix="kards_fake_")
     with os.fdopen(fd, "w") as f:
-        f.write(_SELFTEST_TARGET)
+        # ★ 2026-09-25：合成目标里那句 `RVA_GWORLD = 0x08F625B0` 是**按当前选中的构建**
+        #   替换掉的 —— 以前写死 Steam 的值，换 launcher 档时父子两边差 0x3000，
+        #   selftest 就全读成 None（看起来像"偏移表错了"，其实是合成目标没跟上）。
+        f.write(_SELFTEST_TARGET.replace("RVA_GWORLD = 0x08F625B0",
+                                         "RVA_GWORLD = 0x%X" % RVA_GWORLD))
     proc = subprocess.Popen([sys.executable, path], stdout=subprocess.PIPE, text=True)
     try:
         try:

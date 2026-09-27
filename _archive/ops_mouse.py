@@ -56,7 +56,7 @@ else:
 HAND_Y = 700
 FRONT_Y = 380
 # 三行的 y（本会话实测：敌方排 174~184 / 前线 349~352 / 我方支援排 523~527）。
-# 支援排的 y 下界（用来判"这次移动是不是往支援阵线拖"，见 act_move 的移动单向校验）。
+# 支援排的 y 下界（用来判"这次移动是不是往支援阵线拖"，见 move_card_to_line 的移动单向校验）。
 SUPPORT_ROW_MIN_Y = 430
 SETTLE_HAND = 0.30
 SHOTS = agentpath.shots("play")
@@ -350,15 +350,19 @@ def _mark():
     return m.mark() if m else None
 
 
-def _receipt(mark, action_type=None, timeout=2.0):
+def _receipt(mark, action_type=None, timeout=2.0, card_id=None, card_field="0"):
     """→ (生效了没有, [动作])。`mark` 是 None（没有动作流）时返回 (None, [])，
-    表示**不知道** —— 调用方这时才退回"看副作用"那套旧判据。"""
+    表示**不知道** —— 调用方这时才退回"看副作用"那套旧判据。
+
+    `card_id` 给了就精确到"这一张牌"（`kardsmem.matchlog.MatchLog.receipt`
+    的同名参数），不只是"我方发生过这个类型的动作"——出牌类调用（`play_unit`/
+    `play_event`）都该传，别的（攻击/结束回合）没有单一 card_id 概念就不传。"""
     if mark is None:
         return None, []
     m = _matchlog()
     if not m:
         return None, []
-    r = m.receipt(mark, action_type, timeout=timeout)
+    r = m.receipt(mark, action_type, timeout=timeout, card_id=card_id, card_field=card_field)
     return bool(r["ok"]), r["actions"]
 
 
@@ -416,7 +420,7 @@ def pick_target(st, field, exclude=()):
 def _blocked_by_pick(what):
     """选择界面开着时，出牌/移动/攻击全部无效。
 
-    ★ `act_end` 一直有这道护栏，其他动作没有 —— 于是预报面板一开，
+    ★ `end_of_turn` 一直有这道护栏，其他动作没有 —— 于是预报面板一开，
       自动对局就在那里空转：每次拖拽都"成功发出鼠标事件"、每次 k 都不变。
       而且面板还会被翻页收到屏幕右侧（只剩一个 `<` 箭头），
       这时屏幕上**看不到选择界面**但 chooseOneActive 仍为 1。
@@ -434,10 +438,69 @@ def _blocked_by_pick(what):
     return True
 
 
-def act_deploy(card_id, target_id=None, force=False):
-    """出牌。自动处理两种目标语义：
-       * 指令(order)且 needs_hand_target → 直接把牌拖到目标上
-       * 单位且 needs_hand_target       → 先拖到后排部署，再点目标
+# 占战场格位的卡种类（BA.CARD_TYPES 里除 order/location/gotcha/wildcard 外的全部）。
+# ★ 2026-09-25 从 play_card_from_hand 里拆出来的分野依据：不占格位的指令卡（如 US WEATHER
+#   BUREAU、EXPANSION 这类无 needs_hand_target 的 order）曾被塞进"普通出牌"分支，
+#   跟单位共用 deploy_slots() 算出来的战场格坐标当落点——指令卡根本不是拖到格子上
+#   而是拖到场地随便一点，落到一个刚好被别的单位占用/不存在的"格位"坐标上，实机连
+#   拖 4 次全部 played=False（US WEATHER BUREAU / 15th ENGINEERS 撞见过，见规格）。
+UNIT_TYPES = {"tank", "fighter", "bomber", "infantry", "artillery",
+              "antiair", "antitank", "tankdestroyer"}
+
+
+def _deploy_cost_gate(card, st, force):
+    """出牌前的费用自检，play_event/play_unit 共用。
+
+    ★ 盘面变得很快，上一条命令读到的指挥点可能已经过期；不拦的话重试阶梯会
+    拿着不够的钱连拖 3 次，每次都"成功发出鼠标事件"却什么也没发生。
+    注意：实际花费 = 卡面费用 + Σ 被指向目标的 KreditsTax_AsEnemyTarget（§4.10），
+    所以这里只拦"卡面费用都不够"这种确定拦得住的情况，不做更精细的推断。
+
+    ★ §7.6f：进程外判据**只挑不判**——这里仍然拦是因为这是少数几个确定拦得住的
+    情形，但**必须留强制口**，判据错了不能把正确招法永久屏蔽掉。
+    """
+    k_now = (st.kredits or {}).get("local")
+    cost = card.kredit_cost if card.kredit_cost is not None else None
+    if k_now is not None and cost is not None and cost > k_now and not force:
+        print("指挥点不够：%s 要 %s 点，现在只有 %s 点（turn=%s）—— 不出手"
+              "（确信要发就传 force=True）"
+              % ((card.name or card.card_id), cost, k_now, st.turn))
+        return False
+    return True
+
+
+def _drag_from_hand_and_confirm(h, f, st, card, card_id, drop, label, mk):
+    """`play_event`/`play_select` 共用的拖拽+回执循环。返回 True/False。"""
+    xs, info = hand_x_list(st, card, f)
+    print("  %s %s -> drop @%s  (hand n=%s probes=%s left=%s)" % (
+        label, card_id, drop, info[0], info[1], info[2]))
+    for x in xs:
+        deploy.drag_deploy(h, x, HAND_Y, drop=drop, hover_wait=SETTLE_HAND)
+        time.sleep(0.9)
+        after = src().snapshot()
+        got, _acts = _receipt(mk, "XActionPlayCardFromHand", timeout=1.2, card_id=card_id)
+        played = got if got is not None else (
+            find_card(after, card_id) is None
+            or (after.kredits.get("local") or 0) != (st.kredits.get("local") or 0))
+        if played:
+            snap(h, "02_%s_%s" % (label, card_id))
+            print("   -> played at hand_x=%s" % x)
+            return True
+    snap(h, "03_fail_%s_%s" % (label, card_id))
+    print("   -> FAILED")
+    for t in _notify_texts():
+        print("  〔游戏提示〕%s" % t)
+    return False
+
+
+def play_event(card_id, force=False):
+    """打**不需要指向**的指令卡（`needs_hand_target=False` 的 order）。
+
+    §11 卡牌覆盖清单里"无需额外交互"那一类里属于 order 的部分——不占战场格位，
+    也不用挑目标，**没有 `target_id` 参数**：这张牌打出去这件事本身就不涉及
+    "指向谁"，硬塞一个用不上的参数只会让调用方误以为可以传点什么进来。
+    拖拽落点是场地中央随便一点，那只是个手势终点，不是"格位"，落在哪个像素
+    跟游戏怎么处理这张牌无关。needs_hand_target=True 的指令卡走 `play_select`。
     """
     if _blocked_by_pick("出牌"):
         return False
@@ -446,69 +509,82 @@ def act_deploy(card_id, target_id=None, force=False):
     if card is None:
         print("card %s not in local hand" % card_id)
         return False
-
-    # ★ 出牌前的费用自检。盘面变得很快，上一条命令读到的指挥点可能已经过期；
-    #   不拦的话重试阶梯会拿着不够的钱连拖 3 次，每次都"成功发出鼠标事件"却什么也没发生。
-    #   注意：实际花费 = 卡面费用 + Σ 被指向目标的 KreditsTax_AsEnemyTarget（§4.10），
-    #   所以这里只拦"卡面费用都不够"这种确定拦得住的情况，不做更精细的推断。
-    k_now = (st.kredits or {}).get("local")
-    cost = card.kredit_cost if card.kredit_cost is not None else None
-    if k_now is not None and cost is not None and cost > k_now and not force:
-        # ★ §7.6f：进程外判据**只挑不判**。这里仍然拦，是因为"卡面费用都不够"
-        #   是少数几个确定拦得住的情形（不拦会拿着不够的钱连拖 3 次）。
-        #   但**必须留强制口** —— 判据错了不能把正确招法永久屏蔽掉。
-        print("指挥点不够：%s 要 %s 点，现在只有 %s 点（turn=%s）—— 不出手"
-              "（确信要发就传 force=True）"
-              % ((card.name or card_id), cost, k_now, st.turn))
+    if card.needs_hand_target:
+        print("card %s 需要指向目标，请用 play_select(card_id, target_id)" % card_id)
         return False
-
-    # 指令 + 需要目标 → 直接拖到目标
-    if card.needs_hand_target and card.card_type == "order":
-        tid, tpos = pick_target(st, field, exclude=(target_id,) if target_id else ())
-        if target_id:
-            m, _ = screen_map(st, field)
-            tpos = m.get(target_id)
-        if tpos is None:
-            print("order %s needs a target but none resolvable" % card_id)
-            return False
-        xs, info = hand_x_list(st, card, f)
-        mk = _mark()
-        print("  order %s -> target %s @%s  (hand n=%s probes=%s left=%s)" % (
-            card_id, target_id or tid, tpos, info[0], info[1], info[2]))
-        for x in xs:
-            ok = deploy.drag_deploy(h, x, HAND_Y, drop=tpos, hover_wait=SETTLE_HAND)
-            time.sleep(0.9)
-            after = src().snapshot()
-            got, _acts = _receipt(mk, "XActionPlayCardFromHand", timeout=1.2)
-            played = got if got is not None else (
-                find_card(after, card_id) is None
-                or (after.kredits.get("local") or 0) != (st.kredits.get("local") or 0))
-            if played:
-                snap(h, "02_order_%s" % card_id)
-                print("   -> played at hand_x=%s" % x)
-                return True
-        snap(h, "03_fail_order_%s" % card_id)
-        print("   -> FAILED")
+    if not _deploy_cost_gate(card, st, force):
         return False
-
-    # 普通出牌（单位/非指向指令）
     mk = _mark()
-    occupied = [int(u["cx"]) for u in (field.get("our_support") or [])]
-    rows = [r for r in (field.get("rows") or []) if r.get("side") == "our"]
-    y = int(rows[-1]["cy"]) if rows else 526
-    slots = deploy_slots(occupied, y) or [(640, y)]
+    return _drag_from_hand_and_confirm(h, f, st, card, card_id, (640, 526), "event", mk)
+
+
+def play_select(card_id, target_id=None, force=False):
+    """打**需要指向目标**的指令卡（`needs_hand_target=True` 的 order，
+    §11 卡牌覆盖清单里"指向"那 49 张）——直接把牌拖到目标上，跟单位部署
+    完全是两码事（不占格位、不存在"部署后再选"这一步，指向就是打出的动作本身）。
+
+    `target_id` 不给就用 `pick_target()` 挑一个（攻高且未被压制的敌方单位优先，
+    其次前线，最后总部）。
+    """
+    if _blocked_by_pick("出牌"):
+        return False
+    h, f, st, field = read_all()
+    card = find_card(st, card_id)
+    if card is None:
+        print("card %s not in local hand" % card_id)
+        return False
+    if not _deploy_cost_gate(card, st, force):
+        return False
+
+    tid, tpos = pick_target(st, field, exclude=(target_id,) if target_id else ())
+    if target_id:
+        m, _ = screen_map(st, field)
+        tpos = m.get(target_id)
+    if tpos is None:
+        print("select %s needs a target but none resolvable" % card_id)
+        return False
+    mk = _mark()
+    return _drag_from_hand_and_confirm(h, f, st, card, card_id, tpos, "select", mk)
+
+
+def play_unit(card_id, target_id=None, force=False):
+    """打单位卡（占战场格位：tank/fighter/bomber/infantry/artillery/antiair/
+    antitank/tankdestroyer）。从 deploy_slots() 算出的空位表里挑一个丢过去；
+    部署后还要选目标的（needs_hand_target），落地后再点目标。
+    """
+    if _blocked_by_pick("出牌"):
+        return False
+    h, f, st, field = read_all()
+    card = find_card(st, card_id)
+    if card is None:
+        print("card %s not in local hand" % card_id)
+        return False
+    if not _deploy_cost_gate(card, st, force):
+        return False
+
+    mk = _mark()
     snap(h, "01_before_deploy_%s" % card_id)
-    for (dx, dy) in slots[:2]:
+    # ★ 2026-09-25：occupied/y/slots 曾经在循环外算一次就定死（用函数入口那个
+    #   陈旧的 `field`），第二次重试时盘面可能已经变了（比如上一次尝试其实
+    #   悄悄成了、只是回执误判成没成，或者对局动画追上来了），拿着过期的空位
+    #   表硬拖，落点撞到已经有牌的格子上，游戏自然收不到——每次重试前都用
+    #   `read_field_fresh(h)` 现算一次，不复用函数入口那份快照。
+    for _attempt in range(2):
         cur = src().snapshot()
         c2 = find_card(cur, card_id)
         if c2 is None:
             return True
+        fresh_field = read_field_fresh(h)
+        occupied = [int(u["cx"]) for u in (fresh_field.get("our_support") or [])]
+        rows = [r for r in (fresh_field.get("rows") or []) if r.get("side") == "our"]
+        y = int(rows[-1]["cy"]) if rows else 526
+        dx, dy = (deploy_slots(occupied, y) or [(640, y)])[0]
         xs, info = hand_x_list(cur, c2, f)
         for x in xs[:2]:
             ok = deploy.drag_deploy(h, x, HAND_Y, drop=(dx, dy), hover_wait=SETTLE_HAND)
             time.sleep(0.85)
             mid = src().snapshot()
-            got, _acts = _receipt(mk, "XActionPlayCardFromHand", timeout=1.2)
+            got, _acts = _receipt(mk, "XActionPlayCardFromHand", timeout=1.2, card_id=card_id)
             played = got if got is not None else (
                 (find_card(mid, card_id) is None)
                 or ((mid.kredits.get("local") or 0) != (cur.kredits.get("local") or 0)))
@@ -516,9 +592,6 @@ def act_deploy(card_id, target_id=None, force=False):
                 card_id, x, dx, dy, ok, cur.kredits.get("local"),
                 mid.kredits.get("local"), played))
             if played:
-                # ★ 单位若还要选目标：现在点目标
-                if c2.needs_hand_target or find_card(mid, card_id) is None and c2.needs_hand_target:
-                    pass
                 snap(h, "02_after_deploy_%s" % card_id)
                 return True
             # ★ 没离手：如果是"部署后等选目标"，卡会还留在手里 —— 去点目标
@@ -546,6 +619,32 @@ def act_deploy(card_id, target_id=None, force=False):
     return False
 
 
+def play_card_from_hand(card_id, target_id=None, force=False):
+    """出牌总入口，名字对应动作流里的 `XActionPlayCardFromHand`——三种打出
+    方式（`play_unit`/`play_select`/`play_event`）最终都是这一个动作类型，
+    按卡种类 + 是否指向分派给其中之一：
+
+        单位（占格位，target_id 若给是**部署后**再点的目标）  -> play_unit
+        指令 且 needs_hand_target=True（直接拖到目标上）        -> play_select
+        指令 且 needs_hand_target=False（不涉及"指向谁"）       -> play_event
+
+    不确定具体是哪种打出方式、只想"打这张牌"时调这个；已经知道是哪种就
+    直接调对应的子函数，语义更明确（尤其 play_event 干脆没有 target_id
+    形参，调用方不会被诱导传一个用不上的目标），也不会像这个分派函数
+    一样多做一次 read_all()。
+    """
+    st = read_all()[2]
+    card = find_card(st, card_id)
+    if card is None:
+        print("card %s not in local hand" % card_id)
+        return False
+    if card.card_type in UNIT_TYPES:
+        return play_unit(card_id, target_id=target_id, force=force)
+    if card.needs_hand_target:
+        return play_select(card_id, target_id=target_id, force=force)
+    return play_event(card_id, force=force)
+
+
 def read_field_fresh(h):
     f = win.capture_client_bgr(h, allow_screen_fallback=True)
     return B.read_field(f, debug=False) if (B and f is not None) else {}
@@ -563,7 +662,8 @@ def deploy_slots(occupied, y, lo=300, hi=985, pitch=143, min_gap=105, center=640
     return out
 
 
-def act_move(card_id, x, y, settle=0.20, force=False):
+def move_card_to_line(card_id, x, y, settle=0.20, force=False):
+    """对应动作流 `XActionMoveCardToLine`。"""
     if _blocked_by_pick("移动"):
         return False
     h, f, st, field = read_all()
@@ -621,8 +721,10 @@ def _state_sig(st):
             len(st.discard("local")), len(st.discard("enemy")))
 
 
-def act_attack(card_id, target, retry=True, force=False):
-    """★ `force=True`：越过下面几道"进程外判据" —— §7.6f「判据只挑不判」，
+def attack_card(card_id, target, retry=True, force=False):
+    """对应动作流 `XActionAttackCard`。
+
+    ★ `force=True`：越过下面几道"进程外判据" —— §7.6f「判据只挑不判」，
     拒绝必须能强制越过，否则判据算错一次就把正确招法永久屏蔽掉。
     `_blocked_by_pick` 不算判据（是"选择界面开着时任何动作都不生效"这个
     机械事实，见 CLAUDE.md 环境坑），`force` 不越过它。
@@ -774,15 +876,16 @@ SURRENDER_XY = (1134, 57)
 SETTINGS_XY = (1134, 24)
 
 
-def act_surrender(confirm=False):
-    """投降认输。
+def surrender(confirm=False):
+    """投降认输，对应动作流 `XActionSurrender`（`agent/view.py::ACTION_ZH`
+    里有登记，未接 `receipt()`）。
 
     ★ 这是**不可逆**的动作，而且没有二次确认界面 ——
       所以这里自己做一道闸：`confirm=True` 才真的点下去。
       （规格 §7.6e：点完直接结算，没有"你确定吗"那一步。）
     """
     if not confirm:
-        print("act_surrender 是不可逆的，而且游戏**没有**二次确认 —— "
+        print("surrender 是不可逆的，而且游戏**没有**二次确认 —— "
               "确定要投降请传 confirm=True")
         return False
     h = hwnd()
@@ -916,8 +1019,10 @@ def act_pick(index, index2=None):
 PICK_HAND_OK = (639, 564)      # 手牌目标选择的"确认"键 —— 与换牌的确认(638,667)**不是**同一个位置
 
 
-def act_pick_hand(index):
-    """满足"部署：选择 1 张手牌"这类选择（`isSelectingHandTarget@0xC21==1`）。
+def hand_target_selected(index):
+    """满足"部署：选择 1 张手牌"这类选择（`isSelectingHandTarget@0xC21==1`），
+    对应动作流 `XActionHandTargetSelected`（已实机验证，见
+    `agent/record.py::MINE_LABEL_FIELDS`）。
 
     这是与抉择/预报**不同的第三种**选择界面：候选就是自己的手牌，不在屏幕中央
     那一排，所以 `act_pick` 的 PICK_X 完全用不上。流程是**两下**：
@@ -1075,7 +1180,7 @@ def preflight(card_id=None, target=None, action=None):
     """动手前的自检（§7.7），汇总成一条命令，不动鼠标。
 
     ★ 2026-09-24：§7.7 原始 5 步清单里第 3/4 步（guard/pinned）已经被
-    2026-09-24 那次重构吸收进 `act_attack`/`agent.legality.can_attack`
+    2026-09-24 那次重构吸收进 `attack_card`/`agent.legality.can_attack`
     本身（判据统一成一条 `CanAttack`，不用再在这里单独查一遍）；第 5 步
     （回读内存判成败）是 `_mark()`/`_receipt()` 已经在做的事，也不用这里
     重复。这个函数**剩下真正有增量价值的**只有第 1 步（选择界面有没有
@@ -1085,7 +1190,7 @@ def preflight(card_id=None, target=None, action=None):
 
     参数都可选：不给 `card_id` 只报选择界面状态；给了 `card_id`（+可选
     `target`/`action`）额外跑一次 `can_attack`/`can_move`，仅供参考，
-    **不拦任何东西**——真正的拦截逻辑仍然在 `act_attack`/`act_move`
+    **不拦任何东西**——真正的拦截逻辑仍然在 `attack_card`/`move_card_to_line`
     自己身上，这里只是"提前看一眼，少白跑"，不是又一道判据。
     """
     ps = pick_state()
@@ -1131,7 +1236,8 @@ def preflight(card_id=None, target=None, action=None):
     return out
 
 
-def act_end():
+def end_of_turn():
+    """对应动作流 `XActionEndOfTurn`。"""
     ps = pick_state()
     if ps and ps["choose_active"]:
         how = ("`ops.py pickhand <index>`（手牌目标，要点牌+确认两下）"
@@ -1213,24 +1319,24 @@ def main():
         if not d:
             print("盘面上没有卡（不在对局中？）")
     elif cmd == "play":
-        act_deploy(int(sys.argv[2]), int(sys.argv[3]) if len(sys.argv) > 3 else None)
+        play_card_from_hand(int(sys.argv[2]), int(sys.argv[3]) if len(sys.argv) > 3 else None)
     elif cmd == "front":
         st = src().snapshot()
         x = int(sys.argv[3]) if len(sys.argv) > 3 else 640
-        act_move(int(sys.argv[2]), x, FRONT_Y)
+        move_card_to_line(int(sys.argv[2]), x, FRONT_Y)
     elif cmd == "attack":
-        act_attack(int(sys.argv[2]), sys.argv[3] if len(sys.argv) > 3 else "hq")
+        attack_card(int(sys.argv[2]), sys.argv[3] if len(sys.argv) > 3 else "hq")
     elif cmd == "move":
-        act_move(int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]))
+        move_card_to_line(int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]))
     elif cmd == "surrender":
-        act_surrender(confirm="--yes" in sys.argv)
+        surrender(confirm="--yes" in sys.argv)
     elif cmd == "end":
-        act_end()
+        end_of_turn()
     elif cmd == "pick":
         act_pick(int(sys.argv[2]) if len(sys.argv) > 2 else 0,
                  int(sys.argv[3]) if len(sys.argv) > 3 else None)
     elif cmd == "pickhand":
-        act_pick_hand(int(sys.argv[2]) if len(sys.argv) > 2 else 0)
+        hand_target_selected(int(sys.argv[2]) if len(sys.argv) > 2 else 0)
     elif cmd == "pending":
         print(pick_state())
     elif cmd == "next":

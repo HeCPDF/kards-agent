@@ -132,9 +132,8 @@ class Server:
                          for e in ev)
 
     def t_wait_my_turn(self, timeout=300):
-        import ops
         a = self.session()
-        ok = ops.wait_our_turn(limit=float(timeout))
+        ok = a.wait_our_turn(limit=float(timeout))
         a.snapshot()
         lines = ["轮到我方了" if ok else "没等到（对局结束或超时）"]
         ev = a.events()
@@ -166,10 +165,16 @@ class Server:
             label, r["waited"],
             ("\n游戏提示：" + "；".join(dict.fromkeys(msgs))) if msgs else "")
 
+    @staticmethod
+    def _judge_name(r: dict) -> str:
+        """这句话是谁说的：游戏自己 / 进程外重算（措辞别混）。"""
+        return "游戏自己" if r.get("source") == "game" else "进程外判据"
+
     def t_play(self, card, target=None, force=False):
         """★ 2026-09-24 F10：出牌预检接上了，跟 `t_attack` 同一套模式
-        （`agent.legality.Legality.can_play_from_hand`，只挑不判）。"""
-        import ops
+        （只挑不判）。★ 2026-09-25：预检默认**问游戏自己的总闸**
+        （`BP_Logic_C::CanPlayCardFromHand`，`agent/precheck.py`），
+        问不到才退回 `agent.legality.Legality.can_play_from_hand`。"""
         from .session import ACTION_TYPES
         a = self.session()
         c = a.resolve(str(card))
@@ -189,16 +194,26 @@ class Server:
         if not force:
             r = a.can_play(c, tcard)
             if r.get("ok") and r.get("can") is False:
-                return ("✘ 进程外判据说不行：%s\n"
-                        "   判据可能有缺漏 —— 确认要发就加 force=true"
-                        % (r.get("reason_zh") or r.get("reason")))
+                return ("✘ %s说不行：%s\n"
+                        "   预检只挑不判 —— 确认要发就加 force=true"
+                        % (self._judge_name(r), r.get("reason_zh") or r.get("reason")))
             if not r.get("ok"):
                 note = "（判据没算出来：%s —— 照发）\n" % (r.get("stopped") or "")[:60]
-        return note + self._act("出牌 " + (a.tr(c.name) or "?"), ops.act_deploy,
+        a = self.session()
+        is_unit = (c.card_type or "") not in ("order", "counter", "gotcha")
+
+        def _play(cid, tg=None, f=False):
+            """语义分派（2026-09-27）：无目标 / 单位两阶段 / 指令一次成交。"""
+            if tg is None:
+                return a.play(cid, force=bool(f))
+            if is_unit:
+                return a.deploy_unit_with_target(cid, tg)
+            return a.play_order_on_unit(cid, tg)
+
+        return note + self._act("出牌 " + (a.tr(c.name) or "?"), _play,
                                 ACTION_TYPES["play"], c.card_id, tid, bool(force))
 
     def t_attack(self, unit, target, force=False):
-        import ops
         from .session import ACTION_TYPES
         a = self.session()
         c = a.resolve(str(unit))
@@ -210,25 +225,26 @@ class Server:
         if tgt is not None and not force:
             r = a.can_attack(c, tgt)
             if r.get("ok") and r.get("can") is False:
-                return ("✘ 进程外判据说不行：%s\n"
-                        "   判据可能有缺漏 —— 确认要发就加 force=true"
-                        % (r.get("reason_zh") or r.get("reason")))
+                return ("✘ %s说不行：%s\n"
+                        "   预检只挑不判 —— 确认要发就加 force=true"
+                        % (self._judge_name(r), r.get("reason_zh") or r.get("reason")))
             if not r.get("ok"):
                 note = "（判据没算出来：%s —— 照发）\n" % (r.get("stopped") or "")[:60]
         spec = self._attack_spec(a, tgt, str(target))
         if spec is None:
             return "认不出目标 %r" % target
-        # ★ 2026-09-24：这里原来漏传 force——`ops.act_attack` 自己那几道判据
+        # ★ 2026-09-24：这里原来漏传 force——`attack_card` 自己那几道判据
         #   （部署当回合/被压制/guard/防御侧 target_blockers）会照样拦住，
         #   跟本函数一开始"force 就不做预检"的意图对不上（shell.py 的 `attack !`
         #   踩过同一个坑，见 §11.2 那次 force 参数修复）。
         return note + self._act("攻击 " + str(target),
-                                lambda cid, tg: ops.act_attack(cid, tg, force=bool(force)),
+                                lambda cid, tg: a.attack(cid, tg, force=bool(force)),
                                 ACTION_TYPES["attack"], c.card_id, spec)
 
     @staticmethod
     def _attack_spec(a, tgt, token):
-        """短号 → `ops.act_attack` 的目标串。i 是**行内名次**，不是 locationNumber。"""
+        """短号 → `attack_card` 认的目标串（`hq` / `front<i>` / `back<i>`）。i 是**行内名次**，
+        不是 locationNumber。"""
         if tgt is None:
             return token if token == "hq" or token.startswith(
                 ("front", "back", "guard")) else None
@@ -247,9 +263,12 @@ class Server:
 
     def t_move(self, unit, force=False):
         """把我方支援阵线单位移到前线。★ 2026-09-24 F10b：跟 `t_attack` 同一套
-        预检模式，判据换成 `agent.legality.Legality.can_move`（借 `CanAttack`
-        的通用行动子集，游戏没有单独的 `CanMove`，见 legality.py 注释）。"""
-        import ops
+        预检模式。★ 2026-09-25：预检默认问**游戏自己**的
+        `BattleUtilityFunctions_C::CanMoveCardToLocation`（`agent/precheck.py`），
+        问不到才退回 `agent.legality.Legality.can_move`（借 `CanAttack` 的
+        通用行动子集——游戏没有单独的 `CanMove`，那句 2026-09-25 已更正，见 legality.py）。
+        ★ 2026-09-27：`CanMoveCardToLocation` 现在**默认不问**（问它要伪造
+        `PC->SelectedCard`）；移动合法性由游戏在提交时判。"""
         from .session import ACTION_TYPES
         a = self.session()
         c = a.resolve(str(unit))
@@ -259,19 +278,18 @@ class Server:
         if not force:
             r = a.can_move(c)
             if r.get("ok") and r.get("can") is False:
-                return ("✘ 进程外判据说不行：%s\n"
-                        "   判据可能有缺漏 —— 确认要发就加 force=true"
-                        % (r.get("reason_zh") or r.get("reason")))
+                return ("✘ %s说不行：%s\n"
+                        "   预检只挑不判 —— 确认要发就加 force=true"
+                        % (self._judge_name(r), r.get("reason_zh") or r.get("reason")))
             if not r.get("ok"):
                 note = "（判据没算出来：%s —— 照发）\n" % (r.get("stopped") or "")[:60]
         return note + self._act("把 %s 移到前线" % a.tr(c.name),
-                                lambda cid: ops.act_move(cid, 640, 380, force=bool(force)),
+                                lambda cid: a.move_up(cid, force=bool(force)),
                                 ACTION_TYPES["move"], c.card_id)
 
     def t_end_turn(self):
-        import ops
         from .session import ACTION_TYPES
-        return self._act("结束回合", ops.act_end, ACTION_TYPES["end"])
+        return self._act("结束回合", self.session().end_turn, ACTION_TYPES["end"])
 
     # ------------------------------------------------------------ 协议
     def tools_list(self):

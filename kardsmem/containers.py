@@ -168,6 +168,39 @@ def tmap_u8_to_intset(mem, addr: int) -> dict:
     return out
 
 
+def tmap_int_to_fstring(mem, addr: int) -> dict:
+    """`TMap<int32, FString>` 在 `addr` → `{int: str}`（空表返回 `{}`）。
+
+    ★ 2026-09-26 加，用途很具体：`BP_OnlineMatch_C::selectCardToDrawPending`
+    （`// 0x08F0`）**就是"当前正在等的"选牌"候选集** —— key = 触发卡 id，
+    value = `a;b;c` 三张候选牌的**内部名串**。它等于动作流里
+    `ZActionSelectCardToDrawPending{cardBeingPlayed, spawnCards}` 的内存本体
+    ⇒ 有了它才能**确定当前待选的是哪三张**（扫候选 actor 分不清"活的"与"已结算残留"）。
+
+    元素布局（跟 `CFT_*` 同一套推理，别硬试）：
+      `SetElement<TPair<int32, FString>>`：
+        +0x00 Key (int32，再补 4 字节对齐到 8)
+        +0x08 Value (FString = {TCHAR* Data@+0, int32 Num@+8, int32 Max@+12}，16 字节)
+        +0x18 HashNextId (int32)
+        +0x1C HashIndex  (int32)
+      ⇒ **元素 stride = 0x20**（32 字节；对齐由 FString 的 8 决定）。
+    """
+    out = {}
+    for elem_addr in sparsearray_slots(mem, addr, 0x20):
+        key = mem.i32(elem_addr)
+        if key is None:
+            continue
+        p = mem.ptr_or_zero(elem_addr + 0x08)
+        n = mem.i32(elem_addr + 0x10)
+        s = None
+        if p and n and 0 < n <= 4096:
+            b = mem.read(p, n * 2)
+            if b:
+                s = b.decode("utf-16-le", "replace").rstrip("\x00")
+        out[key] = s
+    return out
+
+
 def selftest() -> list:
     """离线断言：拿构造出来的假内存核对位图解析和空洞跳过逻辑，不需要游戏在跑。
 

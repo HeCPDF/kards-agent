@@ -1,0 +1,450 @@
+def _settle(v: float, floor: float) -> float:
+    """按 `KARDS_SETTLE_SCALE` 缩放并夹住下限。`floor` 由调用方给：
+    悬停用 `SETTLE_FLOOR`（红线），微停顿用 `SETTLE_FLOOR_MINOR`。
+    ⚠ 早先的写法对所有四个都套了 0.3 ⇒ 微停顿被抬到 0.3、手势反而从 1.91 s 变成 2.20 s。
+    """
+    import os as _os
+    try:
+        s = float(_os.environ.get("KARDS_SETTLE_SCALE", "1") or 1)
+    except ValueError:                                         # noqa: BLE001
+        s = 1.0
+    return max(floor, v * s)
+
+
+SETTLE_HOVER = _settle(SETTLE_HOVER, SETTLE_FLOOR)
+SETTLE_AFTER_DISPATCH = _settle(SETTLE_AFTER_DISPATCH, SETTLE_FLOOR_MINOR)
+SETTLE_AFTER_DOWN = _settle(SETTLE_AFTER_DOWN, SETTLE_FLOOR_MINOR)
+SETTLE_AFTER_TICK = _settle(SETTLE_AFTER_TICK, SETTLE_FLOOR_MINOR)
+
+# ★ 2026-09-26 用户区分了两种悬停（**语义不同，时长就该不同**）：
+#   * `SETTLE_HOVER_INSPECT`（1.5 s）—— **刻意看牌**（`inspect`）：友方手牌 / 场上卡都 1.5 s；
+#   * `SETTLE_HOVER_PLAY`（0.35 s）—— **出牌时的悬停**：那是"鼠标经过这张牌"然后拖出去，
+#     不是停下来读它 ⇒ 可以短得多（短，但**必须有** —— 悬停会被转发给对手，属信息流的一部分）。
+SETTLE_HOVER_INSPECT = _settle(1.5, SETTLE_FLOOR)
+SETTLE_HOVER_PLAY = _settle(0.35, SETTLE_FLOOR_MINOR)
+
+JS = r"""
+const mod = Process.getModuleByName("%(module)s");
+const peAddr = mod.base.add(ptr(%(pe_rva)d));
+const pe = new NativeFunction(peAddr, 'void', ['pointer', 'pointer', 'pointer']);
+const PE = %(pe_rva)d;
+
+function P(v) { return ptr(v); }
+
+/* 临时保住 frida 侧 alloc 出来的小缓冲（数组 dataPtr 等），防 GC 提前回收 */
+const KEEP = [];
+
+function callPE(obj, func, parms) {
+    pe(P(obj), P(func), parms);
+    return parms;
+}
+
+/* 通用 + 可选的**真实 TArray<UObject*>**：把 dataPtr/num/max 写进 parms 的 arrOff 处。
+   ★ 为什么需要它：`cardsCheckFunctions::CanAttack` 的 `cardsInAttackedLocation`
+     是**引用参数**（TArray<UBaseCardObject*>&），"防守方那一行有哪些卡"要靠调用方组
+     （战斗机拦截就靠它）。传空数组时，攻击者在**前线**的那些组合会让游戏崩/卡。
+   dataPtr 必须在**目标进程**里，所以数组也在这里 alloc（并临时留个引用防 GC）。
+   ★ `arrOff < 0` = **这次调用没有引用数组参数**，一个字节都不要碰 parms ——
+     写侧必须显式说"没有"，否则会在 `parms[0..15]` 上盖掉真实入参
+     （踩过：`CanMoveCardToLocation` 的 `Location@0x00` 被数组头写成了 0）。
+     越界也在这里挡住：`arrOff+16 > size` 直接抛，绝不写出 buffer 之外。 */
+function callRawArrImpl(obj, func, hexIn, arrOff, arrPtrs) {
+    const bytes = [];
+    for (let i = 0; i < hexIn.length; i += 2) bytes.push(parseInt(hexIn.substr(i, 2), 16));
+    const size = Math.max(bytes.length, 1);
+    const p = Memory.alloc(size);
+    if (bytes.length) p.writeByteArray(bytes);
+    const n = (arrPtrs || []).length;
+    if (arrOff !== null && arrOff !== undefined && arrOff >= 0) {
+        if (arrOff + 16 > size) throw new Error('arrOff ' + arrOff + ' 超出 parms(' + size + ')');
+        let data = NULL;
+        if (n > 0) {
+            data = Memory.alloc(n * 8);
+            for (let i = 0; i < n; i++) data.add(i * 8).writePointer(P(arrPtrs[i]));
+            KEEP.push(data);
+            while (KEEP.length > 16) KEEP.shift();
+        }
+        p.add(arrOff).writePointer(data);
+        p.add(arrOff + 8).writeS32(n);
+        p.add(arrOff + 12).writeS32(n);
+    } else if (n > 0) {
+        throw new Error('给了 ' + n + ' 个数组元素却没给 arrOff');
+    }
+    callPE(obj, func, p);
+    return p.readByteArray(size);
+}
+
+// ---------------------------------------------------------------------
+// ★ 2026-09-25：GObjects 全量扫描搬进 Frida 进程内执行。
+// 原因：Python 这边每读一个字段就是一次跨进程 ReadProcessMemory（几十微秒的系统
+// 调用开销），12 万+对象、每个至少读 flags+class+类名 3 次 ⇒ 4~10s。Frida 的
+// agent 脚本运行在**目标进程自己的地址空间里**，同样的指针解引用没有系统调用，
+// 量级从"微秒×N"降到"纳秒×N"。逻辑照搬 kardsmem/objects.py（GObjects 分块遍历）
+// 和 kardsmem/names.py（FNamePool 的 FName 解析），只是从 Python 挪成 JS。
+// ---------------------------------------------------------------------
+const GOBJ = mod.base.add(ptr(%(gobjects_rva)d));
+const NAMEPOOL = mod.base.add(ptr(%(namepool_rva)d));
+const ELEMENTS_PER_CHUNK = 0x10000;
+const ITEM_SIZE = 0x18;
+const OFF_UOBJ_FLAGS = 0x08;
+const OFF_UOBJ_CLASS = 0x10;
+const OFF_UOBJ_NAME = 0x18;
+const RF_CDO = 0x10;
+const POOL_BLOCKS_OFF = 0x10;
+const POOL_MAX_BLOCKS = 8192;
+
+const _blockCache = {};
+function poolBlock(idx) {
+    if (idx < 0 || idx >= POOL_MAX_BLOCKS) return null;
+    if (_blockCache[idx] !== undefined) return _blockCache[idx];
+    let p;
+    try { p = NAMEPOOL.add(POOL_BLOCKS_OFF + idx * 8).readPointer(); }
+    catch (e) { return null; }
+    if (p.isNull()) return null;
+    _blockCache[idx] = p;
+    return p;
+}
+
+function nameOfEntry(a, depth) {
+    if (a === null || a.isNull()) return null;
+    if (depth === undefined) depth = 0;
+    let head;
+    try { head = a.readU16(); } catch (e) { return null; }
+    const len = head >>> 6;
+    if (len === 0) {
+        if (depth >= 4) return null;
+        let nxt;
+        try { nxt = a.add(2).readS32(); } catch (e) { return null; }
+        if (nxt === null || nxt < 0) return null;
+        return nameAt(nxt, depth + 1);
+    }
+    if (len > 0x400) return null;
+    const wide = (head & 1) !== 0;
+    try {
+        return wide ? a.add(2).readUtf16String(len) : a.add(2).readCString(len);
+    } catch (e) { return null; }
+}
+
+function nameAt(idx, depth) {
+    if (idx === null || idx < 0) return null;
+    const b = poolBlock(idx >>> 16);
+    if (b === null) return null;
+    return nameOfEntry(b.add((idx & 0xFFFF) * 2), depth);
+}
+
+function fnameOf(objPtr, off) {
+    if (off === undefined) off = OFF_UOBJ_NAME;
+    let idx, number;
+    try {
+        idx = objPtr.add(off).readS32();
+        number = objPtr.add(off + 4).readS32();
+    } catch (e) { return null; }
+    if (idx < 0) return null;
+    const s = nameAt(idx, 0);
+    if (s === null) return null;
+    return (number > 0) ? (s + "_" + (number - 1)) : s;
+}
+
+/* 一次遍历 GObjects，归类出若干目标类名各自的活实例指针（十六进制字符串）。
+   等价于 kardsmem 里 `scan_classes()`，但整条循环跑在目标进程里。 */
+function scanClassesNative(wantNames, skipCdo) {
+    const want = {};
+    const out = {};
+    for (let i = 0; i < wantNames.length; i++) { want[wantNames[i]] = true; out[wantNames[i]] = []; }
+    let numElements, numChunks, chunksPtr;
+    try {
+        chunksPtr = GOBJ.readPointer();
+        numElements = GOBJ.add(0x14).readS32();
+        numChunks = GOBJ.add(0x1C).readS32();
+    } catch (e) { return {error: "GObjects 头读不出来: " + e.message}; }
+    for (let ci = 0; ci < numChunks; ci++) {
+        let c;
+        try { c = chunksPtr.add(ci * 8).readPointer(); } catch (e) { continue; }
+        if (c.isNull()) continue;
+        const lo = ci * ELEMENTS_PER_CHUNK;
+        const cnt = Math.min(ELEMENTS_PER_CHUNK, numElements - lo);
+        if (cnt <= 0) break;
+        let buf;
+        try { buf = c.readByteArray(cnt * ITEM_SIZE); } catch (e) { continue; }
+        const view = new DataView(buf);
+        for (let k = 0; k < cnt; k++) {
+            const off = k * ITEM_SIZE;
+            const lo32 = view.getUint32(off, true);
+            const hi32 = view.getUint32(off + 4, true);
+            if (lo32 === 0 && hi32 === 0) continue;
+            const p = ptr(hi32).shl(32).or(lo32);
+            if (skipCdo) {
+                let flags;
+                try { flags = p.add(OFF_UOBJ_FLAGS).readU32(); } catch (e) { continue; }
+                if (flags & RF_CDO) continue;
+            }
+            let cls;
+            try { cls = p.add(OFF_UOBJ_CLASS).readPointer(); } catch (e) { continue; }
+            if (cls.isNull()) continue;
+            const cname = fnameOf(cls, OFF_UOBJ_NAME);
+            if (cname !== null && want[cname]) out[cname].push(p.toString());
+        }
+    }
+    return out;
+}
+
+rpc.exports = {
+    scanClasses: function (wantNames, skipCdo) {
+        return scanClassesNative(wantNames, skipCdo !== false);
+    },
+    base: function () { return mod.base.toString(); },
+    pe: function () { return peAddr.toString(); },
+
+    call0: function (obj, func) {
+        callPE(obj, func, NULL);
+        return true;
+    },
+    /* 单指针入参；返回首个字节（用于 bool& success 这类出参） */
+    callPtr: function (obj, func, arg) {
+        const p = Memory.alloc(8);
+        p.writePointer(P(arg));
+        callPE(obj, func, p);
+        return p.readU8();
+    },
+    /* 单个标量入参（int32/枚举），ParmsSize=4 */
+    callI32: function (obj, func, v) {
+        const p = Memory.alloc(4);
+        p.writeS32(v);
+        callPE(obj, func, p);
+        return p.readU8();
+    },
+    /* 通用：按字节吃入参、返回出参十六进制（够用且不怕对齐） */
+    callRaw: function (obj, func, hexIn) {
+        const bytes = [];
+        for (let i = 0; i < hexIn.length; i += 2) bytes.push(parseInt(hexIn.substr(i, 2), 16));
+        const size = Math.max(bytes.length, 1);
+        const p = Memory.alloc(size);
+        if (bytes.length) p.writeByteArray(bytes);
+        callPE(obj, func, p);
+        return p.readByteArray(size);
+    },
+
+    /* 通用：按 [[objHex,off,kind,value],...] 写若干字段（回读一遍），然后调用一个函数。
+       全部在同一次 JS 执行里 —— 用来跑组合实验，避开引擎帧把值清掉的竞态。 */
+    writeAndCall: function (writes, callObj, callFunc) {
+        const back = [];
+        for (let i = 0; i < writes.length; i++) {
+            const w = writes[i];
+            const a = P(w[0]).add(w[1]);
+            if (w[2] === 's32') a.writeS32(w[3] | 0);
+            else if (w[2] === 'u8') a.writeU8(w[3] & 0xff);
+            else if (w[2] === 'u32') a.writeU32(w[3] >>> 0);
+            else if (w[2] === 'ptr') a.writePointer(P(w[3]));
+            /* f64：给 `BP_BoardCard_C::targetArrowFinalLength`（double）用 ——
+               真鼠标拖箭头会算出长度，我们不动鼠标 ⇒ 落地前必须自己写。 */
+            else if (w[2] === 'f64') a.writeDouble(w[3]);
+            else throw new Error('bad kind ' + w[2]);
+            if (w[2] === 'ptr') back.push(a.readPointer().toString());
+            else if (w[2] === 's32') back.push(a.readS32());
+            else if (w[2] === 'f64') back.push(a.readDouble());
+            else back.push(a.readU8());
+        }
+        if (callObj !== null && callObj !== undefined && callObj !== '') {
+            callPE(callObj, callFunc, NULL);
+        }
+        return back;
+    },
+    poke: function (obj, off, kind, value) {
+        const a = P(obj).add(off);
+        if (kind === 'u8') a.writeU8(value & 0xff);
+        else if (kind === 'u32') a.writeU32(value >>> 0);
+        else if (kind === 's32') a.writeS32(value | 0);
+        else if (kind === 'f32') a.writeFloat(value);
+        else if (kind === 'ptr') a.writePointer(P(value));
+        else throw new Error('bad kind ' + kind);
+        return true;
+    },
+    /* 写一个字段 + 立刻调用一个函数，**在同一次 JS 执行里**完成。
+       ★ 用途：箭头每帧会把它自己按"真实鼠标位置"算出来的 overCardID 重算一遍，
+         没有真实鼠标时那个值就是 0 —— 分两次 RPC 调用（写、再调用）中间会插进
+         引擎帧，写进去的值当场被清掉。实测：写 61 → 0.5s 后读到 0。
+         把"写 + 落地"塞进一次调用，窗口缩到微秒级。 */
+    pokeAndCall0: function (obj, off, kind, value, callObj, callFunc) {
+        const a = P(obj).add(off);
+        if (kind === 's32') a.writeS32(value | 0);
+        else if (kind === 'u8') a.writeU8(value & 0xff);
+        else if (kind === 'u32') a.writeU32(value >>> 0);
+        else if (kind === 'ptr') a.writePointer(P(value));
+        else throw new Error('bad kind ' + kind);
+        callPE(callObj, callFunc, NULL);
+        return true;
+    },
+    /* 通用 + 可选的**真实 TArray<UObject*>**：见上面 callRawArrImpl 的注释。
+       `arrOff < 0` = 这次调用没有引用数组参数。 */
+    callRawArr: function (obj, func, hexIn, arrOff, arrPtrs) {
+        return callRawArrImpl(obj, func, hexIn, arrOff, arrPtrs);
+    },
+    /* ★ 2026-09-25：**先临时写几个字段 → 调用 → 立刻还原**，全在同一次 JS 执行里。
+       用途：`CanMoveCardToLocation` 读的是 `PlayerController->SelectedCard`
+       （"当前正在拖的那张卡"，`BP_PlayerController_C::SelectedCard // 0x0950`），
+       预检阶段没有真实拖拽 ⇒ 它是 None ⇒ `IsValid` 不过 ⇒ **永远**回 False。
+       实测：6 个 (卡, 地点) 组合全 0，而同一次读 `SelectedCard` 就是 None。
+       把"假装正在拖这张卡"的那个字段临时写上再问，问题才从"拖拽中间态"
+       变成"这张卡能不能放进这行"。
+       ★ **必须还原**：`SelectedCard` 影响选中高亮（可见效果），不能留在那儿；
+         顺带把 cursor 那几个字段也还原掉（原来 `can_move_to` 会留在原地）。
+       `writes` 与 `writeAndCall` 同格式（这个那个只写不还原）。 */
+    callRawArrHold: function (writes, obj, func, hexIn, arrOff, arrPtrs) {
+        const saved = [];
+        for (let i = 0; i < writes.length; i++) {
+            const w = writes[i];
+            const a = P(w[0]).add(w[1]);
+            if (w[2] === 'ptr') { saved.push([a, 'ptr', a.readPointer()]); a.writePointer(P(w[3])); }
+            else if (w[2] === 's32') { saved.push([a, 's32', a.readS32()]); a.writeS32(w[3] | 0); }
+            else if (w[2] === 'u8') { saved.push([a, 'u8', a.readU8()]); a.writeU8(w[3] & 0xff); }
+            else throw new Error('bad kind ' + w[2]);
+        }
+        let out;
+        try {
+            out = callRawArrImpl(obj, func, hexIn, arrOff, arrPtrs);
+        } finally {
+            for (let i = saved.length - 1; i >= 0; i--) {
+                const s = saved[i];
+                if (s[1] === 'ptr') s[0].writePointer(s[2]);
+                else if (s[1] === 's32') s[0].writeS32(s[2]);
+                else s[0].writeU8(s[2]);
+            }
+        }
+        return out;
+    },
+    /* 攻击落地：**写 overCardID → 松手**，全在**同一次 JS 执行**里是必须的
+       （分两次 RPC 之间会插进引擎帧，箭头自己的 tick 会按真实鼠标重算几何）。
+       ★★ 2026-09-25 更正一条**写错过的结论**（handoff §二4 说 `spectatorArrowNewTarget`
+           "会把头部平面搬到目标卡的世界坐标"）：把它的字节码 dump 出来只有 4 条
+           （`overCardID = 参数`）——**它根本不碰几何**，箭头头部跟真实鼠标走。
+           `BP_Logic_C::GetTargetArrowTargetCard` 也只读 `OutActors[0]->overCardID`
+           （1.58 导出 `BP_Logic.cpp:7051`）⇒ 判定只认这个**字段**，不认几何。
+           所以"aim"就是"写字段"，没有别的机关；真正缺的那一步是**目标 actor 的悬停**
+           （见 Python 侧 `attack_card` 的注释），不在这个函数里。 */
+    /* 写若干字段 → 依次调用**两个**函数，全在同一次 JS 执行里。
+       用途：`BP_HandCard_C` 上同时有 `OnActorEndDrag`（出牌提交）和 `OnActorMouseUp`
+       （看着像清 touched/回盘的收尾）——真实松手很可能**两个都发**（handoff 里
+       标记为"还没验证过"的那条），带目标出牌要一次把两跳都复刻出来。 */
+    writeAndCall2: function (writes, objA, funcA, objB, funcB) {
+        const back = [];
+        for (let i = 0; i < writes.length; i++) {
+            const w = writes[i];
+            const a = P(w[0]).add(w[1]);
+            if (w[2] === 's32') a.writeS32(w[3] | 0);
+            else if (w[2] === 'u8') a.writeU8(w[3] & 0xff);
+            else if (w[2] === 'ptr') a.writePointer(P(w[3]));
+            else if (w[2] === 'f64') a.writeDouble(w[3]);
+            else throw new Error('bad kind ' + w[2]);
+            back.push(w[2] === 'ptr' ? a.readPointer().toString()
+                                     : (w[2] === 's32' ? a.readS32()
+                                        : (w[2] === 'f64' ? a.readDouble() : a.readU8())));
+        }
+        if (objA) callPE(objA, funcA, NULL);
+        if (objB) callPE(objB, funcB, NULL);
+        return back;
+    },
+    /* 写若干字段 → 依次调用若干函数（**带参/空参混合**），全在**同一次 JS 执行**里。
+       `calls` 每项 `[objHex, funcHex, hexIn]`；`hexIn` 空字符串 ⇒ 用 NULL 参数调。
+       用途（2026-09-26，攻击落地）——必须一次做完的三件事：
+         ① 写每个箭头的 `overCardID`（游戏按 OutActors[0] 读，见 Python 侧注释）
+         ② `箭头头部平面->K2_SetRelativeLocation(远点, false, …, false)`（带参）
+            —— `GetArrowLength()` = |头部平面 − 箭头原点|²，**真人拖拽会把这个平面拖远**；
+               我们不动真实鼠标 ⇒ 它只有一百多 ⇒ `IsTargetArrowLengthValid()`（>3000）不过
+               ⇒ `BP_BoardCard::OnActorMouseUp` 里的提交被跳过（动作流零新增）。
+         ③ 攻击者 actor 上 `OnActorMouseUp`（空参）+ 可选 `OnActorEndDrag`
+       拆成两次 RPC 中间会插引擎帧：箭头 tick 按真实鼠标把头部平面搬回去 ⇒ 又白做。 */
+    writeThenCalls: function (writes, calls) {
+        const back = [];
+        for (let i = 0; i < writes.length; i++) {
+            const w = writes[i];
+            const a = P(w[0]).add(w[1]);
+            if (w[2] === 's32') a.writeS32(w[3] | 0);
+            else if (w[2] === 'u8') a.writeU8(w[3] & 0xff);
+            else if (w[2] === 'ptr') a.writePointer(P(w[3]));
+            else if (w[2] === 'f64') a.writeDouble(w[3]);
+            else throw new Error('bad kind ' + w[2]);
+            back.push(w[2] === 'ptr' ? a.readPointer().toString()
+                                     : (w[2] === 's32' ? a.readS32()
+                                        : (w[2] === 'f64' ? a.readDouble() : a.readU8())));
+        }
+        for (let i = 0; i < calls.length; i++) {
+            const c = calls[i];
+            let p = NULL;
+            if (c[2]) {
+                const bytes = [];
+                for (let j = 0; j < c[2].length; j += 2) {
+                    bytes.push(parseInt(c[2].substr(j, 2), 16));
+                }
+                if (bytes.length) {
+                    p = Memory.alloc(bytes.length);
+                    p.writeByteArray(bytes);
+                }
+            }
+            callPE(P(c[0]), P(c[1]), p);
+        }
+        return back;
+    },
+    /* 写若干字段 → **带参调用**一次 → 按 mask 还原，全在同一次 JS 执行里。
+       用途（2026-09-25，两阶段第二阶段的"点目标"）：
+         `BP_Logic_C::GlobalMouseUp(目标actor, &bWasConsumed)` 会读
+         `箭头->overCardID` 与 `卡对象->targetOverride`，而箭头 tick 每帧按**真实鼠标**
+         重算它们 ⇒ 写和调用必须同一次执行（分两次 RPC 中间插一帧就被清）。
+       `writes` 每项可带第 5 个元素：1 = **不还原**。
+         ★ 箭头那几项就要用 1：`GlobalMouseUpBattle` 内部会
+           `DestroyAllActorsOfClass(BP_targetArrowRVX_C)`，再去还原已销毁 actor 的字段
+           是不必要的风险；而卡对象上的 `targetOverride` 必须还原（那是我们为复刻
+           鼠标悬停临时写的，游戏自己也是探测完就清，见 `BP_HandCard.cpp:4795`）。 */
+    writeCallRaw: function (writes, obj, func, hexIn, arrOff, arrPtrs) {
+        const saved = [];
+        for (let i = 0; i < writes.length; i++) {
+            const w = writes[i];
+            const a = P(w[0]).add(w[1]);
+            const keep = w.length > 4 && w[4];
+            let old;
+            if (w[2] === 'ptr') { old = a.readPointer(); a.writePointer(P(w[3])); }
+            else if (w[2] === 's32') { old = a.readS32(); a.writeS32(w[3] | 0); }
+            else if (w[2] === 'u8') { old = a.readU8(); a.writeU8(w[3] & 0xff); }
+            else throw new Error('bad kind ' + w[2]);
+            if (!keep) saved.push([a, w[2], old]);
+        }
+        let out;
+        try {
+            out = callRawArrImpl(obj, func, hexIn, arrOff, arrPtrs);
+        } finally {
+            for (let i = saved.length - 1; i >= 0; i--) {
+                const s = saved[i];
+                if (s[1] === 'ptr') s[0].writePointer(s[2]);
+                else if (s[1] === 's32') s[0].writeS32(s[2]);
+                else s[0].writeU8(s[2]);
+            }
+        }
+        return out;
+    },
+    peek: function (obj, off, kind) {        const a = P(obj).add(off);
+        if (kind === 'u8') return a.readU8();
+        if (kind === 'u32') return a.readU32();
+        if (kind === 's32') return a.readS32();
+        if (kind === 'ptr') return a.readPointer().toString();
+        throw new Error('bad kind ' + kind);
+    },
+};
+""" % {"module": MODULE, "pe_rva": B.RVA["UObject_ProcessEvent"],
+       "gobjects_rva": B.RVA["GObjects"], "namepool_rva": B.RVA["FNamePool"]}
+
+
+# ---------------------------------------------------------------------------
+# 跨脚本缓存（2026-09-25：用户指出的真问题——每次 `python -c`/`python ops_inject.py`
+# 都是全新进程，`Injector` 实例内的 `_fn_cache`/`_off_cache`/class 缓存一次都没能
+# 跨脚本复用，逼着每个短命脚本都从头再扫一遍。
+#
+# ★ 关键前提：`UClass`/`UFunction` 是**引擎启动时创建、进程存活期内地址不变**的
+#   反射元数据（不是每局对局都会重建的东西）——只要**目标游戏进程没重启**
+#   （`pid` 不变），这些指针在我们自己这边不同 `python` 进程之间复用是安全的。
+#   `字段偏移`（`props.find_prop` 算出来的）更稳，跟指针无关，永远能复用。
+#   ⚠ **不缓存实例指针**（手牌/牌组按钮/换牌UI 这些每次进新的一屏/一局都可能是
+#   新对象）——只缓存"类→类对象""类+字段名→偏移""类+函数名→UFunction*"这三样，
+#   这些是本来就该跨对局稳定的东西。缓存文件里存的 `pid` 跟当前游戏进程一对不上
+#   （比如重启过客户端）就整个作废重扫，不会拿旧进程的指针误用到新进程上。
+# ---------------------------------------------------------------------------
+_CACHE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".ops_inject_cache.json")
+

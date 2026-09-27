@@ -1,0 +1,79 @@
+{
+  "_note": "由 kardsmem.buildsrc 从 SDK dump + exe 生成；别手改 —— 重跑生成器",
+  "builds": {
+    "current": {
+      "key": "current",
+      "version": "1.60.27292.Steam",
+      "image_size": 164397056,
+      "exe_size": 160489984,
+      "md5": "395e470f06837f6e60ce5c53c6df2a22",
+      "rva": {
+        "GObjects": 153089248,
+        "GNames_decoy": 151924264,
+        "FName_AppendString": 20443136,
+        "UObject_ProcessEvent": 22662128,
+        "GWorld": 150349232,
+        "FNamePool": 152156608
+      },
+      "sources": {
+        "GObjects": "sdk:1.60.27292.Steam/Dumpspace/OffsetsInfo.json",
+        "GNames_decoy": "sdk:1.60.27292.Steam/Dumpspace/OffsetsInfo.json",
+        "FName_AppendString": "sdk:1.60.27292.Steam/Dumpspace/OffsetsInfo.json",
+        "UObject_ProcessEvent": "sdk:1.60.27292.Steam/Dumpspace/OffsetsInfo.json",
+        "GWorld": "sdk:1.60.27292.Steam/Dumpspace/OffsetsInfo.json",
+        "FNamePool": "exe:AppendString+lea r8,[rip+…]"
+      },
+      "notes": []
+    },
+    "launcher_default": {
+      "key": "launcher_default",
+      "version": "1.60.27292.launcher",
+      "image_size": 164380672,
+      "exe_size": 160476160,
+      "md5": "7c6a83c7d002d57d3581b87296eda98b",
+      "rva": {
+        "GObjects": 153076832,
+        "GNames_decoy": 151911848,
+        "FName_AppendString": 20442816,
+        "UObject_ProcessEvent": 22661808,
+        "FNamePool": 152144192,
+        "GWorld": 150336944
+      },
+      "sources": {
+        "GObjects": "sdk:1.60.27292.launcher/Dumpspace/OffsetsInfo.json",
+        "GNames_decoy": "sdk:1.60.27292.launcher/Dumpspace/OffsetsInfo.json",
+        "FName_AppendString": "sdk:1.60.27292.launcher/Dumpspace/OffsetsInfo.json",
+        "UObject_ProcessEvent": "sdk:1.60.27292.launcher/Dumpspace/OffsetsInfo.json",
+        "FNamePool": "exe:AppendString+lea r8,[rip+…]",
+        "GWorld": "live:.data 扫 UWorld 指针"
+      },
+      "notes": [
+        "GWorld 由实机 .data 扫描得到（dump 里是 0）"
+      ]
+    },
+    "launcher_157_orig": {
+      "key": "launcher_157_orig",
+      "version": "1.57.26586.launcher",
+      "image_size": 164343808,
+      "exe_size": 160441344,
+      "md5": "65866f78b3bc56138f3fa20030659b55",
+      "rva": {
+        "GObjects": 153043040,
+        "GNames_decoy": 151878056,
+        "FName_AppendString": 20442624,
+        "UObject_ProcessEvent": 22661616,
+        "GWorld": 150304176,
+        "FNamePool": 152110400
+      },
+      "sources": {
+        "GObjects": "sdk:1.57.26586.launcher/Dumpspace/OffsetsInfo.json",
+        "GNames_decoy": "sdk:1.57.26586.launcher/Dumpspace/OffsetsInfo.json",
+        "FName_AppendString": "sdk:1.57.26586.launcher/Dumpspace/OffsetsInfo.json",
+        "UObject_ProcessEvent": "sdk:1.57.26586.launcher/Dumpspace/OffsetsInfo.json",
+        "GWorld": "sdk:1.57.26586.launcher/Dumpspace/OffsetsInfo.json",
+        "FNamePool": "exe:AppendString+lea r8,[rip+…]"
+      },
+      "notes": []
+    }
+  }
+}

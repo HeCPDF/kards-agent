@@ -163,7 +163,7 @@ python -m kardsmem effects <CardID|UID> # 单卡：谁贴的、贴了什么、�
 >
 > ⚠ **压制（pin）是另一回事**（百科）：「被压制的单位**不能移动或攻击**，于所有者下个回合结束时移除」。
 > 内存里记为 `receivedAbilitiesFromCards['pinned']` + `buffsFromCards[…]['combat_pinned']`；
-> `ops.py` 的 `act_attack/act_move` 会先查它并拒绝。规则全文见 `reports/spec/KARDS-RULES-ENCYCLOPEDIA.md`。
+> `ops.py` 的 `attack_card/move_card_to_line` 会先查它并拒绝。规则全文见 `reports/spec/KARDS-RULES-ENCYCLOPEDIA.md`。
 
 **指向判据另有一个进程外工具**：`tools/card_targets.py`（把 20 个 `IsValidHandTarget` 蓝图覆写
 搬出进程执行，已 18/20 可跑）。见 `reports/report/TARGETING-EXTERNAL-EVAL.md`。

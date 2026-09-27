@@ -148,6 +148,18 @@ def _sub_actions(mem, addr: int) -> list:
     return out
 
 
+def _field_value(row: dict, name: str):
+    """按字段名字（`data` 里 `FActionValue2.name`，形如 `"0"`/`"1"`）取 `value`。
+
+    没有这个字段就返回 `None`——调用方（`receipt(..., card_id=...)`）拿它跟
+    `card_id` 比较，`None == card_id` 恒假，天然当"没匹配上"处理，不用额外判空。
+    """
+    for v in row.get("data") or []:
+        if v.get("name") == name:
+            return v.get("value")
+    return None
+
+
 def read_action(mem, a: int) -> dict:
     """一个 `FAction2` → dict。"""
     return {
@@ -175,33 +187,159 @@ class MatchLog:
         self._off = {}
         self._cls = None          # BP_OnlineMatch_C 的 UClass（my_side() 用）
         self._my_side_cache = None
+        self._last_scan_fail_t = 0.0   # 上次扫空的时间戳，给失败重试限速用
+        self._last_count = None        # 上次读到的 `AllMatchActions` 长度（单调性判据，见 is_stale()）
 
-    # ---- 定位 ----
-    def locate(self):
-        """找 `BP_OnlineMatch_C` 实例 + 四个数组的偏移。扫一遍 GObjects，**只做一次**。"""
-        if self._obj is not None:
-            return self._obj
-        from .objects import ObjectArray
+    # ---- 新鲜度（"怎么保证是最新的"）----
+    @property
+    def obj(self) -> int:
+        """当前缓存的 `BP_OnlineMatch_C` 指针（0 = 还没定位）。"""
+        return self._obj or 0
+
+    def pin(self, obj: int) -> int:
+        """**外部权威链给的对象指针，直接采用**（`Injector` 走 `GetLogic() → onlineMatch`）。
+
+        ★ 2026-09-26 用户问："那么怎么确保这个东西是最新的呢？"
+        答案分两半：
+          * **对象指针：每次现算，绝不长期缓存** —— 它可以从权威单例链上现推
+            （`BP_Logic_C::onlineMatch // 0x0810`，`BP_Logic_classes.hpp:130`），`GetLogic()`
+            换局必然给新对象 ⇒ 每次拿到的都是"当前这一局的"；
+          * **偏移表：可以永久缓存** —— 4 个数组字段的偏移只依赖类布局（同一构建不变）。
+        `pin()` 就是第二条路：对象变了就换对象，类变了才重算偏移。
+        """
+        if not obj:
+            return self._obj or 0
+        if obj != self._obj:
+            cls = None
+            try:
+                from .objects import ObjectArray
+                cls = ObjectArray(self.s).class_of(obj)
+            except Exception:                                  # noqa: BLE001
+                cls = None
+            self._obj = obj
+            self._last_count = None            # 换了对象 ⇒ 计数基线重来
+            if cls and cls != self._cls:
+                self._cls = cls
+                self._off = {}
+                self._resolve_offsets()
+        return self._obj
+
+    def _resolve_offsets(self) -> None:
+        """4 个数组字段的偏移（反射链现算，失败退回备注常量）。只依赖类布局 ⇒ 可缓存。"""
+        if not self._cls or self._off:
+            return
         from .props import find_prop
-        oa = ObjectArray(self.s)
-        pool = oa.pool()
-        cls = None
-        for p in oa.iter_objects():
-            c = oa.class_of(p)
-            if c and c != cls and pool.fname_of(c) == MATCH_CLASS:
-                cls, self._obj = c, p
-                break
-        self._cls = cls
-        if not self._obj:
-            self._obj = False
-            return False
         for key, name, hint in (
                 ("queue", "actionsQueue", OFF_ACTIONS_QUEUE),
                 ("current", "currentActionValues", OFF_CURRENT_VALUES),
                 ("all", "AllMatchActions", OFF_ALL_ACTIONS),
                 ("mine", "myMatchActions", OFF_MY_ACTIONS)):
-            pr = find_prop(self.s, cls, name)
+            pr = find_prop(self.s, self._cls, name)
             self._off[key] = pr["offset"] if pr else hint
+
+    def forget(self) -> None:
+        """丢掉"我定位到哪儿了"的全部缓存 ⇒ 下次 `locate()` 重新定位（快路径 ~5 ms）。
+
+        ★ 与 `is_stale()` 配对使用：判断"可能不新鲜了"就 `forget()` + `locate()`，
+        而不是像旧版那样把找到的指针**永久**当结论用。
+        """
+        self._obj = None
+        self._cls = None
+        self._off = {}
+        self._last_count = None
+        self._logic_cache = None
+
+    def is_stale(self) -> bool:
+        """**廉价新鲜度判据**（每次动作前调一次，成本 ≈ 2 次跨进程读）：
+
+        ① 缓存对象头上的 `UObject::Class` 还是当初那个 `BP_OnlineMatch_C` 的 UClass 吗
+           （直接读 `+0x10` 跟缓存值比，不建 ObjectArray / 不查 FNamePool ⇒ 极便宜）；
+        ② `AllMatchActions` 的 `count()` 是否**单调不减** —— 它只增不减（见 `count()` 注释），
+           所以"新值比上次小"**一定**是换了对象/换了局。
+        任一成立 ⇒ 调用方 `forget()` + `locate()`。
+        """
+        if not self._obj:
+            return True
+        from .objects import OFF_UOBJECT_CLASS
+        try:
+            cls_now = self.m.ptr(self._obj + OFF_UOBJECT_CLASS)
+        except Exception:                                      # noqa: BLE001
+            return True
+        if not cls_now or (self._cls and cls_now != self._cls):
+            return True
+        n = self.count()
+        if self._last_count is not None and n < self._last_count:
+            return True
+        if n:
+            self._last_count = n
+        return False
+
+    # ---- 定位 ----
+    def locate(self, retry_cooldown: float = 1.0):
+        """找 `BP_OnlineMatch_C` 实例 + 四个数组的偏移。**找到了**就只扫一遍、
+        缓存住；**没找到**（还没进对局）每次都重扫，不缓存失败结果。
+
+        ★ 重扫一次要走 `ObjectArray.iter_objects()` 对着可能几十万个活对象
+        逐个再读 class/flags（§ 见下面 bug 说明背景），实测 ~4s，不是免费的。
+        `agent/record.py` 的轮询循环一次 tick 里会连着调好几处依赖
+        `locate()` 的方法（`_silent()`/`_poll_matchlog()`/`_poll_mulligan()`），
+        真没在对局里时如果每次都硬重扫，一个 0.5s 的 tick 会被拖到 12s+。
+        `retry_cooldown` 秒内失败过就直接短路返回 `False`，不去重扫；
+        冷却过了才再扫一次——**只限速失败重试，找到了之后不受这个影响**
+        （成功路径永远命中上面的缓存分支）。
+
+        ★ 2026-09-25 真实事故修的 bug（用户报的"round2 录制文件 0 字节"）：
+        旧版 `if self._obj is not None: return self._obj` 把 `False`（没找到）
+        跟真正的对象指针一样**永久缓存**——`agent/record.py::Recorder` 在
+        `AgentSession(warm=True)` 里建 `MatchLog` 时，如果那一刻游戏还停在
+        牌组选择页（对局还没开始，`BP_OnlineMatch_C` 实例都还不存在），第一次
+        `locate()` 必然扫空、缓存成 `False`；哪怕几秒后真的进了对局、对象已经
+        创建出来，这个 `MatchLog` 实例也**再也不会重新扫一次**——`_poll_matchlog`/
+        `_poll_mulligan`/`_silent` 全靠 `log.locate()` 当闸门，全局静默，一条
+        样本都写不出来，正好对应实机撞见的"整局 0 字节"。
+        `_obj` 只在**真正找到**（truthy 指针）时才是"以后都不用再扫"的稳定状态；
+        `False`/`None` 只表示"这次没找到"，下次调用必须重新扫，不能当结论存住。
+        """
+        if self._obj:
+            return self._obj
+        import time as _t
+        now = _t.time()
+        if now - self._last_scan_fail_t < retry_cooldown:
+            return False
+        # ★ 2026-09-26：**快路径** —— 先看"当前关卡"的 actor（`ULevel::Actors`，实测 ~5 ms，
+        #   191 个对象），而不是动辄 4~6 s 的 GObjects 全扫（12 万对象）。
+        #   而且关卡作用域天然就是"当前这一局"（见 OPS-INJECT-HANDOFF §22.6）。
+        try:
+            from .world import Locator
+            from .objects import ObjectArray
+            _oa = ObjectArray(self.s)
+            _pool = _oa.pool()
+            for p in (Locator(self.m, self.s.base).actors() or []):
+                if _pool.fname_of(_oa.class_of(p)) == MATCH_CLASS:
+                    self._obj = p
+                    self._cls = _oa.class_of(p)
+                    self._last_count = None
+                    self._resolve_offsets()
+                    return self._obj
+        except Exception:                                      # noqa: BLE001
+            pass                                                    # 快路径失败 ⇒ 走下面的全扫
+        from .objects import ObjectArray
+        from .props import find_prop
+        oa = ObjectArray(self.s)
+        pool = oa.pool()
+        cls = None
+        found = None
+        for p in oa.iter_objects():
+            c = oa.class_of(p)
+            if c and c != cls and pool.fname_of(c) == MATCH_CLASS:
+                cls, found = c, p
+                break
+        self._obj = found
+        self._cls = cls
+        if not self._obj:
+            self._last_scan_fail_t = now
+            return False
+        self._resolve_offsets()
         return self._obj
 
     # ---- 读 ----
@@ -316,8 +454,9 @@ class MatchLog:
     def winner_side(self) -> Optional[int]:
         """`Logic.winnerSide`（`ESideEnum`）—— 直接回答 KARDS-NN.md §11
         "胜负从哪读最稳"：不用等结算页模板匹配，也不用扒 `XActionFinished`
-        参数。配 `has_won()`（`Logic.hasWonTheMatch`）更直白。**没有在真正
-        分出胜负的对局里验证过取值**，只确认字段存在、类型是 1 字节枚举。
+        参数。配 `has_won()`（`Logic.hasWonTheMatch`）更直白。**已实机验证**：
+        一局推平敌方总部后读到 `winner_side()=1`、`has_won()=True`，
+        跟 `my_side()=1`、真实战果一致（2026-09-24）。
         """
         pr, ptr = self._logic_field("winnerSide")
         if not pr:
@@ -371,7 +510,8 @@ class MatchLog:
 
     def receipt(self, mark: int, action_type: Optional[str] = None,
                 timeout: float = 2.0, interval: float = 0.05,
-                mine_only: bool = True) -> dict:
+                mine_only: bool = True, card_id: Optional[int] = None,
+                card_field: str = "0") -> dict:
         """★ **动作回执**：发完鼠标动作后，等动作流里长出新条目。
 
         为什么这是正解（2026-09-23 定）
@@ -379,7 +519,7 @@ class MatchLog:
         「我这一步到底生效没有」以前有两种判法，都不好：
 
           * 上游：动作执行后**用 OCR 抓屏幕横幅**。提示是给人看的、短命、有损。
-          * 我们：**看手牌有没有变**（`act_deploy` 里那段 `find_card(after,…) is None`）。
+          * 我们：**看手牌有没有变**（`play_card_from_hand` 里那段 `find_card(after,…) is None`）。
             这是**拿副作用猜因果** —— 手牌不变可能是没打出去，也可能是
             "部署后还要选目标、牌还留在手里"；手牌变了也可能是别的效果让你抽了牌。
             用户原话：**不合理。**
@@ -387,7 +527,7 @@ class MatchLog:
         动作流直接回答这件事：客户端认下来的动作**一定会进 `AllMatchActions`**，
         被本地判据拦掉的则根本不会出现。所以
 
-            mk = ml.mark();  ops.act_attack(...);  r = ml.receipt(mk, "XActionAttackCard")
+            mk = ml.mark();  ops.attack_card(...);  r = ml.receipt(mk, "XActionAttackCard")
 
         `r["ok"]` 就是权威答案，`r["actions"]` 还带着这一步的全部结构化参数。
 
@@ -410,6 +550,18 @@ class MatchLog:
           属于我方的部分"，不管中间混进了多少条对方的（反制触发的）动作。
           `mine_only=True`（默认）就做这件事；显式传 `False` 才回到旧行为
           （不分谁发的，只按类型筛）。
+
+        ⚠ **2026-09-25 加了 `card_id` 精确匹配**（用户指出）：光按 `action_type`
+          筛只能回答"我方发生过一次这类动作"，答不了"是**这张牌**打出去了吗"——
+          正常单线程调用不会撞（一次只发一个动作），但 `card_id` 恰好是唯一的
+          （每张牌实例一个 id，不是卡名），干脆精确到牌，`play_unit`/`play_event`
+          的重试循环拿着更硬的回执。字段位置按 `agent/record.py::MINE_LABEL_FIELDS`
+          （`XActionPlayCardFromHand` 的 subject 是 `data[0]`，已实机验证过）。
+          ★ **不能拿"这张 card_id 在整局历史里出现过"当"已经打出去了"的缓存**——
+          被撤回手牌的牌（比如部署后取消目标选择）可以再打一次，同一个 card_id
+          会在动作流里出现第二条 `XActionPlayCardFromHand`。所以这里**必须**
+          一直用 `since(mark)` 抓"这次动手之后新增的"，不能查全局历史，
+          不然会把"上一次打出去又被撤回"误判成"这一次也打成了"。
         """
         import time as _t
         t0 = _t.time()
@@ -419,6 +571,8 @@ class MatchLog:
                 rows = [r for r in rows if r.get("action_id") == -1]
             if action_type:
                 rows = [r for r in rows if r.get("action_type") == action_type]
+            if card_id is not None:
+                rows = [r for r in rows if _field_value(r, card_field) == card_id]
             if rows:
                 return {"ok": True, "actions": rows, "waited": _t.time() - t0}
             if _t.time() - t0 >= timeout:

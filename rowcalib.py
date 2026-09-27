@@ -31,8 +31,16 @@ LOG = os.path.join(agentpath.logs(), "rowcalib.jsonl")
 
 
 def _ops():
-    import ops
-    return ops
+    """旧实现 `ops.py` **已归档**为 `_archive/ops_mouse.py`（2026-09-27）。
+
+    本工具是**它的**标定工具（行模型 → 屏幕 x），所以按归档名导入；合成事件路径
+    （`ops_inject`）不需要屏幕坐标。别把新代码接到这个模块上。
+    """
+    import importlib
+    arch = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_archive")
+    if arch not in sys.path:
+        sys.path.insert(0, arch)
+    return importlib.import_module("ops_mouse")
 
 
 def sample(note=None) -> int:

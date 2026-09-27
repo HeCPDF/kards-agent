@@ -48,7 +48,8 @@ import agentpath  # noqa: F401,E402
 from .session import ACTION_TYPES, AgentSession  # noqa: E402
 
 BANNER = """KARDS agent shell —— 输入 help 看命令，q 退出
-★ 只读内存 + 模拟鼠标。读侧绝不写，动作一律走 ops.py。"""
+★ 读侧只读内存，动作一律走 `agent.session.AgentSession`（→ `ops_inject` 合成事件；
+  `ops.py`（旧物理鼠标实现）已于 2026-09-27 归档停用）。"""
 
 
 class Shell:
@@ -100,6 +101,11 @@ class Shell:
             print("  %s 是%s的卡" % (token, "我方" if c.side == "local" else "敌方"))
             return None
         return c
+
+    @staticmethod
+    def _judge_name(r: dict) -> str:
+        """这句话是谁说的：游戏自己 / 进程外重算。**别把两者混着叫"判据"。**"""
+        return ("游戏自己" if r.get("source") == "game" else "进程外判据")
 
     def _act(self, label: str, fn, action_type: Optional[str], *args):
         """跑一个鼠标动作，并用**动作流**判成败（不是看副作用）。"""
@@ -167,10 +173,9 @@ class Shell:
             print("  〔%s〕%s" % (tag.get(e.get("kind"), "提示"), e.get("text_zh") or e.get("text")))
 
     def do_wait(self, arg=""):
-        import ops
         print("  等我方回合……（Ctrl-C 中断）")
         try:
-            ok = ops.wait_our_turn(limit=float(arg) if arg.strip() else 300)
+            ok = self.a.wait_our_turn(limit=float(arg) if arg.strip() else 300)
         except KeyboardInterrupt:
             print("  中断")
             return
@@ -179,7 +184,6 @@ class Shell:
         self._drain()
 
     def do_play(self, arg=""):
-        import ops
         force = arg.strip().startswith("!")
         parts = arg.lstrip("! ").split()
         if not parts:
@@ -206,19 +210,42 @@ class Shell:
             return
         # ★ 2026-09-24 F10：出牌预检接上了——跑这张卡自己的 `CanPlayFromHand`
         #   覆写（438 张里有的才跑得动），跟 `attack`/`front` 一样只挑不判。
+        #   ★ 2026-09-25：默认改成**问游戏自己的总闸**（`BP_Logic_C::CanPlayCardFromHand`），
+        #   问不到才退回进程外 VM；措辞跟着 `source` 走，别把游戏的判据说成"进程外判据"。
         if not force:
             r = self.a.can_play(c, tcard)
             if r.get("ok") and r.get("can") is False:
-                print("  ✘ 进程外判据说不行：%s" % (r.get("reason_zh") or r.get("reason")))
-                print("     —— 判据可能有缺漏。确认要发就用： play ! %s" % " ".join(parts))
+                print("  ✘ %s说不行：%s" % (self._judge_name(r),
+                                          r.get("reason_zh") or r.get("reason")))
+                print("     —— 预检只挑不判。确认要发就用： play ! %s" % " ".join(parts))
                 return
             if not r.get("ok"):
                 print("  （判据没算出来：%s —— 照发）" % (r.get("stopped") or "")[:60])
         self._act("出牌 %s%s%s" % (self.a.tr(c.name),
                                   ("→" + parts[1]) if tgt else "",
                                   "（强制）" if force else ""),
-                  lambda cid, tg: ops.act_deploy(cid, tg, force=force),
+                  self._play_fn(c, tgt, force),
                   ACTION_TYPES["play"], c.card_id, tgt)
+
+    def _play_fn(self, card, tgt, force: bool):
+        """出牌的执行口 —— **按语义分派**（2026-09-27 语义分层）：
+
+          * 无目标 ⇒ `play()`（拖到落点松手）；
+          * **单位** + 目标 ⇒ `deploy_unit_with_target()`（两阶段：落地 → 点目标）；
+          * **指令** + 目标 ⇒ `play_order_on_unit()`（松手那一次即成交）。
+
+        旧版一律走 `ops.play_card_from_hand` —— 那个实现把三条链塞在一个名字里，
+        而 `ops.py` 已归档。
+        """
+        is_unit = (card.card_type or "") not in ("order", "counter", "gotcha")
+
+        def fn(cid, tg=None):
+            if tg is None:
+                return self.a.play(cid, force=force)
+            if is_unit:
+                return self.a.deploy_unit_with_target(cid, tg)
+            return self.a.play_order_on_unit(cid, tg)
+        return fn
 
     def do_can(self, arg=""):
         """`can <我方单位>` —— 这个单位现在能打谁（进程外重算，只挑不判）。"""
@@ -232,7 +259,6 @@ class Shell:
         print(self.a.attack_targets(c)["text"])
 
     def do_attack(self, arg=""):
-        import ops
         force = arg.strip().startswith("!")
         parts = arg.lstrip("! ").split()
         if len(parts) < 2:
@@ -250,18 +276,19 @@ class Shell:
         if tgt is not None and not force:
             r = self.a.can_attack(c, tgt)
             if r.get("ok") and r.get("can") is False:
-                print("  ✘ 进程外判据说不行：%s" % (r.get("reason_zh") or r.get("reason")))
-                print("     —— 判据可能有缺漏。确认要发就用： attack ! %s" % " ".join(parts))
+                print("  ✘ %s说不行：%s" % (self._judge_name(r),
+                                          r.get("reason_zh") or r.get("reason")))
+                print("     —— 预检只挑不判。确认要发就用： attack ! %s" % " ".join(parts))
                 return
             if not r.get("ok"):
                 print("  （判据没算出来：%s —— 照发）" % (r.get("stopped") or "")[:60])
         self._act("用 %s 攻击 %s%s" % (self.a.tr(c.name), parts[1],
                                        "（强制）" if force else ""),
-                  lambda cid, tgt: ops.act_attack(cid, tgt, force=force),
+                  lambda cid, tgt: self.a.attack(cid, tgt, force=force),
                   ACTION_TYPES["attack"], c.card_id, t)
 
     def _attack_spec(self, token: str):
-        """短号 → `ops.act_attack` 认的目标串（`hq` / `front<i>` / `back<i>`）。
+        """短号 → `ops.attack_card` 认的目标串（`hq` / `front<i>` / `back<i>`）。
 
         ★ `front<i>` / `back<i>` 里的 i 是**该行内的名次**（按 slot 排序后的下标），
           **不是 `locationNumber`**。踩过一次：把 slot=2 直接写成 `back2`，
@@ -295,38 +322,36 @@ class Shell:
         return ("front%d" if c.location == "frontline" else "back%d") % i
 
     def do_front(self, arg=""):
-        import ops
         force = arg.strip().startswith("!")
         parts = arg.lstrip("! ").split()
         if not parts:
-            print("  用法：front <我方支援单位> [x]   （front ! … 强制发出）")
+            print("  用法：front <我方支援单位> [slot]   （front ! … 强制发出）")
             return
         c = self._card(parts[0], "local")
         if c is None:
             return
-        # ★ 2026-09-24 实机撞到：不给 x 时这里一直传 None 一路捅到
-        #   `win.client_to_screen(h, None, y)`，`TypeError` 崩给用户看。
-        #   `ops.py` 自己的 CLI（`front` 子命令）早就换成了默认 640（前线行中心，
-        #   `ROW_SPECS['frontline']['center']`），这里没跟着改。
-        x = int(parts[1]) if len(parts) > 1 else 640
+        # ★ 2026-09-27：不再有"落点 x"（那是物理鼠标的坐标）。新版走**合成事件**
+        #   （`move_to_front` 内部写 cursor 字段 + 搬 owner 箭头头平面过长度闸门），
+        #   站位用**前线空槽 slot** 表达；不给就自己挑一个空槽。
+        slot = int(parts[1]) if len(parts) > 1 else None
         # ★ 2026-09-24 F10b：移动预检接上了（借 `CanAttack` 的通用行动子集判据，
         #   `agent.legality.Legality.can_move`）。跟 `do_attack` 一样**只挑不判**：
         #   算出来不合法只是 reject，带 `!` 就照发；算不出来（stopped）一律放行。
         if not force:
             r = self.a.can_move(c)
             if r.get("ok") and r.get("can") is False:
-                print("  ✘ 进程外判据说不行：%s" % (r.get("reason_zh") or r.get("reason")))
-                print("     —— 判据可能有缺漏。确认要发就用： front ! %s" % " ".join(parts))
+                print("  ✘ %s说不行：%s" % (self._judge_name(r),
+                                          r.get("reason_zh") or r.get("reason")))
+                print("     —— 预检只挑不判。确认要发就用： front ! %s" % " ".join(parts))
                 return
             if not r.get("ok"):
                 print("  （判据没算出来：%s —— 照发）" % (r.get("stopped") or "")[:60])
         self._act("把 %s 移到前线%s" % (self.a.tr(c.name), "（强制）" if force else ""),
-                  lambda cid, x, y: ops.act_move(cid, x, y, force=force),
-                  ACTION_TYPES["move"], c.card_id, x, 380)
+                  lambda cid, sl: self.a.move_up(cid, slot=sl, force=force),
+                  ACTION_TYPES["move"], c.card_id, slot)
 
     def do_end(self, arg=""):
-        import ops
-        self._act("结束回合", ops.act_end, ACTION_TYPES["end"])
+        self._act("结束回合", self.a.end_turn, ACTION_TYPES["end"])
 
     def do_refresh(self, arg=""):
         self.a.snapshot()

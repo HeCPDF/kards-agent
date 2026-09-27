@@ -498,33 +498,41 @@ def cmd_selftest(a) -> int:
     good = B.validate(B.BUILDS[B.CURRENT]["image_size"], B.BUILDS[B.CURRENT]["md5"])
     chk("current build ok", good.ok, True)
     chk("current build md5_match", good.md5_match, True)
-    # 另一个构建（1.57.26586 树）——SizeOfImage 不同 ⇒ 不能用偏移表
-    other = B.validate(0x9CBB000, "65866f78b3bc56138f3fa20030659b55")
-    chk("other build not ok", other.ok, False)
-    chk("other build matched", other.matched, "launcher_157_orig")
+    # 另一个构建（SizeOfImage 不同）—— **一律不放行**：拿错 RVA 只会读到垃圾
+    other_key = next(k for k in B.BUILDS if k != B.CURRENT)
+    ob = B.BUILDS[other_key]
+    other = B.validate(ob["image_size"], ob["md5"])
+    chk("另一构建 仍拒绝", other.ok, False)
+    chk("另一构建 matched", other.matched, other_key)
     # 同一个构建、字节不同（本地改动过）⇒ **必须放行**：SizeOfImage 决定 RVA 有效性
     same_img = B.validate(B.BUILDS[B.CURRENT]["image_size"],
                           "ffffffffffffffffffffffffffffffff")
     chk("同构建·字节不同 放行", same_img.ok, True)
     chk("同构建·字节不同 md5_match=False", same_img.md5_match, False)
     chk("同构建·字节不同 仍认出构建", same_img.matched, B.CURRENT)
-    # 另一个构建（SizeOfImage 不同）⇒ 一律不放行
-    other2 = B.validate(0x9CC4000, "7c6a83c7d002d57d3581b87296eda98b")
-    chk("另一构建 仍拒绝", other2.ok, False)
-    chk("另一构建 matched", other2.matched, "launcher_default")
-    chk("FNamePool rva", B.RVA["FNamePool"], 0x0911B9C0)
-    chk("GNames is decoy", B.RVA["GNames_decoy"], 0x090E2E28)
+    # RVA 表：选中的构建要与表一致；两个构建的**已采证值**不许漂
+    chk("RVA == RVA_BY_BUILD[CURRENT]", B.RVA, B.RVA_BY_BUILD[B.CURRENT])
+    chk("Steam FNamePool 未漂移", B.RVA_BY_BUILD["current"]["FNamePool"], 0x0911B9C0)
+    chk("Steam GNames(decoy) 未漂移", B.RVA_BY_BUILD["current"]["GNames_decoy"], 0x090E2E28)
+    chk("launcher FNamePool 未漂移", B.RVA_BY_BUILD["launcher_default"]["FNamePool"], 0x09118940)
+    chk("launcher GWorld 未漂移", B.RVA_BY_BUILD["launcher_default"]["GWorld"], 0x08F5F5B0)
     from . import cards as _C
     chk("AllCardsInBattle elem", _C.TMAP_ELEM_SIZE, 24)
 
-    print("== B. 与 board_api 的常量一致性（防两层漂移） ==")
+    print("== B. 与 board_api 的常量一致性（防两层漂移；两个构建都查） ==")
     from .proc import board_api as BA
-    chk("GWorld rva == board_api", B.RVA["GWorld"], BA.RVA_GWORLD)
-    chk("GObjects rva == board_api", B.RVA["GObjects"], BA.RVA_GOBJECTS)
-    chk("GNames rva == board_api", B.RVA["GNames_decoy"], BA.RVA_GNAMES)
-    chk("image_size == board_api", B.BUILDS[B.CURRENT]["image_size"], BA.MEM_BUILD["image_size"])
-    chk("md5 == board_api", B.BUILDS[B.CURRENT]["md5"], BA.MEM_BUILD["md5"])
-    chk("exe_size == board_api", B.BUILDS[B.CURRENT]["exe_size"], BA.MEM_BUILD["exe_size"])
+    for _key, _rv in B.RVA_BY_BUILD.items():
+        _bb = getattr(BA, "_BUILD_TABLE", {}).get(_key)
+        if not _bb:
+            chk("board_api 缺构建 %s" % _key, None, "有")
+            continue
+        _bd = B.BUILDS.get(_key, {})
+        chk("[%s] GWorld 一致" % _key, _bb.get("gworld"), _rv["GWorld"])
+        chk("[%s] GObjects 一致" % _key, _bb.get("gobjects"), _rv["GObjects"])
+        chk("[%s] GNames 一致" % _key, _bb.get("gnames"), _rv["GNames_decoy"])
+        chk("[%s] image_size 一致" % _key, _bb.get("image_size"), _bd.get("image_size"))
+        chk("[%s] exe_size 一致" % _key, _bb.get("exe_size"), _bd.get("exe_size"))
+        chk("[%s] md5 一致" % _key, _bb.get("md5"), _bd.get("md5"))
 
     print("== C. 与规格 JSON 的一致性 ==")
     sc = B.spec_consistency()
@@ -584,7 +592,7 @@ def cmd_selftest(a) -> int:
     _nf_rows = _NF.selftest()
     chk("notify selftest rc", 0 if all(r[0] == "PASS" for r in _nf_rows) else 1, 0)
 
-    print("== E2. ops.py 行模型回归（7 组，合成盘面） ==")
+    print("== E2. 行模型回归（7 组，合成盘面；实现方 = 已归档的 _archive/ops_mouse.py） ==")
     import subprocess as _sp, sys as _sys, os as _op
     _t = _op.path.join(_op.path.dirname(_op.path.dirname(_op.path.abspath(__file__))),
                        "test_rowmodel.py")

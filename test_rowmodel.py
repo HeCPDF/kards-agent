@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
-"""行模型离线回归：用 2026-09-21 实机快照的真实 slot 分布喂 screen_map。"""
+"""行模型离线回归：用 2026-09-21 实机快照的真实 slot 分布喂 screen_map。
+
+★ 2026-09-27：`ops.py`（旧物理鼠标实现）已归档为 `_archive/ops_mouse.py`，这里按
+归档名导入 —— 这个回归测的是**行模型**（屏幕 x），是那套实现的产物。
+"""
 import sys, json, io, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import ops
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "_archive"))
+import ops_mouse as ops
 
 
 class C:
