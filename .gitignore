@@ -1,0 +1,12 @@
+# 运行期产物 / 本机环境，不进库
+__pycache__/
+*.pyc
+.ops_inject_cache.json
+/data/
+/kards-data/
+/nn/venv/
+/dist/
+*.log
+*.dmp
+*.DMP
+scratch_*

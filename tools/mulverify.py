@@ -16,7 +16,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _bootstrap  # noqa: F401,E402  —— 接上 kards-agent/ 与 vendor/
+import _bootstrap  # noqa: F401,E402  —— 接上仓库根
 
 from dumpmem import DumpSession                      # noqa: E402
 from kardsmem import pick, props                     # noqa: E402

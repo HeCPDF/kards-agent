@@ -136,10 +136,12 @@ def cmd_verify(a) -> int:
     d = proc.probe(pid=a.pid)
     d["spec_consistency"] = [list(x) for x in B.spec_consistency()]
     d["expected_build"] = B.BUILDS[B.CURRENT]
+    d["selected_build"] = {"key": B.CURRENT, "source": getattr(B, "BUILD_SOURCE", "?")}
     d["rva"] = {k: hex(v) for k, v in B.RVA.items()}
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=1))
         return 0 if (d.get("session") or {}).get("ok") else 2
+    print("== 本进程选中的 RVA 表 ==  %s（来源：%s）" % (B.CURRENT, getattr(B, "BUILD_SOURCE", "?")))
     print("== 期望构建 ==")
     for k, v in B.BUILDS[B.CURRENT].items():
         print("   %-12s %s" % (k, v))

@@ -29,7 +29,7 @@ def main(argv=None) -> int:
     a = argv or sys.argv[1:]
     secs = float(a[0]) if a else 600.0
     from agent import precheck
-    import board_api as BA
+    from kardsmem import board as BA
     t0, done = time.time(), 0
     print("等选择界面… %.0fs" % secs)
     while time.time() - t0 < secs:

@@ -21,7 +21,7 @@ OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ) + ReadProcessMemory
 from kardsmem import attach
 
 s = attach()                       # 校验构建指纹；不匹配直接抛 BuildMismatch
-st = s.snapshot()                  # 归一化盘面（board_api mem 后端）
+st = s.snapshot()                  # 归一化盘面（kardsmem.board mem 后端）
 print(st.turn, len(st.hand("local")), st.hq["local"].defense)
 print(s.deck("local")[:3])         # 物理牌库（含同名多份）
 print(s.gs().kredits())            # 指挥点/槽位（原子读 + 解密）
@@ -35,7 +35,7 @@ s.close()
 
 ```powershell
 cd D:\Kards\kards-agent
-python -m kardsmem selftest      # 离线断言（含 board_api 的 30 项）+ 实机探测
+python -m kardsmem selftest      # 离线断言（含 kardsmem.board 的 30 项）+ 实机探测
 python -m kardsmem verify        # pid/基址/md5 + 定位链 + 与规格 JSON 的一致性
 python -m kardsmem exes          # ★ 本机每份 exe 的指纹（"为什么 md5 对不上"）
 python -m kardsmem state         # 盘面：手牌/场上/弃牌/牌库/HQ/指挥点/回合
@@ -84,7 +84,7 @@ python -m kardsmem dump --out D:\Kards\reverse-data\logs\snapshot.json
 > 已经整表过期过两次（先漏列 `kismet/props/objects/notify`，后又漏列
 > `containers/matchlog/locres/vm/kismetlib/cardnatives/uetypes` 七个模块）。
 
-**为什么底层不重复实现**：`board_api.py`（**本项目自己的**，在 `kards-agent/`）是
+**为什么底层不重复实现**：`kardsmem/board.py`（**本项目自己的**，在 `kards-agent/`）是
 `OpenProcess/ReadProcessMemory` 和"归一化盘面（`Card`/`BoardState`）"
 的**唯一**实现处。本包继承/调用它，只补它缺的几层（FName、屏幕卡、选择界面、牌库）。
 `kardsmem selftest` 的 B 段会断言两边的常量仍然一致，防止两层再次漂移。
@@ -109,7 +109,7 @@ md5 只说明这一份**副本**的字节有没有被本地改动过。
 > **整个漏掉了**同名的变体与备份件。现在按"名字含 `shipping`"子串匹配，
 > 并支持 `.bak` 之类的备份件；`python -m kardsmem exes --all` 会把目录里其它 `.exe` 也列出来。
 
-## 本包补上的能力（相对 board_api）
+## 本包补上的能力（相对 kardsmem.board）
 
 | 能力 | 位置 | 证据 |
 |---|---|---|
@@ -166,7 +166,8 @@ python -m kardsmem effects <CardID|UID> # 单卡：谁贴的、贴了什么、�
 > `ops.py` 的 `attack_card/move_card_to_line` 会先查它并拒绝。规则全文见 `reports/spec/KARDS-RULES-ENCYCLOPEDIA.md`。
 
 **指向判据另有一个进程外工具**：`tools/card_targets.py`（把 20 个 `IsValidHandTarget` 蓝图覆写
-搬出进程执行，已 18/20 可跑）。见 `reports/report/TARGETING-EXTERNAL-EVAL.md`。
+搬出进程执行，已 18/20 可跑）。见 `reports/_archive/TARGETING-EXTERNAL-EVAL.md`（已归档；
+现行判据见 `cardnatives.py` 的 `CanBeTargetted`/`IsValidHandTarget` 与 `card_targets.py`）。
 
 ## ★ 卡级限制与「能不能打 / 能不能动」（用户逐条补充，2026-09-21）
 
@@ -219,7 +220,7 @@ wrapper = `Content\Library\cardsCheckFunctions.cpp::CanAttack`。
 1. **必须原子读**：`gs+0x330..0x390`（X/Y 每帧重随机化）与 `card+0x568..0x5E0`（5 条记录）。
    用 `MemRO.atomic()`；分字段读会撕裂。
 2. **`AllCardsInBattle` 元素 24 字节**（不是 16），指针在 `+0x08`；`ArrayNum` 含墓碑。
-3. **`board_api._Mem.ptr()` 把"值 == 0"也返回 `None`** ⇒ 分不清"空数组"和"读不出"。
+3. **`kardsmem.board._Mem.ptr()` 把"值 == 0"也返回 `None`** ⇒ 分不清"空数组"和"读不出"。
    要区分就用 `read_exact(a, 8)` + 自己解包（`pick.py` 对 `ChooseOneCardTargets` 就是这么做的）。
 4. **明文 `attack@0x6C / defense@0x74 / kredits@0x80` 是模板值**，当前值只在加密记录里。
 5. **`movementLeft@0x268 / attackLeft@0x26C` 的语义（用户 2026-09-21 权威）**：**把 Fury(奋战) 算在内**（奋战单位=2），**但不含 Blitz** ⇒ 不能用它们判「当回合能不能动」；判据是 `enterPlayOnTurn@0x270` + **`has_blitz@0x1DA`**（闪击要自己读，计数器里没有）。计数器仍可用于「还剩几次」。**另：移动单向（支援阵线 → 前线）**，把前线单位往支援阵线拖会被拒（百科「撤退」条；SDK 只有 `OnMoveToFrontline`）。
@@ -234,6 +235,6 @@ wrapper = `Content\Library\cardsCheckFunctions.cpp::CanAttack`。
 ## 环境
 
 - Python 3.14（`mss/cv2/numpy/pywin32` 有，**没有** `rapidocr_onnxruntime`）。
-- `KARDS_SRC` 环境变量可覆盖 `board_api.py` 所在目录（默认就是 `kards-agent/` 自己）；
+- `KARDS_SRC` 环境变量可覆盖 `kardsmem/board.py` 所在目录（默认就是 `kards-agent/` 自己）；
   `KARDS_WORKSPACE` 覆盖工作区根。
 - 游戏/Steam 若以管理员运行，非管理员进程连只读句柄都拿不到（`OpenProcess` 失败）。

@@ -6,14 +6,14 @@
 ==============
 以前偏移是"手抄进 `build.py` 的常量"。一旦本机同时有两份渠道的客户端
 （Steam `0x9CC8000` / launcher `0x9CC4000`），手抄就会分叉：
-抄在 `build.py`、`board_api.py`、`exes.py`……每加一份就把分叉复制一遍。
+抄在 `build.py`、`kardsmem/board.py`、`exes.py`……每加一份就把分叉复制一遍。
 ⇒ 改成**从产物里算**，只留一份数据：
 
     Dumpspace/OffsetsInfo.json   → GObjects / GNames(decoy) / AppendString / ProcessEvent / (GWorld)
     exe 反汇编                    → FNamePool（`FName::AppendString` 里的 `lea r8,[rip+…]`）
     exe + 参照构建                → GWorld（dump 里给 0 时，用参照构建的指令模式迁移过来）
 
-产物：`kardsmem/build_tables.json`（**数据**，跟着包走；`build.py` / `board_api.py` 都读它）。
+产物：`kardsmem/build_tables.json`（**数据**，跟着包走；`build.py` / `kardsmem/board.py` 都读它）。
 
 用法
 ====

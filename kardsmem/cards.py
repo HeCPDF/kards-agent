@@ -5,7 +5,7 @@
 分层说明
 ========
 - "归一化盘面"（`Card` / `BoardState`）的唯一实现在
-  `kards-agent/board_api.py`（本项目自己的），本模块**不重写**它：
+  `kards-agent/kardsmem/board.py`（本项目自己的），本模块**不重写**它：
   `cards()` / `snapshot()` 直接调它的 mem 后端。
 - 本模块补的是**它没有的原始读数**：把一个 `UBaseCardObject` 的全部字段
   （明文身份 + 5 条加密记录 + FText 文本 + FName 资产名）一次性摊开，
@@ -90,6 +90,50 @@ _decrypt = board_api._decrypt
 LOCATION_NAMES = board_api.LOCATION_NAMES
 CARD_TYPES = board_api.CARD_TYPES
 SIDE_ENUM = board_api.SIDE_ENUM
+
+
+def _my_seat(session) -> Optional[int]:
+    """本局我方座位（ESideEnum 1/2）——`Logic.mySide`。
+
+    ★ 2026-10-02 实机（休闲 PvP）：**我们可能是 2 号座位**，而 `SIDE_ENUM` 是静态表
+    （座位 1 = local）⇒ 旧代码把整只手牌都判成 `enemy`，`hand_card_actors()` 再把它们
+    过滤掉 ⇒ 注入器每次都说"card X 不在我方手牌"，一回合什么都打不出去（症状：秒过）。
+
+    ★★ 2026-10-02 D 局事故：旧实现把座位缓存在 **session 对象**上
+    （`session._my_seat_cache`，写一次永不失效），而 `live_session.py` 是常驻进程、
+    C/D 两局共用**同一个 `kardsmem.Session`** ⇒ D 局整局沿用 C 局的座位；
+    若不是同一号座位，我方手牌全被判成 `enemy`（实机症状：规则侧走 board_api 的
+    回合奇偶那条读法能看见 9 张手牌，注入侧 `hand_actor()` 却一张都找不到）。
+    **修法**：座位缓存跟着"这一局的 MatchLog 对象"走 —— 复用同一个 `MatchLog`，
+    它的 `my_side()` 命中缓存前先 `is_stale()` 验新鲜度（换局自动 forget+重定位），
+    不再把值挂在 session 上跨局用。
+    """
+    ml = getattr(session, "_matchlog_for_seat", None)
+    if ml is None:
+        try:
+            from .matchlog import MatchLog
+            ml = MatchLog(session)
+        except Exception:                                      # noqa: BLE001
+            return None
+        try:
+            session._matchlog_for_seat = ml      # 每 session 一个，跨局的失效交给 MatchLog
+        except Exception:                          # noqa: BLE001
+            pass
+    try:
+        v = ml.my_side()
+    except Exception:                                          # noqa: BLE001
+        return None
+    return v if v in (1, 2) else None
+
+
+def _side_name(session, seat) -> Optional[str]:
+    """座位号 → `local`/`enemy`。**用本局 `mySide` 判**；读不到才退回静态表。"""
+    if seat is None:
+        return None
+    my = _my_seat(session)
+    if my in (1, 2):
+        return "local" if seat == my else "enemy"
+    return SIDE_ENUM.get(seat)
 
 # AllCardsInBattle 里混着的两条占位条目（Location/Type 全 0、加密记录无效）
 PLACEHOLDER_KEYS = (30000000, 60000000)
@@ -679,7 +723,8 @@ def target_blockers(session, defender_uid_or_ptr, attacker_type: Optional[str] =
 
 
 def read_raw(session, ptr: int, map_key: Optional[int] = None,
-             with_text: bool = True, with_effects: bool = False) -> dict:
+             with_text: bool = True, with_effects: bool = False,
+             light_effects: bool = True) -> dict:
     """把一个 `UBaseCardObject` 摊开成 dict。**读不出的字段就是 None。**
 
     `trust` 字段说明每类值的可信度（明文模板 / 加密当前值 / 事件簿记）。
@@ -689,9 +734,11 @@ def read_raw(session, ptr: int, map_key: Optional[int] = None,
     key = m.i32(ptr + CARD_KEY_OFF)
     rec = m.atomic(ptr + CARD_REC_LO, CARD_REC_HI - CARD_REC_LO)
     vals = {}
+    records_raw = {}
     if rec is not None:
         for nm, roff in CARD_RECORDS.items():
             X, Y, _Z, enc, _frame = struct.unpack_from("<5i", rec, roff - CARD_REC_LO)
+            records_raw[nm] = (X, Y, _Z, enc, _frame)     # §12-U1：原始五元组（判 mult==0 哨兵用）
             vals[nm] = _decrypt(key, X, Y, enc)
     # 额外：faction/rarity/isReserved/isInPermanentPool/EffectType
     # （SDK 偏移 0x7C/0x11C/0x132/0x133/0x135）—— 蓝图判据（IsValidHandTarget / CanPlayFromHand）要用，
@@ -718,11 +765,12 @@ def read_raw(session, ptr: int, map_key: Optional[int] = None,
         "type_enum": type_enum,
         "card_type": CARD_TYPES.get(type_enum) if type_enum is not None else None,
         "side_enum": u8.get("side_enum"),
-        "side": SIDE_ENUM.get(u8.get("side_enum")) if u8.get("side_enum") is not None else None,
+        "side": _side_name(session, u8.get("side_enum")),
         "location_enum": loc_enum,
         "location": location,
         "location_number": i32.get("location_number"),
         # ---- 当前值（加密记录，权威） ----
+        "records_raw": records_raw,
         "attack": vals.get("attack"),
         "attack_buff": vals.get("attackBuff"),
         "defense": vals.get("defense"),
@@ -731,7 +779,7 @@ def read_raw(session, ptr: int, map_key: Optional[int] = None,
         "total_attack": None if vals.get("attack") is None
         else min(99, max(0, (vals.get("attack") or 0) + (vals.get("attackBuff") or 0))),
         "total_kredit_cost": None if vals.get("kredit") is None and vals.get("kreditBuff") is None
-        else min(99, (vals.get("kredit") or 0) + (vals.get("kreditBuff") or 0)),
+        else max(0, min(99, (vals.get("kredit") or 0) + (vals.get("kreditBuff") or 0))),   # IDA 0x144B15020：clamp(0,99)，下限 0
         "total_defense": None if vals.get("defense") is None
         else min(99, max(0, vals.get("defense") or 0)),
         # ---- 明文（模板值 / 规则参数） ----
@@ -739,6 +787,7 @@ def read_raw(session, ptr: int, map_key: Optional[int] = None,
         "defense_plain": i32.get("defense_plain"),
         "kredits_plain": i32.get("kredits_plain"),
         "operation_cost": i32.get("operation_cost"),
+        "operation_cost_buff": i32.get("operation_cost_buff"),   # 0xB4；getTotalOperationCost = max(0, op+buff)（IDA 0x144B15200）
         "kredits_tax_as_enemy_target": i32.get("kredits_tax"),
         "heavy_armor": i32.get("heavy_armor"),
         "heavy_armor_buff": i32.get("heavy_armor_buff"),
@@ -784,9 +833,71 @@ def read_raw(session, ptr: int, map_key: Optional[int] = None,
         # 以前这里当 FText 读是错的；现在只暴露指针，要看内容得解 FJsonObject。
         cjp = m.ptr(ptr + OFF_CARD_CUSTOM_JSON)
         d["custom_json_ptr"] = ("0x%X" % cjp) if cjp else None
+    d.update(_extra_raw(session, ptr, light_effects))
     if with_effects:
         d["live_effects"] = read_live_effects(session, ptr)
     return d
+
+
+def read_custom_json_keys(session, ptr: int) -> dict:
+    """`customJson`(0x518) 里**所有键** + Number 值（IDA：hasActiveCountdownEffect/IsVeteran/hasActivePincerEffect
+    只问"键存在"；getCountdownValue 取 JSON Number→int）。返回 {"keys": [..], "nums": {key: double}}。
+    ⚠ Number 的 double 偏移（FJsonValueNumber+0x10）按引擎源码推，未实测。"""
+    mem = session.m
+    keys, nums = [], {}
+    obj_ptr = mem.ptr(ptr + OFF_CARD_CUSTOM_JSON)
+    if not obj_ptr:
+        return {"keys": keys, "nums": nums}
+    data, num, blob = _tmap(mem, obj_ptr, STRIDE_TMAP_FSTRING_JSONVALUE)
+    if blob is None:
+        return {"keys": keys, "nums": nums}
+    for off in range(0, len(blob) - STRIDE_TMAP_FSTRING_JSONVALUE + 1, STRIDE_TMAP_FSTRING_JSONVALUE):
+        name = _fstring_at(mem, data + off)
+        if not name:
+            continue
+        keys.append(name)
+        v = mem.ptr(data + off + 0x10)
+        if v and mem.i32(v + 0x08) == 3:                 # EJson::Number
+            raw = mem.read_exact(v + 0x10, 8)
+            if raw:
+                nums[name] = struct.unpack("<d", raw)[0]
+    return {"keys": keys, "nums": nums}
+
+
+def _extra_raw(session, ptr: int, light: bool) -> dict:
+    """cardnatives 要的、`read_raw` 以前没给的字段（偏移来自 SDK + IDA，见 NATIVE-COVERAGE-1.60.md）。
+    直读的几个永远给；`light` 为真时再给"逐实例效果"那几项（读几张 TMap/TArray，按卡缓存即可）。"""
+    m = session.m
+    out = {"pinned_turns": m.i32(ptr + 0x27C),          # IsPinned = pinnedTurns > 0（IDA 0x144AFCD30）
+           "cipher": m.i32(ptr + 0x25C),                # HasIntel/getIntel（IDA）
+           "exile_nation": m.u8(ptr + 0x261),           # IsExile/getExileNation（IDA）
+           "is_immune": None, "active_upgrades": [], "choose_one_cards_n": m.i32(ptr + 0x140),
+           "gotcha_activated": m.i32(ptr + 0x308)}
+    im = m.u8(ptr + OFF_IS_IMMUNE)
+    out["is_immune"] = None if im is None else bool(im)
+    n = m.i32(ptr + 0x330)                              # activeUpgrades TArray<int32>@0x328（HasCampaignUpgrade）
+    p = m.ptr(ptr + 0x328)
+    if p and n and 0 < n <= 64:
+        b = m.read_exact(p, n * 4)
+        if b:
+            out["active_upgrades"] = list(struct.unpack_from("<%di" % n, b))
+    if light:
+        try:
+            out["received_abilities"] = read_received_abilities(session, ptr)
+            out["buffs_from_cards"] = read_buffs_from_cards(session, ptr)
+            out["gameplay_tags"] = read_gameplay_tags(session, ptr)
+            cj = read_custom_json_keys(session, ptr)
+            out["custom_json_keys"], out["custom_json_nums"] = cj["keys"], cj["nums"]
+            pool = session.names_pool()
+            for key, off in (("custom_name1", OFF_CUSTOM_NAME1), ("custom_name2", OFF_CUSTOM_NAME2)):
+                idx = m.i32(ptr + off)
+                nm = m.i32(ptr + off + 4)
+                out[key] = pool.fname(idx, nm or 0) if idx and idx > 0 else ""
+            i0, n0 = m.i32(ptr + 0x50), m.i32(ptr + 0x54)        # Name_0@0x50（FName，类名 card_xxx；IsForecastCard 用）
+            out["class_fname"] = pool.fname(i0, n0 or 0) if i0 and i0 > 0 else ""
+        except Exception:                                # noqa: BLE001 —— 读不出就不给键，原语见到缺键会抛
+            pass
+    return out
 
 
 def can_act_now(card, turn: Optional[int], has_blitz: bool = False) -> Optional[bool]:

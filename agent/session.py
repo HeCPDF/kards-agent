@@ -27,11 +27,10 @@ import os
 import time
 from typing import Optional
 
-import agentpath  # noqa: F401  —— 接上 vendor/ 和项目根
 
-import board_api as BA  # noqa: E402
+from kardsmem import board as BA  # noqa: E402
 
-from . import view  # noqa: E402
+from agent import view  # noqa: E402
 
 LOCAL, ENEMY = "local", "enemy"
 
@@ -116,9 +115,36 @@ class AgentSession:
     def board(self, full: bool = False, pins: bool = False) -> dict:
         st = self.snapshot()
         p = self.pins() if pins else None
+        if full:
+            self.fill_fname(st)
         return {"state": st,
                 "text": view.render_board(st, self.handles, full=full, pins=p,
                                           tr=self.tr)}
+
+    def fill_fname(self, st=None) -> int:
+        """给快照里的卡补**资产名**（`UBaseCardObject.Name_0 // 0x50` 的 FName）。
+
+        ★ 2026-09-27：`board_api.Card.name` 是 **FText 标题**（`title@0x58`，可被
+          `campaignName` 覆盖），而"这张牌到底是哪个模板"要看**资产名**（FName）。
+          名字池在 `kardsmem.names`（`card_asset_name`），所以补在这里而不是 board_api
+          （board_api 保持"不依赖 kardsmem"的分层）。返回补上的张数。
+        """
+        st = st or self.st or self.snapshot()
+        try:
+            pool = self._kardsmem().names_pool()
+        except Exception:                                    # noqa: BLE001
+            return 0
+        n = 0
+        for c in st.cards:
+            ptr = (c.raw or {}).get("ptr")
+            if not ptr or getattr(c, "fname", None):
+                continue
+            try:
+                c.fname = pool.card_asset_name(ptr)
+            except Exception:                                # noqa: BLE001
+                continue
+            n += 1 if c.fname else 0
+        return n
 
     def pins(self) -> dict:
         """{uid: True/False/None}：逐实例的**被压制**。比读位贵，按需调。"""
@@ -168,7 +194,7 @@ class AgentSession:
         # ★ 先悬停（在场上/我方手牌才做）—— 悬停窗口里再读文字，等于"看着牌读"
         hover_res = None
         if hover:
-            from . import precheck
+            from agent import precheck
             fn = None
             if c.location in ("frontline", "back"):
                 fn = "hover_board_card"
@@ -191,10 +217,24 @@ class AgentSession:
         if ptr:
             d["rules_text"] = self.tr(ftext_at(km.m, ptr, view.OFF_CARD_TEXT))
             d["flavor_text"] = self.tr(ftext_at(km.m, ptr, view.OFF_CARD_FLAVOR))
+            # 资产名（FName@0x50）—— 与 FText 标题不是一回事，见 `fill_fname` 的注释
+            try:
+                c.fname = km.names_pool().card_asset_name(ptr) or c.fname
+            except Exception:                                # noqa: BLE001
+                pass
             try:
                 d["effects"] = C.read_live_effects(km, ptr)
             except Exception as e:                           # noqa: BLE001
                 d["effects_error"] = str(e)
+            # ★ 2026-09-27：**游戏本体的显示值**（UI 用的就是这几个 getter，见
+            #   `BP_Widget_HandCardTextV2.cpp` 的 `cardObject->getTotal*`）。进程外只读
+            #   拿到的是分量（`attack + attackBuff` 等），未必等于它 ⇒ 注入侧可用时把它
+            #   取回来，渲染时以它为准。取不到就退回分量（并在文本里标明来源）。
+            try:
+                from agent import precheck
+                d["totals"] = precheck.call_read("card_totals", c.card_id)
+            except Exception as e:                           # noqa: BLE001
+                d["totals"] = {"ok": False, "stopped": str(e)}
         d["faction"] = view.FACTION_ZH.get((c.raw or {}).get("faction_enum"))
         if d["faction"] is None and ptr:
             d["faction"] = view.FACTION_ZH.get(km.m.u8(ptr + view.OFF_CARD_FACTION))
@@ -243,11 +283,19 @@ class AgentSession:
 
     # ---------------------------------------------------------------- 判据
     def legality(self):
-        """进程外判据（懒加载）。**只挑不判**（§7.6f）。"""
-        if getattr(self, "_leg", None) is None:
-            from .legality import Legality
-            st = self.st or self.snapshot()
-            self._leg = Legality(self._kardsmem(), my_seat=st.my_side_raw)
+        """进程外判据（懒加载）。**只挑不判**（§7.6f）。
+
+        ★ 2026-10-02：`Legality` 是**按座位构造**的（`my_seat=`），而这个缓存挂在
+        session 上会活过好几局 —— 第二局换了号座位就会继续用第一局的 `my_seat`
+        （跟 `kardsmem.cards._my_seat` 同族的跨局缓存）。座位读出来了且跟缓存不同
+        就重建；读不出（None，换牌窗口）**不动缓存**，免得把热身好的判据反复丢掉。
+        """
+        st = self.st or self.snapshot()
+        seat = st.my_side_raw
+        leg = getattr(self, "_leg", None)
+        if leg is None or (seat in (1, 2) and getattr(leg, "my_seat", None) != seat):
+            from semantics.legality import Legality
+            self._leg = Legality(self._kardsmem(), my_seat=seat)
         return self._leg
 
     def _gate(self):
@@ -259,17 +307,17 @@ class AgentSession:
         """
         if not self.use_game_gate:
             return None
-        from . import precheck
+        from agent import precheck
         return precheck if precheck.available() else None
 
     @staticmethod
     def _from_game(r: dict, reason: str = "") -> dict:
-        """游戏自己的答案 → 前端的统一形状（跟 `agent.legality` 的返回同构）。
+        """游戏自己的答案 → 前端的统一形状（跟 `semantics.legality` 的返回同构）。
 
         形状必须一致，否则 shell/MCP 的渲染当场漂移；`source`/`judged_by`
         标明这句话是谁说的（前端据此改措辞，别把游戏的判据说成"进程外判据"）。
         """
-        from .legality import reason_zh
+        from semantics.legality import reason_zh
         out = {"ok": True, "can": bool(r.get("can")), "source": "game",
                "judged_by": r.get("source"), "reason": reason,
                "reason_zh": reason_zh(reason),
@@ -314,7 +362,7 @@ class AgentSession:
         要诊断可显式 `precheck.can_move_to(unit, simulate_drag=True)`。
         """
         if self.use_game_gate:
-            from . import precheck
+            from agent import precheck
             r = precheck.can_move_to(unit, precheck.LOC_FRONTLINE)
             if r.get("ok") and r.get("can"):
                 return self._from_game(r, "")
@@ -359,7 +407,7 @@ class AgentSession:
         """某个单位现在能打谁。★ 算不出来的**留着**标成"不知道"，不剔掉。"""
         st = self.st or self.snapshot()
         rows = self.legality().targets(st, attacker)
-        from . import view
+        from agent import view
         return {"rows": rows,
                 "text": view.render_targets(rows, self.handles, tr=self.tr)}
 
@@ -414,7 +462,7 @@ class AgentSession:
 
     def _inj(self, fn: str, *args, **kw) -> dict:
         """跑一个 `ops_inject.Injector` 上的方法（健康判据见本段开头）。"""
-        from . import precheck
+        from agent import precheck
         if not self.use_game_gate:
             return {"ok": False, "stopped": "KARDS_GAME_GATE=0 —— 注入式动作被关掉了"}
         return precheck.call_write(fn, *args, **kw)
@@ -422,17 +470,34 @@ class AgentSession:
     def pending(self) -> dict:
         """**现在在等什么**（只读）：二选一/三选一候选、牌库选牌、手牌选目标、
         板卡两阶段"待点目标"、箭头。三前端（shell/MCP/NN）每一步都该先问它。"""
-        from . import precheck
-        out = {"choose_one": precheck.call_read("pick_candidates"),
-               "pick_pending": precheck.call_read("pick_pending"),
-               "board_target": precheck.call_read("card_being_played_from_hand"),
-               "hand_target": precheck.call_read("hand_target_pending", verbose=False),
-               "arrows": precheck.call_read("arrow_target_by_logic")}
+        import time as _time
+        from agent import precheck
+        tm = {}
+
+        def _timed(name, *a, **k):
+            t = _time.time()
+            try:
+                return precheck.call_read(name, *a, **k)
+            finally:
+                tm[name] = round(_time.time() - t, 2)
+        # 分段计时（2026-10-01：一步 pending() 曾吃掉 72 s）→ 存到 self.last_pending_timing，由 nn 写进日志
+        out = {"choose_one": _timed("pick_candidates"),
+               "pick_pending": _timed("pick_pending"),
+               "board_target": _timed("card_being_played_from_hand"),
+               "hand_target": _timed("hand_target_pending", verbose=False),
+               "arrows": _timed("arrow_target_by_logic")}
+        self.last_pending_timing = tm
         out["waiting"] = bool((out["choose_one"] or [])
                               or (out["pick_pending"] or {}).get("pending")
                               or out["board_target"]
                               or (out["hand_target"] or {}).get("pending"))
         return out
+
+    def observe_prompt(self):
+        """**只读**：游戏现在挂着的提示 → `agent.promptinfo.PromptInfo`（没有 ⇒ None）。
+        OPS 只报告，"答什么"由策略层决定（总纲 §7）。"""
+        from agent.promptinfo import from_pending
+        return from_pending(self.pending())
 
     def pick(self, index: int, kind: Optional[str] = None,
              trigger: Optional[int] = None) -> dict:
@@ -440,38 +505,66 @@ class AgentSession:
         return self._inj("pick_choice", int(index), kind=kind, trigger=trigger)
 
     def play(self, card, target=None, force: bool = False,
-             location: str = "back") -> dict:
-        """出牌。给了 `target` 自动走"带目标"那条路；单位+要目标请用 `play_targeted()`。"""
+             location: str = "back", slot: Optional[int] = None) -> dict:
+        """出牌**路由器**（按卡自己的覆写自动分流）。★ 动作空间请优先用四个显式动词：
+        `play_card_event` / `play_card_event_with_target` / `play_card_unit` /
+        `play_card_unit_with_target` —— 它们的语义写死，不需要调用方猜。
+
+        `slot`：单位**站位** = 该排的**空隙序号**（0＝最左 … n＝最右，即"拖到谁和谁之间"，
+        见 `ops_inject.gap_number`；**不是**格子号）。"""
         cid = self._cid(card)
         if cid is None:
             return {"ok": False, "error": "认不出 %r" % (card,)}
         tgt = self._cid(target) if target is not None else None
         return self._inj("play_card", cid, target_id=tgt, force=bool(force),
-                         location=location)
+                         location=location, slot=slot)
 
-    def play_order_on_unit(self, card, target) -> dict:
+    def play_card_event(self, card, force: bool = False,
+                        require_inactive: bool = False) -> dict:
+        """**打出指令/反制**（无目标）。反制 = 在手里激活，**可重复打出 = 切换**
+        （返回 `gotcha_activated_before/after`、`toggled_off`）。"""
+        cid = self._cid(card)
+        if cid is None:
+            return {"ok": False, "error": "认不出 %r" % (card,)}
+        return self._inj("play_card_event", cid, force=bool(force),
+                         require_inactive=bool(require_inactive))
+
+    def play_card_unit(self, card, slot: Optional[int] = None,
+                       force: bool = False) -> dict:
+        """**打出单位**，`slot` 指定**站位**（该排的**空隙序号**：0＝最左 … n＝最右，
+        "拖到谁和谁之间"；不给就自动挑空槽）。
+        ★ 站位只在支承线内有效 —— 前线只能 `move_up()`。"""
+        cid = self._cid(card)
+        if cid is None:
+            return {"ok": False, "error": "认不出 %r" % (card,)}
+        return self._inj("play_card_unit", cid, slot=slot, force=bool(force))
+
+    def play_card_event_with_target(self, card, target) -> dict:
         """**指向性指令**：把指令打出去并指向一个场上单位（`selectTargetOnPlayedFromHand=true`）。
 
         语义分层（2026-09-27）：**指令一次成交**（松手那一下 `AttemptToPlayFinal` 读
-        `targetOverride` 就 `PlaceHandCard`），**单位要两阶段**（见 `play_targeted`）。
+        `targetOverride` 就 `PlaceHandCard`），**单位要两阶段**（见 `play_card_unit_with_target`）。
         返回里 `needs_unit_click` 非空 ⇒ 这张指令是**选项层之后**才要指目标
-        （HIDDEN PLANS 那种）：先 `pick()`，再 `select_unit_target()`。
+        （HIDDEN PLANS 那种）：先 `choose_one_with_target()`。
         """
         cid, tgt = self._cid(card), self._cid(target)
         if cid is None or tgt is None:
             return {"ok": False, "error": "认不出 card/target（%r / %r）" % (card, target)}
-        return self._inj("play_order_on_unit", cid, tgt)
+        return self._inj("play_card_event_with_target", cid, tgt)
 
-    def deploy_unit_with_target(self, card, target) -> dict:
-        """**单位两阶段指向**：拖到落点部署 → 点目标（`ops_inject.deploy_unit_with_target`）。
+    def play_card_unit_with_target(self, card, target=None, slot: Optional[int] = None) -> dict:
+        """**打出"部署时需要指向"的单位**；**没有合法目标就退化成 `play_card_unit()`**。
 
-        ★ 2026-09-27 语义分层：**单位**才两阶段；**指令**走 `play_order_on_unit()`。
+        ★ 用户口径（2026-09-27）："如果无可指向目标，一般单位便无需指向即可打出，
+        走上一路径。" ⇒ `target=None`、或游戏自己的 `CanSelectAsTarget` 说不合法时，
+        直接当普通单位打出（返回里 `fell_back_to_plain=True`）。
         目标是 **card_id**（名字有歧义，不收）。
+        `slot`：站位 = 该排的**空隙序号**（0＝最左 … n＝最右）。
         """
-        cid, tgt = self._cid(card), self._cid(target)
-        if cid is None or tgt is None:
+        cid, tgt = self._cid(card), (None if target is None else self._cid(target))
+        if cid is None or (target is not None and tgt is None):
             return {"ok": False, "error": "认不出 card/target（%r / %r）" % (card, target)}
-        return self._inj("deploy_unit_with_target", cid, tgt)
+        return self._inj("play_card_unit_with_target", cid, tgt, slot=slot)
 
     def select_unit_target(self, card, target) -> dict:
         """**点选一个场上单位作为目标**（`GlobalMouseUp` 那一口）—— 语义不是"部署"。
@@ -493,7 +586,7 @@ class AgentSession:
 
     def hand_target_pending(self) -> dict:
         """只读：现在是不是在等"点一张手牌当目标"（`selectTargetOnPlayedFromHand`）。"""
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("hand_target_pending", verbose=False)
 
     def hand_target_legal(self, card) -> dict:
@@ -501,7 +594,7 @@ class AgentSession:
         cid = self._cid(card)
         if cid is None:
             return {"ok": False, "error": "认不出 %r" % (card,)}
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("hand_target_legal", cid)
 
     def select_hand_target(self, card, confirm: bool = True) -> dict:
@@ -534,7 +627,8 @@ class AgentSession:
         return self._inj("attack_card", a, t, force=bool(force), retry=retry)
 
     def move_up(self, card, slot: Optional[int] = None, force: bool = False) -> dict:
-        """上线（支援线 → 前线）。★ 付**操作费**，且步兵移动后本回合不能再攻击。"""
+        """上线（支援线 → 前线）。★ 付**操作费**，且步兵移动后本回合不能再攻击。
+        `slot`：前线里的**空隙序号**（0＝最左 … n＝最右）。"""
         cid = self._cid(card)
         if cid is None:
             return {"ok": False, "error": "认不出 %r" % (card,)}
@@ -548,11 +642,11 @@ class AgentSession:
 
     # ---------------------------------------------------------------- 换牌（开局）
     # ★ 2026-09-27：补上（对齐已归档的 `ops.py`：mulligan_marks/act_mulligan_toggle/
-    #   act_mulligan_confirm/in_mulligan）。`agent/record.py` 之前只能绕过 session
+    #   act_mulligan_confirm/in_mulligan）。`player/record.py` 之前只能绕过 session
     #   去直接 import ops 读标记 —— 现在这一整套回到"唯一动词集合"里。
     def mulligan_marks(self) -> list:
         """只读：换牌界面每张手牌的 `shouldDiscard` 标记（`{card_id,name,marked}`）。"""
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("mulligan_marks") or []
 
     def mulligan_mark(self, card, verbose: bool = True) -> dict:
@@ -568,18 +662,18 @@ class AgentSession:
 
     def mulligan_done(self) -> Optional[bool]:
         """只读：换牌阶段结束了吗（True/False/None=读不出）。"""
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("mulligan_done")
 
     # ---------------------------------------------------------------- 判据/驱动
     def can_act_now(self, unit) -> dict:
         """只读：这个单位**本回合能不能动**（部署病：`enterPlayOnTurn == turn` 不能动，
         除非 `blitz`）。★ 别用 `attack_left`/`movement_left` 判 —— 刚部署的单位它们
-        仍然读到 1（`board_api.py:429`）。最终由游戏裁决（`can_attack`）。"""
+        仍然读到 1（`kardsmem/board.py:429`）。最终由游戏裁决（`can_attack`）。"""
         cid = self._cid(unit)
         if cid is None:
             return {"ok": False, "error": "认不出 %r" % (unit,)}
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("can_act_now", cid)
 
     def pick_layers(self, index: int = 0, kind: Optional[str] = None,
@@ -588,9 +682,63 @@ class AgentSession:
         每层成败只看动作流（`pick_choice` 的判据）。"""
         return self._inj("pick_layers", int(index), kind=kind, max_layers=int(max_layers))
 
+    # ---- 三个"选牌"动词，按**候选身份语义**分（2026-09-27）----
+    def choose_one(self, index: int = 0, trigger=None) -> dict:
+        """卡自己的选项面板（`BP_ChooseOneCard_C`）：选项文字来自 `chooseOneCards`。"""
+        return self._inj("pick_choice", int(index), trigger=trigger, kind="choose_one")
+
+    def choose_one_with_target(self, index: int, target, trigger=None) -> dict:
+        """**抉择 + 带目标**（HIDDEN PLANS 那种）：先点选项，再点场上单位。
+
+        选项是否要目标由**游戏自己的**两个字段决定：`chooseOneCards[i].
+        selectTargetOnPlayedFromHand`（`UBaseCardObject+0x138`）或候选 actor 的
+        `needsTarget // 0x9A4`（`pick_candidates()` 里能看到 `needs_target`）。
+
+        ★★ 2026-09-27 实机修 bug（用户："你那次 pick 进入了 state after choose。
+        说明 with_select 没成功。是 bug。"）：**点选项这一步本来就没有动作流回执** ——
+        这类卡的 `XActionPlayCardFromHand{chooseOneIndex}` 要等**目标点完**才进流
+        （实机 `ZActionPlayCardFromHand{cardID:16, targetCardID:27, chooseOneIndex:1}` +
+        `ZActionRevealCard{27}`）。旧写法拿 `pick_choice.ok==False` 提前返回 ⇒ 永远走不到
+        第二步。现在整个两步流程在 `ops_inject.choose_one_with_target()` 里（单一实现），
+        闸门是**游戏自己的状态** `card_being_played_from_hand`，`ok` 由**目标那一步**
+        的动作流判；选项那步的 `ok=False` 如实留在返回里（旁证不进 ok —— 弯路 #22：
+        判据只能往后挪一步，不能降级成旁证）。
+        """
+        cid = self._cid(target)
+        if cid is None:
+            return {"ok": False, "error": "认不出 target %r" % (target,)}
+        return self._inj("choose_one_with_target", int(index), cid, trigger=trigger)
+
+    def choose_card(self, index: int = 0, kind: Optional[str] = None,
+                    is_effect: Optional[bool] = None, trigger=None) -> dict:
+        """**选一张牌**：三选一 / 预报两段 / effect / scrying（看牌库顶挑）都是这一个。
+
+        ★★ 2026-09-27 合并（用户："三选一好像 ui 表现完全相同。可以合并。对于正常玩家来说
+          基本完全相同"）：代码侧也确实**同一个 notifier**（`GetChooseSpawnCards` 全导出只有
+          一个调用点，在 `selectCardToDraw` 的 false 分支；true 分支同样 notify）⇒ 对调用方
+          一个动词就够。候选身份怎么读（`Name_0` vs actor `CardID`）由读侧处理。
+        `kind`：只在**同一时刻两类候选都在场**时消歧（`"choose_spawn"` / `"choose_draw"` /
+        `"choose_one"`）；不给就按活跃层规则自动挑，真歧义时如实报 `ambiguous`（不猜）。
+        ★ 单击即提交；只有 `pick_hand` 是两步（选 + 确认按钮）。
+        """
+        return self._inj("choose_card", int(index), kind=kind, is_effect=is_effect,
+                         trigger=trigger)
+
+    def card_totals(self, card) -> dict:
+        """只读：**游戏本体的显示值**（`getTotalAttack/Defense/KreditCost/OperationCost`）。
+
+        卡面 UI 读的就是这几个 getter（`BP_Widget_HandCardTextV2.cpp`）⇒ 被贴膜/被减费时
+        要和屏幕一致就用它，别用"分量相加"。
+        """
+        cid = self._cid(card)
+        if cid is None:
+            return {"ok": False, "error": "认不出 %r" % (card,)}
+        from agent import precheck
+        return precheck.call_read("card_totals", cid)
+
     def pending_summary(self) -> dict:
         """只读：现在在等什么（抉择/手牌目标/板卡待点目标/箭头/队列）。"""
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("pending_summary")
 
     def surrender(self, confirm: bool = False) -> dict:
@@ -602,7 +750,7 @@ class AgentSession:
         cid = self._cid(card)
         if cid is None:
             return None
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("is_pinned", cid)
 
     def find_card(self, card):
@@ -610,7 +758,7 @@ class AgentSession:
         cid = self._cid(card)
         if cid is None:
             return None
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("find_card", cid)
 
     def resolve_target(self, spec) -> dict:
@@ -618,29 +766,29 @@ class AgentSession:
 
         ★ 不收卡名：同名单位会有歧义，**动作参数一律 card_id**（用户 2026-09-27 定调）。
         """
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("resolve_target", spec)
 
     def pick_target(self, exclude=(), side: str = "enemy", prefer_frontline: bool = True) -> dict:
         """只读：给"要选一个敌方目标"的动作**挑**一个目标（启发式，不算判据）。"""
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("pick_target", exclude=exclude, side=side,
                                   prefer_frontline=prefer_frontline)
 
     def notify_texts(self, limit: int = 4) -> list:
         """只读：游戏刚弹的提示（**动作被拒的权威理由**）。提示短命，失败当场调。"""
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("notify_texts", limit=limit)
 
     def preflight(self, card=None, target=None, action: Optional[str] = None) -> dict:
         """只读：动手前自检（选择界面开着没有 + 可选跑一次对应判据）。**不拦任何东西**。"""
         cid = self._cid(card) if card is not None else None
-        from . import precheck
+        from agent import precheck
         return precheck.call_read("preflight", cid, target=target, action=action)
 
     def wait_our_turn(self, limit: float = 300.0) -> bool:
         """只读：等我方回合（每 1s 采一次快照）。对局结束 / 超时都回 False。"""
-        from . import precheck
+        from agent import precheck
         return bool(precheck.call_read("wait_our_turn", limit=limit, verbose=False))
 
     def activate_countermeasure(self, card) -> dict:

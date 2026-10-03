@@ -29,19 +29,19 @@
 输入"。
 
 ★★ **2026-09-27 更新：两条"允许做"都已经做完了，物理鼠标那套已归档**：
-- **输入侧 = 进程内合成事件**（`ops_inject.py`）。它按真实鼠标的**完整事件序列**重演
+- **输入侧 = 进程内合成事件**（`ops/inject.py`）。它按真实鼠标的**完整事件序列**重演
   （悬停 → `MouseHoverDispatch` 转发 → 按下 → 起拖 → 拖动 tick → 落地/松开），**不跳步**、
   不挪真实光标、跟窗口焦点无关。物理鼠标实现 `ops.py` 已 `git mv` 到
-  `_archive/ops_mouse.py`（**停用**），`agent/` 三个前端全部改走 `ops_inject`。
-- **判据侧**：`ops_inject` 直接问游戏自己（`CanPlayFromHand`/`CanAttack`/`CanIDoAnything`
+  `_archive/ops_mouse.py`（**停用**），`agent/` 三个前端全部改走 `ops.inject`。
+- **判据侧**：`ops.inject` 直接问游戏自己（`CanPlayFromHand`/`CanAttack`/`CanIDoAnything`
   /`CanSelectAsTarget` …）——进程外 Kismet 解释器（`kardsmem/vm.py`）降级为**兜底**，
   只在注入侧不健康/问不出来时用。**只读查询**（`can_move_to` 那类）凡是要写字段才答得出来的，
   一律**不问并如实报"问不出来"**（别把"必然 False"当判据，也别伪造拖拽态字段）。
 - 进程外的 Kismet 字节码解释器（`kardsmem/vm.py`）仍保留（它是**纯**的、跨构建的兜底，
-  也是 `agent/legality.py` 的来源），但它不再是唯一/默认的判据来源。
+  也是 `semantics/legality.py` 的来源），但它不再是唯一/默认的判据来源。
 
 ★ 已作废的旧说法（留档）：下面曾写着"输入侧目前仍然全部走物理鼠标""新红线只是打开一扇门、
-没有改变现有代码的任何行为" —— 2026-09-26/27 已全部走完（`ops_inject` 实测通过换牌/出牌/
+没有改变现有代码的任何行为" —— 2026-09-26/27 已全部走完（`ops.inject` 实测通过换牌/出牌/
 两种指向/攻击/上线/抉择/手牌目标/结束回合/inspect 悬停，见 handoff §22.13/§22.14）。
 
 `git tag redline-readonly-mem-sim-mouse`（提交 `d3d874a`）标记着旧红线（只读内存 +
@@ -61,16 +61,27 @@
 
 </details>
 
+## ★ Agent 使用真鼠标/键盘与"置前窗口"的规则（2026-10-02，用户定）
+
+**起因**：脚本连点劫持了真实鼠标，用户连给 Agent 发消息都做不到，且是停不下来的后台任务（弯路 #43）。**闸门设在 Agent 的行为上，不改代码**（用户："在 Agent 处设闸门就够了"）。
+1. **默认不点击、不动真实鼠标/键盘。**
+2. **只有两种情况允许 Agent 点击**：① 用户**明确说明处于无人值守**；② 用户**知情并明确允许**。其它情况一律先问。
+3. **允许时也必须带 timeout**（硬超时，即使脚本自己有终止条件也要再加一层），不得无限期运行。
+4. 判断标准：任何可能让用户失去对电脑控制、且不能被用户立刻停止的操作，在没有上述授权时都不做。
+5. 合成输入（`ops.inject` 进程内事件）不受此限，因为不碰真实光标。
+6. **把游戏窗口移到前台（置前、Alt 键技巧、`SetForegroundWindow`、`front2.py` 之类）与动真鼠标同等重要，同样受上面 1–4 条约束**：**尽量不置前**；只有"确实需要点击"或"某些必须前台的测试"时才可以，且**必须先征得用户同意**、带 timeout；用户说明无人值守或知情并允许才算同意。
+7. **截图不需要前台**：用现有工具链（`shot.py`、`vendor/win.py::capture_client_bgr`，PrintWindow/抓取客户区），**不要为了截图而置前**。如果截到的图是黑屏/被遮挡，**告诉用户**，不要自作主张置前。
+
 ## 这个项目要做的四件事
 
 1. **高层 API：从内存读游戏实时状态**（`kardsmem`）
-2. **高层 API：操纵客户端**（`ops_inject.py`，进程内合成事件；旧的物理鼠标 `ops.py` 已归档）
+2. **高层 API：操纵客户端**（`ops/inject.py`，进程内合成事件；旧的物理鼠标 `ops.py` 已归档）
 3. （future）MCP server
 4. （future）NN
 
 框架级硬约束：**发给服务端/对手的信息流必须跟真人操作等价**（见上面红线段落）。
-★ 2026-09-27：**这条已经落地** —— 执行侧 = `ops_inject`（合成事件序列，不挪真实光标），
-命令层 = `agent/`（三前端共用 `AgentSession`），读侧 = `kardsmem`/`board_api`（只读）。
+★ 2026-09-27：**这条已经落地** —— 执行侧 = `ops.inject`（合成事件序列，不挪真实光标），
+命令层 = `agent/`（三前端共用 `AgentSession`），读侧 = `kardsmem`/`kardsmem.board`（只读）。
 
 > 「读/执行后端可换（mem ↔ ocr）」这条**已撤销**。OCR 能做到的有限，
 > 它一直只是**核对手段**，而且最终证明与内存完全对得上 ⇒ 内存是唯一权威。
@@ -181,7 +192,7 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 12. **"字典里写着读不到"不等于真的读不到。** `cardnatives.py` 的 `NOT_READABLE`
    是纯文档、不接调度，2026-09-24 一查发现里面至少 4 条理由
    （`getHasGameplayTag`/`HasCustomAbility`/`isBuffedByCard`/
-   `getCardsBuffedByThisCard`/`getTotalHeavyArmor`）是没查 `board_api`/
+   `getCardsBuffedByThisCard`/`getTotalHeavyArmor`）是没查 `kardsmem.board`/
    `cards.py` 就写的——字段早就在别处被读出来了，只是没人接进 `PRIMS`。
    和第 9 条（被守护那次）是同一类错误：**断言"没有"之前必须先 grep，
    写文档字典也不例外**。
@@ -204,7 +215,7 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 15. **拿 `class_named()` 去 dump 函数库里的函数。** `BattleUtilityFunctions_C` 在进程里
    有**两份同名 `UClass`**，`class_named()` 给的那份自身只有 1 个 UFunction
    ⇒ dump 出来是"找不到 `CanMoveCardToLocation`"，看起来像"游戏根本没这个函数"。
-   函数库（`*_C` 库）和卡类一律用 `ops_inject._bp_lib_fn(class, fn)`——它的判据是
+   函数库（`*_C` 库）和卡类一律用 `ops.inject._bp_lib_fn(class, fn)`——它的判据是
    "**这个类自己的 UFunction 列表里有这个函数**"。同理别用 `class_named()` 验证
    "某个类有没有某个函数"。
 16. **把"函数名"当成了它的行为。** `BP_targetArrowRVX_C::spectatorArrowNewTarget` ——
@@ -316,6 +327,259 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
    结果里标出 `writes_gamepad_field`。
    **元教训**：写一个"读"之前先问"它答得出来是靠我写了什么吗？"——靠写才答得出来的答案，
    跟伪造状态是一回事。
+24. **把"静态卡数据"当成"卡面显示值" ⇒ 显示会跟屏幕对不上。**（2026-09-27，用户点破）
+   我提议 `board`/`inspect` 的字段（类型/阵营/花费/行动费/效果文本）从 **CDO / 静态导出**
+   读，用户当场否掉：「**不能走 cdo。比如即使是手牌也是可以被贴膜的，被减花费的。**」
+   去读 UI 本体（`BP_Widget_HandCardTextV2.cpp`）才发现**它逐条读的是运行时卡对象上的
+   getter**：`getTotalAttack/getTotalDefense/getTotalKreditCost/getTotalOperationCost/
+   getTotalHeavyArmor`、`getCountdownValue`、`hasActiveCountdownEffect`、`IsVeteran`、
+   `HasCustomAbility`、`text`（可被 `newCardText` 覆盖）、`title` **或** `campaignName`、
+   `type/faction/cardSet/rarity`、`helpTextBubbleTypes`；被贴效果走
+   `getbuffsFromCardsAsJsonString()` / `buffsFromCards` / `receivedAbilitiesFromCards`
+   （两张表**都带来源**）。关键词旗标（`hasGuard`…）也是**运行时**能被
+   `GiveGuard/GiveAmbush` 改写的。**只有图标/材质才是静态**（`staticCardFunctions`）。
+   ⇒ 落地 `ops.inject.card_totals(card_id)`（注入式只读调那批 getter，返回
+   `source="game:UBaseCardObject::getTotal*"`）+ `kardsmem.board` 补
+   `operationCostBuff@0xB4`（**以前漏了它** ⇒ 被减行动费的卡显示成原价）、
+   `faction@0x7C`/`rarity@0x11C`/`cardSet@0x130`、`hasBeenAttackedThisTurn@0x280`。
+   **纪律**：凡是"屏幕上会显示"的量，先问一句"UI 是读字段还是调 getter"，然后**照做**；
+   静态导出只配给美术资源和"这张牌是哪个模板"这类真静态的东西。
+25. **只差一个词的字段对，语义正好相反 —— 主动 vs 被动。**（2026-09-27，用户当场纠正）
+   我口头把"伏击判据用的那个旗标"说成 `has_attacked_this_turn`，用户一句"**不是，这能一样？？？
+   被动和主动的区别**"点破：
+
+   | 字段 | 偏移 | 语义（**带主语**） | 该用在哪 |
+   |---|---|---|---|
+   | `hasAttackedThisTurn` | `0x281` | **这张单位本回合攻击过**（主动） | `can_act`（本回合攻击过 ⇒ 不能再攻击） |
+   | `hasBeenAttackedThisTurn` | `0x280` | **这张单位本回合被攻击过**（被动） | 伏击（"每回合首次被攻击"才触发 ⇒ 被动） |
+
+   代码里两处**用对了**（`kardsmem.board` 的 `can_act` 用主动、`view._marks` 的伏击用被动），
+   但我在对话里把两个混成一个 ⇒ 记录、注释、结论一律**写清主语**（谁打谁）。
+   **元教训**：相邻字段名只差 `Been`/`ed` 这类词缀时，别靠"读起来差不多"理解语义 ——
+   SDK dump 里它们是**相邻两行**，grep 一次就能把两个都看到；写结论时把两个都列出来比对。
+26. **"选定"不等于"进了手牌" —— autoplay 卡会把结果延后到回合开始。**（2026-09-27，用户纠正）
+   我写"预报第二段选完 ⇒ `SpawnCardInHandBySide` 进手牌"，用户纠正："**第二段调用
+   `selectCardToDraw`。但是那几张 autoplay 覆写了 `OnHandTargetSelected` 被运行。
+   选择的卡没进手牌而是写进变量，回合开始时再根据情况将其 spawn 到手里。**"
+   逐行核实（`card_event_sunny1_blue_sky.cpp`，三张天气卡同构）：
+   * `:83 OnPlayedFromHand` → `:32 selectCardToDraw(cardID, false, isEffect=true)`
+     → 内部调它自己覆写的 `:93 GetChooseSpawnCards`
+   * 选中 → `:71 OnHandTargetSelected(...)` → `:36-41 **weatherCardChosen = GetCardFromID(...)**`
+     （**只写成员变量，不进任何区域**）
+   * `:61/:43-55 OnStartOfTurn` 才 `SpawnCardInHandBySide(side, weatherCardChosen->name, …)`
+     并置空变量；卡上还带 `GameplayTags={autoplay}` + `usedTriggers={OnStartofTurn}`
+     + `customName1="startofturn0"`。
+   ⇒ 两条纪律：① **别用"手牌里多没多一张"判成败**（既违反"看动作流"，这里还会因时序误判）；
+   ② 想读"现在挂着哪个待定选择"，直接读那张卡对象上的成员变量（`weatherCardChosen` 等，
+   反射链可读）。**元教训**：效果链的**完成时刻**要单独确认 —— "选中了"和"生效了"之间可能隔一个回合。
+27. **把"第 i 格"当成站位 —— 真人给的是"空隙"。**（2026-09-27，用户对着屏幕纠正）
+   我实现 `slot` 时按"支承线内的 `locationNumber`"理解，实机把 108 装甲掷弹兵团打到了**最右**，
+   用户："**你实际上把 108 部署在了最右侧。** 原：4h, hq, 游骑兵。现在 4h, hq, 游骑兵，108.
+   一般真人部署时，将单位拖拽到所需的位置：**两个单位中间，或最右最左侧，放手**。
+   场面上的渲染会把单位挪开一些。最终部署时显示最终渲染。"
+   去读 `BP_Board.cpp` 才看清换算链：`FindCardLocationUnderCursor`（纯出参，读真实鼠标 →
+   射线命中那一排）→ `FindLocationNumberForCoordinates(coords, loc)`，后者遍历该排每张卡、
+   取「**中心 X 在光标左边**的卡的最大 `cardLocationNumber`」再 `+1`。
+   ⇒ **要写进 `LocationNumberUnderCursor` 的是「空隙左边那些卡的最大列号 + 1」，不是格号**；
+   游戏再按"比它小的在你左边"插进去并密集重排（稠密行上两者相等 —— 正是这一点**掩盖**了区别）。
+   * 落地：`slot` 统一成**空隙序号**（0=最左 … n=最右，即"拖到谁和谁之间"），
+     `gap_request_key()` 负责换算，`gap_number()` 直接问**游戏自己**
+     （`BP_Board_C::FindLocationNumberForCoordinates`，只读出参）并跟解析式对账，
+     CLI `gaps`/`gaptop` 只读复现。
+   * 实机端到端验证（两次，覆盖部署与上线）：
+     ① 后排 `[0:瑟堡(hq), 1:游骑兵营]` 上 `unit 27 1`（插到两者**之间**）⇒ 回执
+     `locationNumber:1` + 渲染 `[0:瑟堡, 1:394th, 2:游骑兵营]`（游骑兵被挤到 2）✓
+     ② 前线 `[0:4H, 1:108gen]` 上 `front 25 0`（**最左边**）⇒ `XActionMoveCardToLine{25,0}`
+     + `ZActionMoveCardToNewLocation{newLocationNumber:0, moveReason:Advance_playerMove}`，
+     渲染 `[0:游骑兵营, 1:4H, 2:108gen]` ✓（空隙 0 与 play_card 共用同一换算函数）
+   * 元教训：**别把"用户描述动作的方式"翻译成"我以为的参数语义"** —— 用户说的是"拖到两个单位中间"，
+     那就是**空隙**；而且**参数语义要去读游戏把动作换算成量的那一步**（这里
+     `FindLocationNumberForCoordinates`），而不是自己给"第几格"下定义。附带：
+     `_free_slot()` 扫第一个空列号，在稠密行上等于"追加到最右"，所以"参数被吞"看起来像"能跑"。
+28. **"动作流为空"≠"没成" —— 有的步骤的回执在**下一步**。**（2026-09-27，实机踩到）
+   保密计划（HIDDEN PLANS 16，抉择+指向）：`play 16` 松手后动作流**空**（抉择面板这才打开）；
+   `choose 1 choose_one`（点第二个选项）动作流**也空** —— 但这不是失败：
+   `chooseOneActive` 1→0（面板关了）+ 游戏进了"待点目标"态（`cardBeingPlayedFromHand=16`、
+   `arrows=1`）。**真回执在点目标那一下**：
+   `ZActionPlayCardFromHand{cardID:16, targetCardID:27, chooseOneIndex:1}` +
+   `ZActionRevealCard{27}` + 两组 `ZActionGainAttack/Defense`。
+   ⇒ 两条纪律：① **"动作流为空" = "这一步没产生动作"，不等于"动作失败"** —— 先看游戏自己的
+   状态（面板开着没 / 待点目标态 / 待定点还在不在），把"这一步本来就不产生动作"和"被拒"分开；
+   ② **但旁证仍然不许进 `ok`**（#22 不变）：`pick_choice` 只把它们报成
+   `awaiting_target`/`playing_from_hand`，`ok` 仍只认动作流。
+   **判据可以"往后挪一步"，不可以"降级成旁证"。**
+   * 落地：两步流程只在**注入侧**实现一份 —— `ops.inject.choose_one_with_target(index, target)`：
+     闸门是游戏自己的 `card_being_played_from_hand`；没有它但有选项回执 ⇒ `resolved_at_option`；
+     都没有 ⇒ `reason="option_not_consumed"` 且**不点目标**。`ok` 只认**第二步**的动作流。
+     `AgentSession.choose_one_with_target` 纯转发；CLI `chooseone <i> <target>`。
+     ★ 用户点破的场景：我实机是**手动分两步**才走通的 ⇒ 合并动词的旧写法（`ok=False` 就 return）
+     是**没测出来的 bug**。现在有离线回归 `test_choose_verbs.py`（18 项，假 `self`）钉住状态机：
+     "合并动词能走通"必须有**自己的**测试，不能靠"我手动分步走通了"充当证据。
+
+29. **把"相关的另一个变量"当成原因。**（2026-10-01）攻击大面积"被拒"（动作流为空、`CanAttack` 却 can=True、
+   提交停在 `mouse_up`）。先后怀疑了：游戏线程调度、真实鼠标在窗口里、PC 的 `wasLastTouchTap`……
+   A/B（三种调度模式同局轮换）证明调度无关；最后发现**窗口在前台 22/22 成功，失焦约 2/25**。
+   用户当场质疑"必须前台那我用模拟鼠标干什么？以前是通的"——对：前台只是相关，真因是**失焦时 UE 降帧，
+   我刚把停留从 1.0 s 缩到 0.5 s、按下/拖动间隔只剩 0.06~0.08 s，这些间隔里游戏一帧都没跑**
+   （悬停转发、箭头 `overCard` 更新都没发生 ⇒ 松手提交被静默跳过）。恢复 1.0 s 后失焦 10/10。
+   ⇒ 纪律：① **改了"时序"就要在"失焦/后台"条件下回归**，不能只在前台测；② 模拟输入的"停留"
+   应该按**游戏帧数**算（`Injector.settle(seconds, frames)`，PC `ReceiveTick` 计数），不是只按墙钟；
+   ③ 用户质疑"为什么必须 X"往往是在指出**你把相关当因果**。
+30. **跨线程调用蓝图 ⇒ 随机崩溃。**（2026-09-30 转储定案）注入的 `ProcessEvent` 原来跑在 frida 线程上，
+   与游戏线程并发改 `UWorld+0x460`（`OnActorSpawned` 多播委托列表，无锁），留下悬空项，之后压实时崩
+   （`kards+0x120F1B6`/`0x11D37E6`/`0x11AD577`，虚表指针垃圾 0x1e3020030）。现在所有含 `callPE|callRawArrImpl|pe(`
+   的 RPC 都经 CModule `Interceptor` 在**游戏线程**（PC `ReceiveTick` 入口）上执行；4 s 没人接手就撤回报错。
+   ⇒ 新增注入动作一律走这条；别在 frida 线程上直接 `pe(...)`。
+31. **常驻监听器被 `player.play.play` 占住时收不到命令。** 要中途停局只能走 UI（齿轮 → 投降），不能发命令；
+   重启监听器用 `quit`（可以），但**不要强杀监听器/ProcDump**（游戏会崩）；ProcDump 用 CTRL_BREAK 停
+   （`_nn_scratch/stop_pd.py`）；`-w` 会让游戏在创建时退出 ⇒ 先开游戏再开监听器。
+   物理点击要先前台（Alt 键事件 + `SetForegroundWindow`），否则被 Claude 窗口吃掉。★ 但置前本身受"Agent 使用真鼠标/键盘与置前窗口的规则"约束：先征得用户同意、带 timeout。
+32. **把"相关"当"因果"的第 3 次：攻击被吞掉的真因是"光标在窗外时 `Location/Row` 是旧值"**，
+   `mouseOverActor` 只是相关（§3b⁶ 的结论曾被 3b⁷ 推翻）。修复 = 提交批次里显式写
+   `LocationUnderCursor=7` + `RowUnderCursor=1`（`ops/inject.py::_attack_once`）；三局 30/30 成功。
+   ★ **用户观察（2026-10-02）**：补写这两个值之后，**真鼠标在不在窗口内都不再影响脚本操作**（此前"鼠标移出窗口才稳"的条件作废）。我们自己的 30/30 是在"窗外 + 后台"条件下测的，**窗内的成功率没有单独统计**，以用户观察为准；测试不再要求把光标移出窗口。
+33. **`Logic→spawnCardFunctions(*Out)` 返回的不是对局在用的那个 `BP_CardFunctions_C`**（2026-10-01 夜实测）：
+   同一时刻进程里有**两个**实例 —— 它返回的那个 `InitialSeed=0`、`seed` 恒 0（空壳），
+   真正在用的是关卡 actor 里 `InitialSeed != 0` 的那个。判活 = **关卡 actor + `InitialSeed != 0`
+   + `InternalIndex(+0xC)` 最大**（第二条是当晚第二次踩出来的：**上一局的实例换局后不会立刻销毁**，
+   也有非 0 种子，只看"非 0"会锁到已经冻住的旧流 —— 症状是"seed 一直不变"；
+   game 每局新建实例、索引单调递增，实测 149360 vs 残留 128630）。
+   （`Locator(m,base).actors()`，156 个 actor，0.00 s）；别用 `spawnCardFunctions`，也别扫全量 GObjects。
+   ⇒ 读随机流别再走"函数返回"这条路。实现：`kardsmem/rng.py::card_functions_ptr`（缓存 5 s 复核）。
+34. **随机流采样别在注入侧开线程**：Python 采样线程和 `player.play.play` 抢 frida RPC 会把 script 抢崩
+   （`script has been destroyed`）。**外部只读采样**（`kardsmem` ReadProcessMemory，20 Hz）零干扰，
+   实测 20.0 Hz / 间隔中位 50.6 ms / 6759 条不断流。监听器就绪判定还要注意：`live_session.py`
+   启动时会重建 `live_cmd.txt`，而 `live_log.txt` 是**追加**的 —— 从整文件尾部找
+   `precheck.available() = True` 会命中上一局的旧行，命令会在文件重建时被吃掉（22:22 踩过）。
+35. **"三选一"的候选是"池先洗牌再取前 3"，而池子会被『进预备』改变 —— 必须实时问游戏 API**
+   （2026-10-02 定案）。`keepOrder=false` 那一类（好人寥寥等）：原生
+   `Array_ShuffleFromStream(池, cardsRandomStream)`（正向 Fisher-Yates、抽 **N = 池大小** 次）→ 取前 3。
+   池 = **游戏官方 API 当前卡表（默认只返回"没进预备"的卡）** ∩ 该卡自己的过滤（阵营/稀有度/是否单位）
+   ∩ 静态卡表的卡集过滤。**别用离线卡库快照**（预备名单轮换，快照会过时）；
+   也别只按静态卡表筛（那会多出"进预备"的卡，池子就错了）。
+   自检法：出牌前后看种子**跳几步**——跳 N 步 ⇒ 池 = N 张（好人寥寥本账号 18）。工具见
+   `_nn_scratch/{kards_api_reserved,choose_spawn_predict,watch_choose_spawn}.py`。
+36. **PvP 里我们可能在 2 号座位 —— 任何"座位 1 = 我方"的写法都会整段失效**
+   （2026-10-02 实机，休闲局，用户："怎么也秒空过了？始终如此"）：
+   `kardsmem/cards.py::read_raw()` 的 `side` 原来用**静态** `SIDE_ENUM`（座位 1 = local）
+   ⇒ 我们在 2 号座位时**整只手牌被判成 `enemy`** ⇒ 旧 `pick.hand_card_actors()` 把它们全丢掉
+   ⇒ `ops.inject.hand_actor()` 永远找不到自己的手牌 ⇒ 每个出牌/部署动作都在预检被
+   "card X 不在我方手牌"挡掉 ⇒ 搜索有候选但**全部 `exec=False`**，只能结束回合（"秒过"）。
+   训练局一直是 1 号座位，所以只在 PvP 暴露。修法：side 一律按 **`MatchLog.my_side()`
+   （`Logic.mySide`，本局座位，1/2）** 判（`cards._side_name/_my_seat`；**缓存必须跨局失效**，见 #37）；
+   静态表只当"读不到座位"时的兜底。**新写任何读侧/判侧代码都照这个来。**
+37. **"一局内不会变" ≠ "进程内不会变" —— 常驻监听器跨局复用同一个 session/MatchLog 时，
+   "对局级"字段（座位/Logic/OnlineMatch）的缓存必须跨局失效**（2026-10-02 C/D 两连局实机，
+   D 局整局 0 出牌）：D 局 316 步里只有 13 次 `end` 成功，其余 87 个动作全被拒、清一色
+   `card X 不在我方手牌`；而规则侧（kardsmem.board 回合奇偶那条读法）看得见 9 张手牌 ⇒ 两边视图分叉。
+   三个缓存点：① `kardsmem/cards.py::_my_seat` 把座位缓存在 **session 对象**上、写一次永不失效；
+   ② `kardsmem/matchlog.py::forget()` 漏清 `_my_side_cache`；③ `_logic()/_my_side_cache` 命中前
+   不验新鲜度（长寿命 MatchLog 跨局继续用上一局的 Logic 指针/座位）。修法（2026-10-02）：
+   座位缓存跟随 MatchLog（`my_side()` 命中前先 `is_stale()`，换局自动 forget+重定位）；
+   `forget()` 两个都清；`locate()` 失效即丢弃重找；`AgentSession.legality()` 座位变了重建。
+   离线回归 `test_seat_cache.py`（22 项）+ `selftest` 两构建。
+   **规律：凡"每局会变"的字段，缓存生命周期绑定"当前对局对象"，命中前用便宜判据
+   （`is_stale()` / 单例指针变化）验一次；把值挂在 session/进程级对象上就是事故。**
+38. **评估不能"编造价值"：取不到效果 ≠ 按费用给一个估算**（2026-10-02 实机，用户两连报）：
+   ① "指令的评估有问题。6费空打+3+2"——`rule._hand_eff` 对取不到效果摘要的指令给
+   `_est = order_mult × cost`（6 费 = +5.4，扣手牌持有价值 2.16 仍 **+3.24**）⇒ 搜索/9 路预报
+   把"打了什么都不做"的 6 费牌当正收益（实机：`sunny4_scorching_sun*` 恒 +3.24、连选 4 次，
+   而那局**手里和场上都没有空军**，卡的效果根本无从发生）。
+   ② "游骑兵，脚本还是不选 +4+4"——部署抉择（5th RANGERS："行动花费 0" / "+4+4"）的候选不是卡、
+   `score_candidates()` 查不到 ⇒ 旧启发式全 0 分 ⇒ **永远点第一个**。
+   修法：`PARAMS["unknown_order_est"]=0.0`（不编造；打出去只剩丢手牌的负收益 ⇒ 不空打）；
+   二选一改为**首选 VM 枚举出的抉择分支**（用户点破："取不到效果摘要 是不可能的"——实机
+   `card_unit_5th_rangers` = `choice=True, outcomes=[{"opcost":0},{"buff":[4,4]}]`，顺序=屏幕 index），
+   文字匹配只作 VM 不可用时的兜底；`meta.pick_eval_src` 写 `vm`/`label`。
+   规律：**效果摘要取不到就记 gap 并给 0，绝不按费用"估"一个正数**；但先分清——
+   `complete=True 且效果 {}` 是"**已知的空**"（例：6K 骄阳在没有空军时就是不产生效果），
+   不是缺口；真缺口的判据是 VM **没跑完**（停在未实现的原语/超时）。
+39. **热重载会打断零参 `super()` —— 重载过的类"新建实例"会炸**（2026-10-02 实机）：
+   11:44:27 热重载 `player.rule`（`hotreload.py` 把新方法并回旧类）之后，**当前实例**继续跑没事；
+   但 11:48:05 开下一局时 `player.play.play` 新建 `RuleV2` → `TypeError: super(type, obj): obj
+   (instance of RuleV2) is not an instance or subtype of type (RuleV2)` —— 新函数对象里的
+   零参 `super()` 用 **新类** 做起点，而实例挂在 **旧类** 上。⇒ 热重载之后要**重启监听器**
+   （或让 Loop 重建 policy）再开下一局；别以为"这一局还能跑"就代表重载成功。
+   （要根治得在 `hotreload.py` 里把旧类的 `__class__` cell 也改写，或禁止对含零参 `super()`
+   的类做热重载。）
+
+40. **开局前必须先 `end_of_match_continue`，不能直接 `press_play`**（2026-10-02 实机，用户点破：
+   "你还没有 end_of_match_continue 就 press_play？？？"）：上一局结束后客户端**仍带着残留状态**，
+   跳过"回牌组页"直接注入 `press_play` 会开出一局**"我方 T1 打完、对手（服务端 AI）的回合永远不来"**
+   的死局 —— matchlog 只剩 `XStartOfGame` + 我方 `Start/EndOfTurn` 共 3 条、`my_turn_has_started=False`、
+   服务端不响应（AI 本身不会卡）。正确流程 = `_nn_scratch/open_next.py`：
+   ① 循环 `end_of_match_continue` 直到 `left_screen=True`；② `settle`；③ `list_decks` 闸门；
+   ④ `press_play`；⑤ `player.play.play` 接手。**即使只读检查说"已经在牌组页"，也要先走 ①。**
+
+42. **对局进行中绝不能 `press_play`（会 0xC0000005 崩溃）**（2026-10-02 事故）：`open_next`
+   在一局**尚未结束**时（`end_of_match_continue` 全失败、`left/after` 全 None），只凭
+   `list_decks` 非空就点了"开始" ⇒ 游戏随后
+   `EXCEPTION_ACCESS_VIOLATION reading address 0xffffffffffffffff` 崩溃（用户手动打完才崩）。
+   ⇒ 硬闸门 = **只读 `kardsmem.gs.GameState.match_active`**：`True`/`None`（读不到）**一律拒绝**；
+   "离开结算页"≠安全、"牌组列表读得到"≠安全。所有点开始的脚本
+   （`open_next.py` / `start_ranked_now.py` / `continue_ranked.py`）统一走
+   `_nn_scratch/play_guard.py::safe_to_start(sess, decks)`。
+   ★ **闸门第一版判据写错了**：用了 `Locator.in_battle` —— 那个在**主菜单也为真**
+     （`kardsmem/gs.py` 的注释白纸黑字："战斗 GameState 类已加载。**主菜单也为真** —— 不是「在对局中」"），
+     结果是"一局都开不了"（主菜单也判成对局中）。判「真的在一局里」**只认 `GameState.match_active`**
+     （指挥点加密记录解得出 ⇒ `kredits` 非 None）。同一个进程里 `kardsmem selftest` 的 F 段
+     （`match_active=False` + "[INFO] 不在对局中"）就是现成的对照观测。
+
+43. **禁用坐标点击蒙界面：`startmatch.py` 已删；过渡态不许点；控件里"按钮/文字/内层 UButton"各自可能挂事件**
+   （2026-10-02 事故，用户："不准用那个乱点一气" / "你点击有问题。可能是其中文本有点击事件，可能是按钮有点击事件"）：
+   `startmatch.py --to mulligan --mode versus` 在 `deck_select` 判到后点模式 + 点"开始"，
+   紧接着分类器返回 `state=None`（界面正在过渡）——旧版把 `None` 并进 `deck_select` 分支又点一遍，
+   连点 5 次（`(1159,625)`/`(1163,644)`×2/`(1163,651)`×2），**随后用户把客户端关掉了——这是用户的主动操作，不是崩溃**（真鼠标被连点占住，用户连给 Agent 发消息都做不到，只能强关夺回控制权；所以没有崩溃转储和 Windows 崩溃事件，launcher 14 秒后拉起了新进程）。
+   ★ 真正的危害 = **脚本劫持了真鼠标，让用户失去对电脑的控制**——这正是"不准用坐标点击/动真鼠标前先问用户"的根本理由。
+   ⇒ **用户 2026-10-02 指令：`startmatch.py` 直接删掉**（已删；同类的 `_nn_scratch/click_start_mouse.py`
+   一起删，都靠坐标蒙）。`vendor/actions.click` 只在"确实需要物理鼠标"时用，且**动鼠标前先问用户**。
+   ① 过渡态（`state=None`）只许等，不许点；② 要"点"，就**注入调游戏自己绑定的句柄**
+   （`ops.inject.press_play` / `select_mode_by_label` / `_live_deck_sidebar` 的做法）——
+   `squareKardsButton_Widget_C` 这种控件里 `ButtonText`(UTextBlock@0x360) / `Button_0`(UButton@0x370) /
+   `OnClicked`(多播@0x390) 各自可能挂事件，坐标落在谁身上取决于布局。
+   **本客户端四个页面（用户 2026-10-02 当面指认）**：① **主页** = 顶上金翅膀 logo；
+   ② **开始** = 对战模式列表 + 牌组页（右侧"排位/休闲"页签 + 开始按钮）；③ **卡牌** = 收藏/卡组编辑；
+   ④ **商店**。★ `play_btn` 模板在**每一页**都能匹配到（左侧导航恒显）⇒
+   `config/states.json` 的 `main_menu` 判据在这个构建上**不可信**，别拿它当"在主页"的证据。
+
+44. **空跑 VM 不能拿静态 CDO 当 `self`：运行期子对象（`cardFunction`）是空的，虚调用会退回卡类 ⇒ 报出"函数不存在"的假缺口**
+   （2026-10-02，`+deckchg` 预检）：用 `AllStaticCardsSortedByName` 里的 LOVAT SCOUTS CDO 跑
+   `OnAfterDeckChanged`，链停在 `Unimplemented @0x2C Context: '函数 GetDeckByside'`，
+   而 `NATIVE-COVERAGE-1.60 §12` 说它是**蓝图、有字节码**。反汇编
+   （`_nn_scratch/probe_lovat_ubergraph.py`）显示调用是
+   `Context(InstanceVariable cardFunction) → LocalVirtualFunction(GetDeckByside)`；
+   实测 **CDO 的 `cardFunction=0`**、真实实例的 `cardFunction` 非空，它的类上确实有
+   `GetDeckByside`（`0x15c2758a500`，`has_bytecode=true`；名字就是小写 s，别"顺手改对"）。
+   ⇒ 要空跑带"卡功能对象"的钩子，必须用**真实实例**；CDO 只适合看字段默认值。
+   同批的教训：三条标记族（`+intel`/`+hooks`/`+shuffled`）此前"恒空"都是被 `except` 吞掉的
+   `TypeError`/`BoardState` 缺口（`6836c6f`/`146d4b5`）——**链的空结果必须能解释**，
+   所以诊断字段（`intel_dbg.tried`、`marker_err`）比"没触发"这三个字重要。
+
+41. **每次 `frida.attach` 都在 Temp 里留一份 ≈43 MB 的 `frida-<hash>`（agent 解压），进程被杀/崩溃不清理。**（2026-10-02，用户用 WizTree 点破：
+   9/25 起 612 份 ≈ 25.8 GB 吃光用户 Temp，C 盘只剩 15.8 GB）
+   我当时只把"短命注入进程"当成崩溃问题（弯路 #31），没算过它的**磁盘代价**。⇒ ① `ops.inject._frida_tmp_setup()` 在 `import frida` 之前把本进程
+   TEMP/TMP 指到 `D:\Kards\_frida_tmp`（`KARDS_FRIDA_TMP` 可改）；② `sweep_frida_tmp()` 在 attach 前、`close()` 里 detach 后清**没被占用**的旧目录
+   （agent dll 能以追加方式打开 ⇒ 没人在用；占用中的跳过）；③ 注入类脚本一律走常驻监听器，别为了"问一下"另起进程；④ 做任何会反复起进程的东西前先算"每次留下什么"。
+
+## 当前状态（2026-10-03 更新；细节看 `PLAN.md` §0 与 `TODO.md`）
+
+- **规则 bot**：`player/rule.py`(RuleV2) + `policy/boardeval.py`(搜索) + `semantics/effectvm.py` + `kardsmem/vm.py`（外部 Kismet VM，
+  带缓存/截止时间）。常驻监听器 `_nn_scratch/live_session.py`（命令文件通道），日志 `kards-data/nn/logs/rule-live-*.jsonl`
+  （含 `t_snap/t_decide/t_exec`、`atk_loc/tgt_loc/atk_kw/tgt_kw` 等逐步诊断）。
+- **盘外评估/模拟分层**：`sim/`（模拟：状态/事件队列/规则）与 `evaluation/`（评估：纯估值）分开，依赖方向由 `test_arch_rules.py` 把关；
+  `boardeval.py` 是过渡层。标准见 `EVAL-ARCHITECTURE.md`；OPS 侧标准见 `OPS-ARCHITECTURE.md`。
+- **控制面板**：`gui/`（`run_gui.bat`）——自动对局编排、决策历史、监听器启停、版本识别；面板只写控制文件，不碰游戏。
+- **版本与 RVA**：运行中游戏的 `版本号.分支` 直接读进程内存（`kardsmem/version.py`）；**目标架构**是运行时扫描 RVA + 缓存 + 随包种子表、
+  去掉手工版本表（`ARCH-RELEASE-VCS.md`，S1 的 `kardsmem/rvascan.py` 已做，S2 需游戏）。
+- **总原则（2026-10-03）**：行动 = 动作 + 其后全部选择；机制按**能力**探测分支（旧版本无该机制就走旧规则），新版本靠**语义指纹**降级为缺口；
+  种子/随机流机制自最旧版本传下来、改动极保守，视为稳定底座（`ARCH-RELEASE-VCS.md` §7）。
+- **已知的版本相关机制**：洗牌钩子（海战起）、Bond 协力整套（国土阵线起）、更早只有"无牌可抽才疲劳伤害"。
+- **只打训练/AI 局**（对手 player_id 为负）；开局前必须目视确认"训练模式"高亮。
+- **关键词读游戏自己的 getter**（`getHas*`），不读 flag 字节（被赋予的冲击 flag=0）。
+- **待办清单**：`kards-agent/TODO.md`（现行看板；规范见本文"待办（TODO）与文档维护规范"；旧版 `TODO-ARCHIVE-2026-10-02.md`）；
+  记忆：`memory/project_bot_session_2026_10_01.md`、`project_rng_stream_2026_10_01.md`、`project_crash_analysis_2026_09_30.md`。
+- **崩溃转储工具** `tools/crashdump.py` / `tools/CRASHDUMP.md` 由 DeepSeek 维护（ProcDump 引擎），**别改**；输出 `kards-data/crashdumps/`。
+- **失焦注意**：任何改了等待时长的提交，都要在游戏后台的条件下打 ≥12 次攻击验证。
 
 ## 反制（gotcha / Countermeasure）与其它 2026-09-26 实机结论
 
@@ -356,6 +620,13 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 
 ## 代码约定
 
+- **★ 生产代码不得放在、也不得依赖 `_nn_scratch/`**（2026-10-03，用户：“为什么这些没进 kards-agent 目录！！为什么这些不清理一下？”）。
+  `_nn_scratch/` 只放一次性探针；一个脚本一旦被别的东西依赖（监听器、开局闸门、API 缓存…），当天就搬进 `kards-agent/`
+  （`tools/` 或 `agent/`）。运行期文件（监听器命令/日志通道、API 缓存、热重载开关）的位置**只**由 `agent/paths.py` 给，落在
+  `kards-data/`（`.gitignore` 里）；`test_no_scratch_dep.py` 用 AST 把关。已搬：`tools/live_session.py`（常驻监听器）、
+  `player/play_guard.py`（开局硬闸门，旧探针里的 `import play_guard` 走 `_nn_scratch/play_guard.py` 垫片）、
+  `tools/kards_api_reserved.py` + `tools/choose_spawn_predict.py`、API 缓存 → `kards-data/api/`。
+  **监听器通道**现在是 `kards-data/live/live_cmd.txt`（命令）/`live_log.txt`（结果）。
 - 注释写**为什么**，尤其是踩过的坑；结论旁边标明证据来源和强度
 - **不硬编码运行时算得出来的偏移**；确实要记的，写成「给人看的备注」常量并注明
 - **★ 偏移表必须可换、且从 SDK dump + exe 里生成（2026-09-25 用户定的架构）**：
@@ -364,13 +635,24 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
   ⇒ 脚本**只写偏移的名字，不写数值**；数值统一由 `python -m kardsmem.buildsrc` 从
   **SDK dump（`Dumpspace/OffsetsInfo.json`）+ exe 本身**（`FName::AppendString` 里的
   `lea r8,[rip+…]` 派生 FNamePool、`.data` 扫 UWorld 派生 GWorld）生成到
-  `kardsmem/build_tables.json`，`kardsmem/build.py` 与 `board_api.py` 都从它读。
-  选构建用环境变量 **`KARDS_BUILD`**（不设 = `current` = Steam；launcher 那份是
-  `launcher_default`）。`--check` 验一致性；`python -m kardsmem selftest` 两个构建都要过。
-  ★ **不要自动切构建**：`build.py` 和 `board_api.py` 各有一张表，运行中改环境变量会让两边
-  混用偏移（读数静默错位）。对不上就报错并告诉调用方该用哪个 `KARDS_BUILD`
-  （`agent/precheck.py::build_check` 就是这么做的）。
+  `kardsmem/build_tables.json`，`kardsmem/build.py` 与 `kardsmem/board.py` 都从它读。
+  ★ **2026-10-03 起按"运行中游戏自报的版本号.分支"选表**（已知版本 ↔ RVA 表一一对应）：
+  `kardsmem/version.py` 只读扫游戏进程内存里的 `ProjectVersion`（`Kards 1.60.27292.launcher`，
+  IDA 证实它来自 `GConfig` 的 `GeneralProjectSettings.ProjectVersion`，≥2 处且唯一值才采信，约 3 s，
+  按 (pid, 进程创建时间) 缓存），再按 `VERSION_TO_BUILD` 得到表键。选择优先级：
+  **`KARDS_BUILD` 显式覆盖 > 运行中游戏的版本 > 兜底 `current`**，`build.py`（`CURRENT/BUILD_SOURCE`）
+  与 `kardsmem/board.py`（`_BUILD_KEY`）用**同一个**选择函数。`SizeOfImage`/md5 不再是放行条件，只作信息。
+  新版本要先在 `VERSION_TO_BUILD` 登记它的表，否则 attach 报"版本未登记"（不猜）。
+  `--check` 验一致性；`python -m kardsmem selftest` 两个构建都要过。
+  ★ **选表只在进程启动 import 时做一次，运行中不切**：`build.py` 和 `kardsmem/board.py` 各有一张表，
+  运行中改会让两边混用偏移（读数静默错位）。对不上就报错并提示重启
+  （`agent/precheck.py::build_check`、`proc.Session.attach` 都按版本判）。
+  静态读各安装树版本：`tools/pakread.py::install_version`（pak 主 key 硬编码为默认 `DEFAULT_MAIN_KEY`，
+  不对再试 FModel 的值与 AESDumpster 候选）；`reverse-data/tools/usmaps/kards-<日期>-*.usmap` 里的日期是
+  版本发布时间，其中旧日期那几份对应 1.54/1.55，**忽略**。
 - 每次改完代码跑 `cd kards-agent && python -m kardsmem selftest`
+  ★ 再加一条**不需要游戏**的：`python test_choose_verbs.py`（"抉择 + 指向"两步状态机的离线回归，
+  18 项；"合并动词能走通"必须有它自己的测试，不能拿"手动分步走通了"当证据，见弯路 #28）
 - 提交信息用中文，讲清楚「做了什么 + 为什么 + 证据」
 
 ## 这是什么项目、边界在哪
@@ -386,7 +668,7 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
   | `win.py` | 窗口 / DPI / 客户区坐标 / 截图 / 置前 | 目标②的地基 |
   | `actions.py` | 鼠标原语 | 同上 |
   | `deploy.py` | `drag_deploy` 拖拽出牌手势 | 同上 |
-  | `ui_state.py` `cv_io.py` | 模板匹配、界面分类 | 开局/菜单流程（`startmatch.py`） |
+| `ui_state.py` `cv_io.py` | 模板匹配、界面分类 | （`startmatch.py` 已删；分类只作参考——`play_btn` 每页都匹配，见弯路 #43） |
   | `handedge.py` | 手牌扇形左右边缘 | **内存里没有这个量** |
 
   外加 `config/`（18 个模板 + 8 个状态）和 `ui_templates/`。
@@ -423,15 +705,22 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 | 路径 | 是什么 |
 |---|---|
 | `kards-agent/kardsmem/` | **读侧**（唯一入口）。`world/cards/gs/names/props/objects/kismet/pick` |
-| `kards-agent/ops_inject.py` | **执行侧（唯一）**：合成事件序列（出牌/指向/上线/攻击/抉择/换牌/结束回合） |
+| `kards-agent/ops/inject.py` | **执行侧（唯一）**：合成事件序列（出牌/指向/上线/攻击/抉择/换牌/结束回合） |
 | `kards-agent/agent/` | **命令层**：`session.py`（唯一动词集合）+ `shell.py`/`mcp.py`（前端）+ `record.py`（只读录制） |
 | `kards-agent/_archive/ops_mouse.py` | 旧的物理鼠标执行侧（**已停用/归档**，2026-09-27） |
-| `kards-agent/board_api.py` | 盘面模型 + 数据源（`mem` 是权威，`ocr` 只作核对）—— **本项目自己的代码** |
+| `kards-agent/kardsmem/board.py` | 盘面模型 + 数据源（`mem` 是权威，`ocr` 只作核对）—— **本项目自己的代码** |
 | `kards-agent/tools/` | 取材/标定工具（`mem_probe` `dumpmem` `mulverify` `pickwatch` `grid` `crop` `field` `pe_tools` …）。脚本里 `import _bootstrap` 就接好路径 |
+| `kards-agent/sim/` `evaluation/` | 盘外**模拟**（状态/事件队列/规则下沉）与**评估**（纯估值）；`boardeval.py` 为过渡层；规则见 `EVAL-ARCHITECTURE.md` |
+| `kards-agent/tools/live_session.py` `player/play_guard.py` `agent/paths.py` | 常驻监听器 / 开局硬闸门 / 运行期文件位置表 |
+| `kards-agent/gui/` | 控制面板（`run_gui.bat`）：`control`/`autoplay`/`history`/`watcher`/`app`；`gameversion.py` 为兼容壳 |
+| `kards-agent/kardsmem/version.py` `rvascan.py` | 版本识别（读进程内存里的 ProjectVersion）/ 运行时 RVA 扫描（第一阶段）；方案 `ARCH-RELEASE-VCS.md` |
+| `kards-agent/tools/pakread.py` | UE5 pak v11 只读读取器（静态读 `DefaultGame.ini` 等；AES key 默认硬编码） |
+| `kards-agent/ARCHITECTURE.md`（**总纲，先读**）`{PLAN,TODO,EVAL-ARCHITECTURE,OPS-ARCHITECTURE,ARCH-RELEASE-VCS,TODO-ARCHIVE-2026-10-02}.md` | 计划/看板/评估架构标准/OPS 架构标准/发布与 VCS 架构/旧 TODO 归档 |
+| `D:/Kards/tools_ida/` | IDA 批量标注 exec thunk→真函数（`label_exec_thunks.py`、`run_label.py`、`exec_thunks.csv`）；idalib 无头运行；**应用后 IDB 已改名 2958 条，备份 `.i64.bak`** |
 | `kards-agent/vendor/` | 从上游搬来的**六个**在用的模块（GPL-3.0，逐个查过引用） |
 | `kards-agent/config/` `ui_templates/` | 模板表与模板图（自足） |
 | `kards-agent/_archive/` `_archive/mem-era/` | 被取代的一次性脚本（含旧的内存探针），留档不维护 |
-| `reverse-data/reports/spec/KARDS-AUTOMATION.md` | **主规格**，先读它 |
+| `reverse-data/reports/spec/KARDS-AUTOMATION.md` | 主规格（**历史，1.58/1.59 时代**；现行 1.60 事实看 `reports/report/*-1.60.md` + 本文件 + `TODO.md`） |
 | `reverse-data/tools/` | **只剩**逆向/静态/第三方工具（`idmap_lookup` `search_exports` `u4pak` `FModel.exe` …）—— 自动化与 mem 工具**不在这里** |
 | `reverse-data/sdk/<build>/` | Dumper-7 导出（SDK / Dumpspace / .usmap / .idmap） |
 | `reverse-data/exports-<build>/` | FModel 导出的 uasset + 反编译伪 C++ |
@@ -448,14 +737,14 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
   （同构建的两份副本 md5 本来就可以不同，见 `kardsmem/exes.py`）。
 - **窗口没焦点会把鼠标点击吃掉**（**仅对已归档的物理鼠标实现成立**）：事件发出去了、
   游戏没反应、内存零变化，看起来和「坐标错了」一模一样。★ 2026-09-27 之后执行侧走
-  `ops_inject`（进程内合成事件），**跟窗口焦点无关** —— 这条只留给读 `_archive/ops_mouse.py`
+  `ops.inject`（进程内合成事件），**跟窗口焦点无关** —— 这条只留给读 `_archive/ops_mouse.py`
   的旧工具。
 - **选择界面开着时，出牌/移动/攻击全部无效**，而且面板可能被翻页收到屏幕右侧
   （看不见但 `chooseOneActive` 仍为 1）。
 - **同一时间只允许一路在动（合成事件也算）。** 2026-09-24 无人值守那轮踩的：手写了个
   自动过牌的脚本扔进后台跑，同时又手动发了几条点击/拖拽——两路同时拖牌，游戏 UI 卡进
   一个奇怪的"两张同名卡并排放大"的界面、`chooseOneActive=1` 卡住不动，好几分钟没反应。
-  `ops_inject.pick_pending()` + `pick_choice(0)` 能解开（底层没坏，只是 UI 状态被两路输入
+  `ops.inject.pick_pending()` + `pick_choice(0)` 能解开（底层没坏，只是 UI 状态被两路输入
   搅乱了），但**教训是别犯**：要跑后台脚本，就不要再手动/并行发别的动作。
   ★ 换成合成事件之后**不抢鼠标了**，但"两路写同一个客户端状态"这件事照旧危险。
 
@@ -479,19 +768,20 @@ git -C D:\Kards push https://github.com/HeCPDF/kards-agent 'publish/kards-agent:
 
 伞仓库 `D:\Kards` **不要**挂指向公开库的 remote。
 
-## 现在做到哪、下一步做什么（2026-09-22 本轮收尾时的状态）
+## 现在做到哪、下一步做什么（⚠ 历史段：2026-09-22 本轮收尾时的状态，**已过期**；现状看上面"当前状态"、`PLAN.md` §0、`TODO.md`）
 
-**先读这个**：`reverse-data/reports/spec/KARDS-AUTOMATION.md` §10 交付状态 + §11 未解决（**唯一权威清单，别在别处抄一份**）。
+**先读这个**：`kards-agent/TODO.md`（状态/待办）+ 本文件（红线/弯路）+ `reverse-data/reports/report/*-1.60.md`
+（1.60 的 IDA/BP 事实）。`reports/spec/KARDS-AUTOMATION.md` 已标注为**历史文档**（1.58/1.59），只作背景。
 
 **已交付**
 - 读侧：R1 场上卡 / R2 双方手牌 / R4 弃牌堆 / R5 FName / R7 当前属性 / R9 位置 / R10 临时 CardID ✅；
   R3 候选牌 ⚠ 半；**R8 可指向目标 ❌**（唯一正路：把 `cardsCheckFunctions.cpp` + 438 个
   `CanPlayFromHand` 覆写移植成 Python，`card_targets.py` 已 18/20）。
 - 执行侧：E1 出牌 / E2 指向 / E3 部署后选目标 / E4 攻击 / E5 上线 / E6 结束回合 / E7 抉择点选 /
-  E8 换牌 / E10 回读判成败 ✅；E9 投降 ✅（`ops_inject.surrender(confirm=…)`，游戏没有二次确认）。
-  ★ 2026-09-27：执行侧全部收进 **`ops_inject.py`**（旧 `ops.py` 已归档），逐条对齐表见
+  E8 换牌 / E10 回读判成败 ✅；E9 投降 ✅（`ops.inject.surrender(confirm=…)`，游戏没有二次确认）。
+  ★ 2026-09-27：执行侧全部收进 **`ops/inject.py`**（旧 `ops.py` 已归档），逐条对齐表见
   handoff §22.14.6。
-- 自检：`cd D:\Kards\kards-agent && python -m kardsmem selftest` → 全 PASS（含 board_api 30 项 +
+- 自检：`cd D:\Kards\kards-agent && python -m kardsmem selftest` → 全 PASS（含 kardsmem.board 30 项 +
   与 `kards-offsets.json` 的一致性 + 行模型 7 组）。**改完代码必须跑这个。**
 
 **本轮新增但还没实机验证**（当时游戏没开，只过了离线断言）
@@ -507,21 +797,21 @@ git -C D:\Kards push https://github.com/HeCPDF/kards-agent 'publish/kards-agent:
 
 **目标形态（2026-09-23 用户定调）**：三个前端 —— **交互式 shell / MCP server / NN 策略循环**，
 它们要的动词完全一样，所以先有一层 `agent/`（命令层），三个前端薄薄地套上去。
-动作一律委托 **`ops_inject.py`**（进程内合成事件，不再动真实鼠标），状态一律走 `kardsmem`（只读），
+动作一律委托 **`ops/inject.py`**（进程内合成事件，不再动真实鼠标），状态一律走 `kardsmem`（只读），
 命令层自己两样都不碰。
 
 **2026-09-23 下午已交付**（实机验证过，不是纸面）：
 
 ```bash
-cd D:\Kards\kards-agent && python -m agent.shell
+cd D:\Kards\kards-agent && python -m interfaces.shell
 ```
 
 | 模块 | 干什么 |
 |---|---|
 | `agent/session.py` | 唯一的动词集合（三个前端共用） |
 | `agent/view.py` | 盘面渲染 + 短号（`h1`/`m2`/`e3`/`hq`/`ehq`）+ inspect + 历史 |
-| `agent/shell.py` | 交互 REPL（前端①） |
-| `agent/legality.py` | 进程外跑 `CanAttack`（只挑不判） |
+| `interfaces/shell.py` | 交互 REPL（前端①） |
+| `semantics/legality.py` | 进程外跑 `CanAttack`（只挑不判） |
 | `kardsmem/matchlog.py` | **对局动作流** ＝「历史」和「动作回执」的来源（§7.6g） |
 | `kardsmem/locres.py` | 本地化表 → 英文转中文（**内存里读出来的一律是英文**） |
 
@@ -538,14 +828,14 @@ cd D:\Kards\kards-agent && python -m agent.shell
 不是离线断言。这轮的主题是**把 §11 清单里"看起来缺"的东西一个个查实**：
 
 - **`CanAttack` 裸 return 读法修正**：全函数唯一没显式赋值的两条出口都是
-  "没有更多限制了"（不是"没跑到终点"），改完后 `agent/legality.py` 的
+  "没有更多限制了"（不是"没跑到终点"），改完后 `semantics/legality.py` 的
   "不知道"从 5/15 明显收窄。
 - **`ops.act_attack`/`act_move` 补齐 `force` 越过口**（§7.6f 的核心纪律，之前
   只有费用检查有、pin/guard/deployment_sickness/target_blockers 都没有）——
   实机验证过：不带 force 拦得住，带 force 真的越过并让游戏自己拒绝。
-  `agent/shell.py`/`agent/mcp.py` 两个前端都补了对应的透传（各修一处漏传）。
-- **`agent/mcp.py` 真机连通测出一个协议级 bug**：`ops.py` 的裸 `print()`
-  混进 JSON-RPC 的 stdout，任何真客户端一读就炸——这是 `agent.mcp` 本轮
+  `interfaces/shell.py`/`interfaces/mcp.py` 两个前端都补了对应的透传（各修一处漏传）。
+- **`interfaces/mcp.py` 真机连通测出一个协议级 bug**：`ops.py` 的裸 `print()`
+  混进 JSON-RPC 的 stdout，任何真客户端一读就炸——这是 `interfaces.mcp` 本轮
   才第一次真正被连起来测（之前只过了导入检查）。已用 `redirect_stdout` 修。
 - **`failReason`/被贴效果的能力名改走 `Game.locres` 权威链**（不再是手写猜的
   中文），新增 `kardsmem.locres.namespace_zh()` 通用查法。
@@ -557,7 +847,7 @@ cd D:\Kards\kards-agent && python -m agent.shell
   形参，导致 `simple()` 注册的**全部 20 个原语**不管卡数据是什么都回填
   `True`——`--coverage` 只查"跑不跑得动"从不查"答案对不对"，这条一直没暴露。
 - **F3b 靠读字节码解决**（`ChangeUnitOwnership`）：`side_enum` 本来就跟着
-  控制权走，`underEnemyControl` 只是旁路标记，`board_api` 不用改。
+  控制权走，`underEnemyControl` 只是旁路标记，`kardsmem.board` 不用改。
 - **HQ 单列宽度**：找到很扎实的定量证据（`enemy_back` 变窄 ~11px，225 个样本），
   但 `local_back`（63 样本）完全没有这个效应——矛盾没解决，**没有**动
   `ops.ROW_SPECS`/`row_x`（这段代码直接决定鼠标点哪，宁可继续吃残差）。
@@ -587,7 +877,7 @@ cd D:\Kards\kards-agent && python -m agent.shell
   不是通用 UE 源码）。`props.py` 的反射链接上了 `MapProperty` 分支
   （`tools/canplay.py::_read_map`），端到端验证过（`CardFunctionTriggers`
   空表场景返回 `{}`）。
-- **移动预检 + 攻击预检重构**：新增 `agent.legality.Legality.can_move()`
+- **移动预检 + 攻击预检重构**：新增 `semantics.legality.Legality.can_move()`
   （游戏没有独立 `CanMove`，复用 `CanAttack`，只信任"这个单位还能不能行动"
   的子集 failReason）；`ops.act_attack` 里四段手写拦截（`can_act_now`/
   `is_pinned`/`target=="hq"` 特判/`target_blockers` 的 blocked 判据）合并成
@@ -595,11 +885,11 @@ cd D:\Kards\kards-agent && python -m agent.shell
   攻击都成功；`KINGFISHER`（无 Blitz，部署病）负例被拦、`force` 越过后游戏也
   拒绝、提示词跟判据理由一字对应；guard 场景（敌方 97th RIFLES 守护 HQ）下
   打总部被拦、`force` 越过游戏拒绝、直接打 guard 单位本身成功——重构前后
-  行为一致，接进了 `agent/shell.py::do_front`（新增 `!` 强制语法）和
-  `agent/mcp.py::t_move`。
-- **出牌预检补齐**：新增 `agent.legality.Legality.can_play_from_hand()`
+  行为一致，接进了 `interfaces/shell.py::do_front`（新增 `!` 强制语法）和
+  `interfaces/mcp.py::t_move`。
+- **出牌预检补齐**：新增 `semantics.legality.Legality.can_play_from_hand()`
   （跑该卡自己的 `CanPlayFromHand` 覆写，`target` 给了走 `GetTargetedCard`
-  钩子），接进 `agent/shell.py::do_play`/`agent/mcp.py::t_play`（之前只有
+  钩子），接进 `interfaces/shell.py::do_play`/`interfaces/mcp.py::t_play`（之前只有
   `ops.act_deploy` 自己的费用检查带 force，跟移动/攻击预检的完成度不对等）。
 - **换牌确认判据修正**：`ops.act_mulligan_confirm()` 原先靠"手牌 actor 集合
   有没有变化"判成败，0 张标记时集合合理不变却被误判失败；改用
@@ -639,7 +929,7 @@ cd D:\Kards\kards-agent && python -m agent.shell
 
 | 想干什么 | 去哪 |
 |---|---|
-| 接续任务 | 本文件 → `reverse-data/reports/spec/KARDS-AUTOMATION.md`（主规格）→ 其 §11 |
+| 接续任务 | 本文件 → `kards-agent/TODO.md`（状态）→ `reverse-data/reports/report/*-1.60.md`（1.60 事实；旧主规格已标历史） |
 | 读 exe 指纹 / 为什么 md5 对不上 | `reverse-data/reports/ledger/EXE-IDENTITY.md`、`python -m kardsmem exes` |
 | 版本 ↔ dump ↔ 导出 | `reverse-data/reports/ledger/GAME-VERSIONS.md`（命名规则 `<版本号>.<渠道>`） |
 | 游戏规则原文 | `reverse-data/reports/spec/KARDS-RULES-ENCYCLOPEDIA.md` |
@@ -648,6 +938,18 @@ cd D:\Kards\kards-agent && python -m agent.shell
 | 坐标/读图账本 | `reverse-data/reports/ledger/VISION-AND-COORDINATES.md` |
 | 读 Claude/DSH 的会话日志（zstd jsonl → 可读 markdown） | `_session_claude/extract_claude.py`（Claude Code）· `_session_extract/extract.py`（DSH） |
 | 发布（**只发 kards-agent 子树**） | 见下面「发布纪律」 |
+
+## 待办（TODO）与文档维护规范（2026-10-02 定）
+
+1. **`kards-agent/TODO.md` 是唯一的待办看板，只放没做完的事**；已完成的内容不留在里面。旧版整份归档在 `TODO-ARCHIVE-2026-10-02.md`（历史日志，**不要当待办读**）；成果留痕走 `PLAN.md` 的"回执台账"和各报告。
+2. **每条待办 = 编号 + 事项 + 负责人 + 状态 + 指针**。负责人只有三类：**Claude**（含它派出的 subagent，最终都归它）、**DS**（DeepSeek：实现与实机跑局）、**用户**（拍板/操作）。状态：待做 / 进行中 / 待验证（代码已落地、缺实机）/ 阻塞。
+3. **先改看板，再写细节**：新增、改状态、完成，都**先改 `TODO.md`**；细节写进指针指向的报告/文档，不把长篇日志写进看板。
+4. **完成的流程**：验证通过 → 在 `PLAN.md` 回执台账登记一行（改动文件 + 证据）→ 从 `TODO.md` 删除该条（不要留"已完成"清单）。没有回执的条目不算完成。
+5. **每个提交带上对应的看板更新**（同一提交或紧随其后的提交）；提交信息中文，讲清楚做了什么、为什么、证据，并标明"实机已验证 / 未验证"。
+6. **新发现的问题**：先判断是否值得单独成条——是就在看板加一行（负责人/状态/指针），不是就写进相关报告；**不要只在对话里提**。
+7. **需要用户拍板的事**放在 `TODO.md` 末尾"待用户拍板"，决定后删除并把结论写进相关文档。
+8. 看板条目的指针要指向**仍然存在**的文档；文档改名/归档时同步更新指针。
+9. 其它文档（`PLAN.md`、架构文档、报告）里写到"TODO §x"的，**§号指旧版 `TODO-ARCHIVE-2026-10-02.md` 的小节**，现行事项以 `TODO.md` 为准。
 
 ## 工作方式
 

@@ -4,7 +4,7 @@
 
 为什么不能"当连续数组硬读"
 ==========================
-`board_api.py::_enumerate_cards()` 读 `AllCardsInBattle`（`TMap<int32, ptr>`）时，
+`kardsmem/board.py::_enumerate_cards()` 读 `AllCardsInBattle`（`TMap<int32, ptr>`）时，
 拿 TArray 的 `Num` 当"有多少个合法元素"扫过去，用"指针像不像卡对象"筛掉空洞——
 这是能用但不严谨的近似：`TSparseArray` 删除元素时**不搬家**，被删的槽位留在
 数组里当"空闲链表"节点复用（`PrevFreeIndex`/`NextFreeIndex`），槽位本身的字节

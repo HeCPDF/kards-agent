@@ -147,7 +147,7 @@ def pick_state(session) -> dict:
         if st["pc_choose_one_selection"] is None:
             notes["pc_choose_one_selection"] = "读不出 @0x%X" % (pc + PC_SEL)
         # ⚠ 用 ptr_or_zero：board_api._Mem.ptr 会把"值为 0"也映射成 None
-        #   （board_api.py:444 的 PTR_MIN 过滤），那样就分不清"空数组"和"读不出"。
+        #   （kardsmem/board.py:444 的 PTR_MIN 过滤），那样就分不清"空数组"和"读不出"。
         tg_raw = m.read_exact(pc + PC_TARGETS, 8)
         if tg_raw is None:
             notes["pc_choose_one_card_targets"] = "TArray.Data 读不出 @0x%X" % (pc + PC_TARGETS)

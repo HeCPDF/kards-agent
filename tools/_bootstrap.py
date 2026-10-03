@@ -22,11 +22,10 @@ import sys
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT_ROOT = os.path.dirname(TOOLS_DIR)
 
-for _p in (AGENT_ROOT, os.path.join(AGENT_ROOT, "vendor")):
+for _p in (AGENT_ROOT,):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import agentpath  # noqa: E402,F401  —— 再接一遍（vendor 优先、上游可选）
 
 
 def workspace() -> str:
@@ -54,18 +53,3 @@ def logs_dir() -> str:
 
 def shots_dir() -> str:
     return work_dir("shots")
-
-
-def upstream_src():
-    """上游 `OCR-Kards-Auto/src`（**只作核对**的 OCR 链要用）；没 checkout 返回 None。"""
-    return agentpath.upstream_src()
-
-
-def upstream_board():
-    """上游的 `board`（`read_field` 等 OCR 读盘面）。**只作核对手段**，不是对等后端。"""
-    if not upstream_src():
-        raise SystemExit(
-            "这条路要用上游 OCR 链（board.read_field）—— 没 checkout；"
-            "设 KARDS_OCR_ROOT 指向 OCR-Kards-Auto 再跑。内存侧不需要它。")
-    import board                                            # noqa: PLC0415
-    return board

@@ -14,8 +14,8 @@
 """
 import sys
 
-import _bootstrap  # noqa: F401  —— 接上项目根/vendor
-import board_api as BA  # noqa: E402
+import _bootstrap  # noqa: F401  —— 接上仓库根
+from kardsmem import board as BA  # noqa: E402
 
 KEYS = ("side", "location", "slot", "card_type", "kredit_cost", "operation_cost",
         "attack", "attack_buff", "defense", "max_attack", "max_defense",

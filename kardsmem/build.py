@@ -45,20 +45,18 @@ def _find_workspace() -> Path:
 WORKSPACE = Path(os.environ.get("KARDS_WORKSPACE") or _find_workspace())
 AGENT_ROOT = Path(__file__).resolve().parents[1]    # kards-agent/
 REPORTS_DIR = WORKSPACE / "reverse-data" / "reports"
-TOOLS_DIR = AGENT_ROOT                      # 自动化脚本根（`ops_inject.py` 等和 kardsmem 同级）
+TOOLS_DIR = AGENT_ROOT                      # 自动化脚本根（`ops/inject.py` 等和 kardsmem 同级）
 TOOLS_SUB = AGENT_ROOT / "tools"            # 取材/标定/PE 等工具（2026-09-22 从 reverse-data 搬来）
 RE_TOOLS_DIR = WORKSPACE / "reverse-data" / "tools"   # 逆向/静态/第三方工具（FModel、u4pak、idmap…）
 SPEC_JSON = REPORTS_DIR / "kards-offsets.json"      # 机器可读规格（人工维护）
-# `board_api.py` 是**我们的**代码。它原先寄放在上游 `OCR-Kards-Auto/src/` 里，
-# 2026-09-22 搬回自己家 `kards-agent/`（上游是别人的 GPL-3.0 仓库，不该被我们污染）。
-BOARD_API_SRC = Path(os.environ.get("KARDS_SRC") or AGENT_ROOT)
-# 上游只读引用：模板图、config 基线、`win`/`actions` 这些原语还在那边。
-UPSTREAM_OCR = Path(os.environ.get("KARDS_OCR_ROOT") or (WORKSPACE / "OCR-Kards-Auto"))
 
 # --------------------------------------------------------------------------
 # 构建指纹：本 build = 唯一与 idmap / SDK dump / IDA 对应的一份
 # --------------------------------------------------------------------------
-CURRENT = os.environ.get("KARDS_BUILD", "current")
+# ★ 2026-10-03：选表不再只看环境变量 —— 优先按**运行中游戏自报的版本号.分支**（`kardsmem/version.py`）：
+#   `KARDS_BUILD`（显式覆盖）> 运行中游戏的版本 > 兜底 `current`。只在 import 时选一次，不在运行中切换。
+from .version import select_build as _select_build
+CURRENT, BUILD_SOURCE = _select_build()
 # ★ 2026-09-25：**本机现在可能跑的是 launcher 渠道那份**（SizeOfImage `0x9CC4000`，
 #   与 Steam 那份 `0x9CC8000` 不是同一个二进制）。选表：
 #       KARDS_BUILD=launcher_default python -m kardsmem selftest
@@ -261,10 +259,11 @@ class BuildInfo:
     ok: bool = False
     md5_match: bool = False            # 字节是否与偏移表目标完全一致（**信息性，不作否决**）
     checks: list = field(default_factory=list)
+    version: Optional[str] = None      # 运行中游戏自报的 `版本号.分支`（attach 时由 version.py 读；放行判据）
 
     def describe(self) -> str:
-        return ("pid=%s base=0x%X image=0x%X md5=%s%s matched=%s ok=%s"
-                % (self.pid, self.base, self.image_size or 0, self.md5 or "?",
+        return ("pid=%s base=0x%X version=%s image=0x%X md5=%s%s matched=%s ok=%s"
+                % (self.pid, self.base, self.version or "?", self.image_size or 0, self.md5 or "?",
                    "" if (self.md5_match or self.md5 is None) else "(≠表内)",
                    self.matched or "-", self.ok))
 

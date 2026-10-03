@@ -19,23 +19,19 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _bootstrap  # noqa: F401,E402  —— 接上 kards-agent/ 与 vendor/
+import _bootstrap  # noqa: F401,E402  —— 接上仓库根
 
 OUT = _bootstrap.work_dir("logs", "pickevidence")
 
 
 def _shot(tag):
-    """抓一帧客户区。抓不到就算了 —— 证据的主体是内存，截图只是旁证。"""
+    """抓一帧客户区（后台截图）。抓不到就算了 —— 证据的主体是内存，截图只是旁证。"""
     try:
-        if not _bootstrap.upstream_src():
-            return None     # 上游没 checkout：截图只是旁证，内存证据才是主体
-        import win
         import cv2
-        win.set_dpi_aware()
-        ws = win.find_by_process("kards")
-        if not ws:
-            return None
-        img = win.capture_client_bgr(ws[0]["hwnd"], allow_screen_fallback=True)
+        from base import winapi
+        winapi.set_dpi_aware()
+        h = winapi.find_game_hwnd()
+        img = winapi.capture_client_bgr(h) if h else None
         if img is None:
             return None
         p = os.path.join(OUT, tag + ".png")

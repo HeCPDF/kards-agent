@@ -8,9 +8,9 @@
 **不注入、不 WriteProcessMemory、不远程线程、不 hook。**
 
 本模块**不重复实现** Win32 原语：`OpenProcess/ReadProcessMemory/Toolhelp32`
-的唯一实现在 `board_api.py`（**本项目自己的**，就在 `kards-agent/`；已验证、带 30 项 selftest），
+的唯一实现在 `kardsmem/board.py`（**本项目自己的**，就在 `kards-agent/`；已验证、带 30 项 selftest），
 这里只是继承它、补上"原子读 / 定长读 / u16,u64"三个缺口。
-以前 `mem_probe.py`、`fname_live.py`、`board_api.py` 各自抄了一份 —— 现在只有一份。
+以前 `mem_probe.py`、`fname_live.py`、`kardsmem/board.py` 各自抄了一份 —— 现在只有一份。
 
 用法
 ====
@@ -37,15 +37,7 @@ from . import build as B
 # --------------------------------------------------------------------------
 # 复用 board_api 的底层原语（唯一实现处）
 # --------------------------------------------------------------------------
-if str(B.BOARD_API_SRC) not in sys.path:
-    sys.path.insert(0, str(B.BOARD_API_SRC))
-
-try:
-    import board_api as board_api          # noqa: E402
-except ImportError as e:                   # pragma: no cover - 环境缺失时的明确报错
-    raise ImportError(
-        "找不到 board_api（预期在 %s）。设 KARDS_SRC 环境变量指向它所在目录。"
-        % B.BOARD_API_SRC) from e
+from kardsmem import board as board_api          # noqa: E402
 
 _find_pid = board_api._find_pid
 _module_of = board_api._module_of
@@ -226,11 +218,19 @@ class Session:
         except OSError:
             pass
 
-        # ★ 判据只有 SizeOfImage（决定 RVA 有没有效）。md5 不同不是拒绝理由 ——
-        #   同构建的两份副本字节可以不同（本地改动通常只碰 .rdata 常量），
-        #   `validate()` 会把它记成 `md5_match=False`，如实但不否决。
+        # ★ 2026-10-03：判据 = **运行中游戏自报的 `版本号.分支`**（进程内存里的 ProjectVersion，`version.py`）
+        #   → 已登记的"版本→RVA 表"（`VERSION_TO_BUILD`）是否就是本进程选中的 `B.CURRENT`。
+        #   SizeOfImage / md5 只作信息（`validate()` 仍如实记录，但不再是放行条件）。
         info = B.validate(size, md5, file_size)
         info.pid, info.base, info.module_path = pid, base, path
+        from . import version as V
+        ver = V.version_of_pid(pid)
+        bk = V.build_key_for_version(ver)
+        info.checks = [c for c in info.checks if c[0] not in ("image_size", "exe_size", "warning")]
+        info.checks.insert(0, ("version", ver, "→ RVA 表 %s（本进程选中 %s）" % (bk, B.CURRENT), bk == B.CURRENT))
+        info.ok = bool(bk) and bk == B.CURRENT
+        info.matched = bk or info.matched
+        info.version = ver
         self.info = info
 
         if self.m is None:
@@ -238,10 +238,10 @@ class Session:
         if self.require_build and not info.ok:
             self.close()
             raise BuildMismatch(
-                "attach 到的不是偏移表对应的构建：%s\n"
-                "（期望 image=0x%X md5=%s；实得 image=0x%X md5=%s，matched=%s）"
-                % (info.describe(), B.BUILDS[B.CURRENT]["image_size"],
-                   B.BUILDS[B.CURRENT]["md5"], size or 0, md5 or "?", info.matched))
+                "attach 到的不是偏移表对应的构建：运行中游戏版本=%s → RVA 表 %s；本进程选中 %s（来源 %s）。"
+                " %s" % (ver or "认不出", bk or "未登记", B.CURRENT, getattr(B, "BUILD_SOURCE", "?"),
+                        "重启本进程（不设 KARDS_BUILD 即自动按版本选表）" if bk else
+                        "该版本没有登记 RVA 表（kardsmem/version.py::VERSION_TO_BUILD）"))
         return self
 
     # -- 便捷 ------------------------------------------------------------

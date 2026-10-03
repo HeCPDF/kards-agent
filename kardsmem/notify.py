@@ -91,7 +91,7 @@ from typing import Optional
 # `notify_*`/`must_target_*`/`you_cant_*`/`nation_has_no_*`/
 # `cant_be_targeted_by_enemy_orders` 这几类前缀，逐个 grep 过
 # `reverse-data/exports-<build>/.../Localization/Game/en/Game.locres`
-# 核实是真实存在的失败原因文案（90 条，含 `agent.legality.REASON_HELPBUBBLE`
+# 核实是真实存在的失败原因文案（90 条，含 `semantics.legality.REASON_HELPBUBBLE`
 # 里已经用到的 `notify_cant_attack_*` 18 条，也含之前没接的 `notify_move_*`
 # `notify_play_from_hand_*`/`must_target_*` 等）——**权威原文来自游戏自己**，
 # 不是手写猜的中文。`banner`/`settlement` 目前没有类似的权威清单可枚举
@@ -130,7 +130,7 @@ def classify(text: str) -> dict:
 
     `kind="reject"` 时 `reason_key` 是 `helpbubbles` 里的键，可以直接喂给
     `kardsmem.locres.namespace_zh("helpbubbles", reason_key)` 拿中文——
-    跟 `agent.legality.REASON_HELPBUBBLE` 走的是同一张权威表，不是另起一套。
+    跟 `semantics.legality.REASON_HELPBUBBLE` 走的是同一张权威表，不是另起一套。
     """
     if not text:
         return {"kind": "settlement", "reason_key": None}

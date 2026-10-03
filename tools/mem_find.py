@@ -11,8 +11,8 @@ import ctypes.wintypes as wt
 import sys
 import time
 
-import _bootstrap  # noqa: E402,F401  —— 接上 kards-agent/ 与 vendor/
-from board_api import MEM_BUILD, _Mem, _find_pid  # noqa: E402
+import _bootstrap  # noqa: E402,F401  —— 接上仓库根
+from kardsmem.board import MEM_BUILD, _Mem, _find_pid  # noqa: E402
 
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 

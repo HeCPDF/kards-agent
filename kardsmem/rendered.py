@@ -71,7 +71,7 @@ KIND_BOUND = "bound"
 # --------------------------------------------------------------------------
 _read_card_name = None
 try:                                     # pragma: no cover - 环境相关
-    from board_api import _read_card_name as _ba_read_card_name
+    from kardsmem.board import _read_card_name as _ba_read_card_name
     _read_card_name = _ba_read_card_name
 except Exception:                        # noqa: BLE001 - 缺了就用自己的实现
     _read_card_name = None

@@ -43,10 +43,23 @@ def make_get_field(session):
     m = session.m
     pool = session.names_pool()
     cache = {}
+    # 一次空跑期间游戏内存不会变（VM 是纯的、不写回）⇒ 容器类字段（Map/Array）按 (对象, 字段) 记住，
+    # 不然同一张表被反复整张重读（实测一张牌 4.5 万次内存读）。`get_field` 每次空跑新建一个 ⇒ 天然不跨调用。
+    vals = {}
 
     def get(obj, name):
         if not obj:
             raise Unimplemented("在空对象上读 %s" % name)
+        vk = (obj, name)
+        if vk in vals:
+            return vals[vk]
+        v = _get_uncached(obj, name)
+        p_ = cache.get((m.ptr_or_zero(obj + OFF_UOBJECT_CLASS), name))
+        if p_ is not None and p_.get("type") in ("ArrayProperty", "MapProperty", "SetProperty"):
+            vals[vk] = v
+        return v
+
+    def _get_uncached(obj, name):
         uc = m.ptr_or_zero(obj + OFF_UOBJECT_CLASS)
         key = (uc, name)
         if key not in cache:
@@ -76,6 +89,19 @@ def make_get_field(session):
             return _read_array(session, m, a, p, name)
         if t == "MapProperty":
             return _read_map(session, m, a, p, name)
+        if t == "SetProperty":
+            return _read_set(session, m, a, p, name)
+        if t == "StrProperty":
+            # FString：{TCHAR* Data; int32 Num; int32 Max}
+            data, num = m.ptr_or_zero(a), m.i32(a + 8) or 0
+            if not data or num <= 1 or num > 4096:
+                return ""
+            raw = m.read(data, (num - 1) * 2)
+            return raw.decode("utf-16-le", "replace") if raw else ""
+        if t == "StructProperty":
+            # 结构体字段（如随机流 `encryptionStream`）：VM 里没有结构体成员名，给一个不透明的
+            # 影子字典——只读；逻辑若真的去读它的成员，会在那一步明确报停，而不是在这里就停。
+            return {"__struct__": name, "__addr__": a}
         raise Unimplemented("字段 %s 的类型 %s 还没有读法" % (name, t))
 
     return get
@@ -94,7 +120,7 @@ def _align_up(x: int, a: int) -> int:
 def _read_map(session, m, addr, prop, name):
     """`TMap<K,V>` → `{key: value}`。**真正读 `AllocationFlags` 位图**（见
     `kardsmem.containers`），不是"当连续数组硬读+靠数据像不像筛"的近似——
-    这条链就是 2026-09-23 撞到的那个坑（`agent.legality.can_attack` 在
+    这条链就是 2026-09-23 撞到的那个坑（`semantics.legality.can_attack` 在
     `m1` 攻击 `ehq` 时卡在 `BP_GameState_Battle_C::CardFunctionTriggers`
     这个 `TMap<ERegisteredCardFunction, FintegerSetStruct>`）。
 
@@ -169,6 +195,27 @@ def _read_map(session, m, addr, prop, name):
             continue
         out[k] = read_value(elem_addr + val_off)
     return out
+
+
+OFF_SET_ELEMPROP = 0x70         # FSetProperty::ElementProp（与 FMapProperty::KeyProp 同偏移）
+
+
+def _read_set(session, m, addr, prop, name):
+    """`TSet<int32>` → Python list（`GameState.FrontlineLimiters` 就是这种；USS YORKTOWN 链要读它）。
+
+    ★ 只支持元素是 4 字节整型的集合（元素 `{int32; HashNextId; HashIndex}` 12 字节，
+      `kardsmem.containers.tset_int32_values` 已有）；别的元素类型 ⇒ 抛 `Unimplemented`，不编。
+    """
+    from kardsmem import containers as CT
+    field = prop.get("field")
+    elem = m.ptr_or_zero(field + OFF_SET_ELEMPROP) if field else 0
+    pool = session.names_pool()
+    et = props._field_class_name(pool, m, elem) if elem else None   # noqa: SLF001
+    size = m.i32(elem + props.OFF_FP_ELEMSIZE) if elem else None
+    if et == "IntProperty" and size == 4:
+        return CT.tset_int32_values(m, addr)
+    raise Unimplemented("字段 %s：TSet 的元素类型 %s(size=%s) 还没有读法（目前只支持 TSet<int32>）"
+                        % (name, et, size))
 
 
 def _read_array(session, m, addr, prop, name):

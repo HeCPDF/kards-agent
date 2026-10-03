@@ -5,10 +5,10 @@
 为什么要单开一层
 ================
 2026-09-25 用户定调：**预检用游戏自己的总入口**——"比如我们 NN 就要用"。
-在那之前预检走的是进程外重算（`agent/legality.py` + `kardsmem/vm.py` 重新解释蓝图字节码）
+在那之前预检走的是进程外重算（`semantics/legality.py` + `kardsmem/vm.py` 重新解释蓝图字节码）
 ——那条路依然是对的（一手产物、不用注入、没有副作用），但它**一定有缺漏**，
 而且每次都要现算。现在多了一条更直接的：**注入式只读调用**游戏自己的查询函数
-（`ops_inject.py`）。按 CLAUDE.md 的红线（2026-09-25 修订版），只读查询调用是允许的，
+（`ops/inject.py`）。按 CLAUDE.md 的红线（2026-09-25 修订版），只读查询调用是允许的，
 前提是**无副作用**——这几个函数都不改对局数据。
 
 接口（一层薄封装，只干三件事：单例 attach、构建一致性检查、失败降级）
@@ -22,10 +22,11 @@
     precheck.can_move_to(card, loc=7)   -> {'ok','can'}
     precheck.can_attack(attacker, target) -> {'ok','can','fail_reason'}
     precheck.status() / precheck.close()
+    precheck.healthy() / precheck.reset_health()   # 出过异常之后的停手/恢复闸门
 
 `card` 收 `int` 或 `board_api` 的卡对象（有 `.card_id` 就行）。
 
-规矩（跟 `agent/legality.py` 一致，不许漂移）
+规矩（跟 `semantics/legality.py` 一致，不许漂移）
 ============================================
 * **只挑不判**：这里返回的 `can=False` 是"游戏自己说不行"，**不是否决权**。
   真要动手时照样走完整拖拽（悬停→按下→移动→松开），让游戏在**真实上下文**里再判一次
@@ -34,13 +35,17 @@
   `{'ok': False, 'stopped': ...}`，调用方**必须**能退回 VM 路径。
   `KARDS_GAME_GATE=0` 一句话关掉（出问题时不用改代码）。
 * 一次会话只 attach 一次（`_LOC['inj']`）；进程换了（重开游戏）会自动重建。
+* ★★ 2026-09-28：**调用抛异常之后不会自动重试/自愈**——`call_read`/`call_write`
+  会在**下一次**调用前直接拒绝（`healthy()==False`），必须显式
+  `precheck.reset_health()` 才能恢复（它会检查进程是不是真的重启过）。
+  这不是"忘了处理"，是吃过真实崩溃教训之后**故意**做成不自动重试的。
 * ⚠ `can_move_to` **不是纯读**：它按"真实鼠标拖到该行"的中间结果写
   `cardUnderCursor / LocationUnderCursor / RowUnderCursor` 这几个 cursor 字段
   （跟 `_drag_lifecycle` 同性质，写侧红线允许——发出去的还是同一串鼠标事件）。
   其余几个（`CanPlayCardFromHand` / `CanPlayFromHand` / `CanAttack`）是纯查询。
 * ★ **构建必须一致，不自动切**：这些函数用 `kardsmem.build` 的偏移表，而 `board_api`
-  用**它自己**的表，两张表都由 `KARDS_BUILD` 选。活着的进程 SizeOfImage 跟当前
-  `KARDS_BUILD` 不对应时**直接报错**——自动改环境变量会让预检和 `board_api`
+  用**它自己**的表，两张表**用同一个选择函数**选（`KARDS_BUILD` > 运行中游戏的版本 > `current`，
+  只在 import 时选一次）。活着的游戏版本跟当前所选构建不对应时**直接报错**——自动改环境变量会让预检和 `board_api`
   各用一套偏移（读数静默错位，比报错糟得多）。
 """
 from __future__ import annotations
@@ -48,7 +53,6 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
-import agentpath  # noqa: F401,E402  —— 接上 vendor/ 和本项目根
 
 # `ECardLocationEnum` 里跟"移动"有关的三个（跟 `ops_inject.LOC_BOARD_*` 同值）
 LOC_BACK_LEFT = 5      # 整个后排（HQ + 支援线），left 侧
@@ -61,7 +65,8 @@ _LOC: dict = {
     "pid": None,
     "err": None,       # 最近一次失败的原因（人话，给 stopped 用）
     "probe": None,     # kardsmem.proc.list_kards_processes() 的缓存（含 md5，读一次 ~1s）
-    "unhealthy": None, # ★ 最近一次**异常**（调用抛异常/重连仍失败）；非 None = 应当整轮停手
+    "unhealthy": None, # ★ 最近一次**异常**（调用抛异常）；非 None = 整轮停手，见 call_read/call_write
+    "unhealthy_pid": None,  # 标记不健康时那次 attach 的 pid（`reset_health()` 靠它判断"进程是不是真的换了"）
 }
 
 
@@ -96,29 +101,27 @@ def _live_probe(refresh: bool = False) -> list:
 
 
 def build_check(refresh: bool = False) -> Optional[str]:
-    """活着的进程是不是当前 `KARDS_BUILD` 那一份？不是 ⇒ 一句人话；是 ⇒ None。
+    """活着的进程是不是当前选中的那一份构建？不是 ⇒ 一句人话；是 ⇒ None。
 
-    ★ 只按 **SizeOfImage** 判（它决定 RVA 有没有效）；md5 只在两边都对得上时
-      用来辨认"是哪一份副本"，不作否决——见 `kardsmem/exes.py` 的判据分工。
+    ★ 2026-10-03：判据改成**运行中游戏自报的 `版本号.分支`**（`kardsmem/version.py`，读进程内存里的
+      `ProjectVersion`），再按已登记的"版本→RVA 表"（`VERSION_TO_BUILD`）对 `build.CURRENT`；
+      不再用 SizeOfImage 间接推。版本未登记 ⇒ 不猜，报错。
     """
-    from kardsmem import build as B
-    rows = _live_probe(refresh=refresh)
-    if not rows:
+    from kardsmem import build as B, version as V
+    if not V.game_pids():
         return "没有活着的 kards 进程"
-    want = (B.BUILDS.get(getattr(B, "CURRENT", "current")) or {}).get("image_size")
-    for r in rows:
-        if r.get("image_size") and r.get("image_size") == want:
-            return None
-    got = "、".join(
-        "pid=%s SizeOfImage=%s（表里认作 %s）"
-        % (r.get("pid"),
-           ("0x%X" % r["image_size"]) if r.get("image_size") else "?",
-           r.get("matched") or "未知")
-        for r in rows)
-    return ("活着的进程跟当前 KARDS_BUILD=%s（SizeOfImage=%s）**不是同一份构建**：%s"
-            " —— 用对的那个 KARDS_BUILD 重启本进程再试"
-            % (getattr(B, "CURRENT", "current"),
-               ("0x%X" % want) if want else "?", got))
+    v = V.running_version(use_cache=not refresh)
+    if v is None:
+        return "认不出运行中游戏的版本（进程内存里没找到 `Kards 版本.分支` 串）"
+    b = V.build_key_for_version(v)
+    if b is None:
+        return ("运行中游戏的版本 %s 没有登记 RVA 表（kardsmem/version.py::VERSION_TO_BUILD）——"
+                "先为它生成/登记偏移表" % v)
+    if b != B.CURRENT:
+        return ("活着的游戏是版本 %s（对应偏移表 %s），但本进程选的是 %s（来源 %s）**不是同一份构建** —— "
+                "重启本进程（不设 KARDS_BUILD 即可自动按版本选表）"
+                % (v, b, B.CURRENT, getattr(B, "BUILD_SOURCE", "?")))
+    return None
 
 
 # ------------------------------------------------------------------ attach 单例
@@ -134,7 +137,7 @@ def _ensure():
         _LOC["err"] = bad
         return None
     try:
-        from ops_inject import Injector
+        from ops.inject import Injector
         inj = Injector()                     # 内部 attach(require_build=False)
         _LOC["inj"], _LOC["pid"], _LOC["err"] = inj, inj.ks.pid, None
         return inj
@@ -159,41 +162,63 @@ def close() -> None:
 
 
 def _call(fn: str, *args, **kw) -> dict:
-    """跑一次注入式查询。任何失败 ⇒ `{'ok': False, 'stopped': ...}`。
+    """跑一次注入式调用。**只试一次，不自动重试**。
 
-    失败会先丢掉注入器**重试一次** —— 游戏重启过的话 pid 就变了，
-    直接复用旧的 frida 连接只会一直报错。
+    ★★ 2026-09-28 审计发现并改掉的设计问题：这里原来失败会"丢掉注入器、重连、
+      再发一次同一条调用"。这段逻辑最初是为了"游戏重启过、pid 变了，旧 frida
+      连接一直报错"这种场景——但代码没有区分"进程真的换了"和"还是同一个进程、
+      这次调用本身把引擎捅出了问题"，两种情况一律重连重发。而后一种恰恰是过去
+      几次真实事故复盘出来的成因（frida-agent fail-fast / `EXCEPTION_ACCESS_
+      VIOLATION` / `pure virtual function called`，见 handoff §十六/§二十一/
+      §二十二10）：调用**抛异常**之后，对着**同一个**已经被捅过的进程再发一次
+      （哪怕是"重新 attach"了一下），就是在火上浇油。
+      ⇒ 现在**任何异常都不重试**，直接标记不健康、原样失败返回；`call_read`/
+      `call_write` 会在**下一次**调用前挡住（见下面两个函数），真正的恢复路径
+      是显式 `reset_health()`——它会检查进程是不是真的换了，而不是自动悄悄重连。
     """
-    last = None
-    for attempt in (1, 2):
-        inj = _ensure()
-        if inj is None:
-            _LOC["unhealthy"] = _LOC.get("err") or "注入不可用"
-            return {"ok": False, "stopped": _LOC.get("err") or "注入不可用",
-                    "injector_unhealthy": True}
-        try:
-            r = getattr(inj, fn)(*args, **kw)
-            _LOC["unhealthy"] = None          # 这次成功 ⇒ 清掉异常标记
-            return r
-        except Exception as e:                                # noqa: BLE001
-            last = "%s 调用失败：%s" % (fn, e)
-            # ★★ 2026-09-25 22:21 事故（frida-agent fail-fast、游戏进程消失）之后加的：
-            #   调用**抛异常**不是"这次没问出来"，是**注入侧已经不健康**。
-            #   把它记下来，调用方必须用 `healthy()` 判断并**整轮停手**，
-            #   而不是继续一条一条发动作。事故当时的 `can=None` 就是这个状态，
-            #   我没停手，两分钟内游戏就崩了。
-            _LOC["unhealthy"] = "%s 抛异常（第 %d 次尝试）：%s" % (fn, attempt, e)
-            _drop()
-    _LOC["err"] = last
-    return {"ok": False, "stopped": last, "injector_unhealthy": True}
+    inj = _ensure()
+    if inj is None:
+        _LOC["unhealthy"] = _LOC.get("err") or "注入不可用"
+        _LOC["unhealthy_pid"] = _LOC.get("pid")
+        return {"ok": False, "stopped": _LOC.get("err") or "注入不可用",
+                "injector_unhealthy": True}
+    try:
+        r = getattr(inj, fn)(*args, **kw)
+        _LOC["unhealthy"] = None          # 这次成功 ⇒ 清掉异常标记
+        _LOC["unhealthy_pid"] = None
+        return r
+    except Exception as e:                                    # noqa: BLE001
+        last = "%s 调用失败：%s" % (fn, e)
+        # ★★ 2026-09-25 22:21 事故（frida-agent fail-fast、游戏进程消失）之后加的：
+        #   调用**抛异常**不是"这次没问出来"，是**注入侧已经不健康**。
+        #   记下来，`call_read`/`call_write` 据此**整轮停手**，而不是继续
+        #   一条一条发动作。事故当时的 `can=None` 就是这个状态，
+        #   没停手，两分钟内游戏就崩了。
+        _LOC["unhealthy"] = last
+        _LOC["unhealthy_pid"] = _LOC.get("pid")
+        _LOC["err"] = last
+        _drop()
+        return {"ok": False, "stopped": last, "injector_unhealthy": True}
+
+
+def _refuse_if_unhealthy() -> Optional[dict]:
+    if _LOC.get("unhealthy") is None:
+        return None
+    return {"ok": False, "injector_unhealthy": True, "blocked_by_unhealthy": True,
+            "stopped": "注入侧标记为不健康，尚未解除（%s）—— 整轮停手中，"
+                       "不会尝试这次调用；确认安全后调用 precheck.reset_health()"
+                       % _LOC["unhealthy"]}
 
 
 def call_read(fn: str, *args, **kw) -> dict:
-    """跑一次**只读**注入查询（跟 `call_write` 同一套单例/重试/健康判据）。
+    """跑一次**只读**注入查询（跟 `call_write` 同一套单例/健康判据）。
 
     与 `call_write` 只有语义差别（读 vs 写），实现完全一样：
     `agent` 层不该自己管 attach，也不该绕过健康判据。
     """
+    blocked = _refuse_if_unhealthy()
+    if blocked is not None:
+        return blocked
     return _call(fn, *args, **kw)
 
 
@@ -203,14 +228,23 @@ def call_write(fn: str, *args, **kw) -> dict:
     ★ 为什么写侧也走这里：事故教训是"注入侧一抛异常就整轮停手"
       （`_call` 的注释、handoff §十六）。**写动作更需要这个判据** ——
       带着坏掉的注入状态继续写，正是那次崩局的成因。
+    ★★ 2026-09-28：这条闸门原来只是文档里的一句话（"调用方必须用 `healthy()`
+      判断"），**没有任何代码真的检查它**——审计发现 `session.py`/`shell.py`/
+      `mcp.py` 没有一处调用 `healthy()`。现在挪进这里**强制执行**：只要
+      `_LOC["unhealthy"]` 非空，`call_read`/`call_write` 一律直接拒绝、
+      **连 `_ensure()` 都不会去调**，不再指望每个调用方自己记得检查。
     ★ 参数里**不要**传 `verbose=` 之外的东西给不支持的动词；`fn` 必须是
       `ops_inject.Injector` 上的方法名（`agent` 层不认识具体实现，只转发）。
     """
+    blocked = _refuse_if_unhealthy()
+    if blocked is not None:
+        return blocked
     return _call(fn, *args, **kw)
 
 
 def healthy() -> bool:
-    """最近一次注入调用有没有出事。**False ⇒ 立刻停手**（别再发任何动作）。
+    """最近一次注入调用有没有出事。**False ⇒ `call_read`/`call_write` 已经在拒绝**
+    （不需要调用方自己检查再手动跳过，见 `call_read`/`call_write` 的闸门）。
 
     ★ 判据：`_call` 里**抛异常**才算不健康；"问出来是 False"（游戏说不行）不算。
       事故复盘见 `reports/report/OPS-INJECT-HANDOFF.md` §十六。
@@ -221,6 +255,38 @@ def healthy() -> bool:
 def unhealth_reason() -> Optional[str]:
     """不健康的原因（`healthy()` 为 True 时是 None）。"""
     return _LOC.get("unhealthy")
+
+
+def reset_health(force: bool = False, verbose: bool = True) -> dict:
+    """显式解除不健康标记 —— **这是唯一的恢复路径**（`_call` 不再自动重试/自愈）。
+
+    做的事：丢掉当前注入器缓存、重新探活/重新 attach。
+    * 新 attach 到的进程 **pid 跟标记不健康时不一样**（游戏确实重启过）
+      ⇒ 这是一个干净的新进程，跟旧的异常无关，**自动清除**。
+    * pid **还是同一个**（进程没重启，只是那次调用本身出了问题）
+      ⇒ **不自动清**，除非显式传 `force=True`（你已经用别的方式确认过它没事，
+      比如刚手动做过几步只读操作、或者压根不在乎这次异常）。
+    """
+    old_pid = _LOC.get("unhealthy_pid")
+    _drop()
+    inj = _ensure()
+    if inj is None:
+        return {"ok": False, "cleared": False, "reason": _LOC.get("err")}
+    new_pid = getattr(inj.ks, "pid", None)
+    same_process = (old_pid is not None and new_pid == old_pid)
+    if same_process and not force:
+        if verbose:
+            print("precheck.reset_health: 还是同一个进程（pid=%s），没有重启过 —— "
+                  "不自动清除，确认安全后传 force=True" % new_pid)
+        return {"ok": False, "cleared": False, "same_process": True,
+                "reason": "还是同一个进程（pid=%s），没有重启过" % new_pid}
+    _LOC["unhealthy"] = None
+    _LOC["unhealthy_pid"] = None
+    if verbose:
+        print("precheck.reset_health: 健康标记已解除（pid %s -> %s%s）"
+              % (old_pid, new_pid, "，force 越过同进程检查" if same_process else ""))
+    return {"ok": True, "cleared": True, "old_pid": old_pid, "new_pid": new_pid,
+            "same_process": same_process}
 
 
 def available(refresh: bool = False) -> bool:
@@ -239,6 +305,7 @@ def status(refresh: bool = False) -> dict:
             "pid": _LOC["pid"],
             "healthy": healthy(),
             "unhealth_reason": _LOC.get("unhealthy"),
+            "unhealth_pid": _LOC.get("unhealthy_pid"),
             "build_error": build_check(refresh=refresh),
             "processes": [{"pid": r.get("pid"), "image_size": r.get("image_size"),
                            "matched": r.get("matched"), "path": r.get("path")}

@@ -187,6 +187,7 @@ class MatchLog:
         self._off = {}
         self._cls = None          # BP_OnlineMatch_C 的 UClass（my_side() 用）
         self._my_side_cache = None
+        self._logic_cache = None       # (Logic 指针, Logic UClass)；换局必须失效，见 _logic()
         self._last_scan_fail_t = 0.0   # 上次扫空的时间戳，给失败重试限速用
         self._last_count = None        # 上次读到的 `AllMatchActions` 长度（单调性判据，见 is_stale()）
 
@@ -218,6 +219,11 @@ class MatchLog:
                 cls = None
             self._obj = obj
             self._last_count = None            # 换了对象 ⇒ 计数基线重来
+            # ★ 2026-10-02：权威链说"换对象了"就是"换局了"——对局级字段
+            #   （mySide / Logic 指针）也必须一起作废，否则 is_stale() 换新对象后
+            #   计数基线已重置、判不出旧缓存（D 局整局误判座位就是这个家族）。
+            self._my_side_cache = None
+            self._logic_cache = None
             if cls and cls != self._cls:
                 self._cls = cls
                 self._off = {}
@@ -242,12 +248,19 @@ class MatchLog:
 
         ★ 与 `is_stale()` 配对使用：判断"可能不新鲜了"就 `forget()` + `locate()`，
         而不是像旧版那样把找到的指针**永久**当结论用。
+
+        ★★ 2026-10-02（D 局事故）：以前这里漏了 `_my_side_cache` —— 常驻监听器
+        （`live_session.py`）里同一个 MatchLog 会活过 C/D 两局，换局后
+        `my_side()` 继续返回上一局的座位 ⇒ 我方手牌整批被判成 enemy
+        （注入器次次"card X 不在我方手牌"，而规则侧另一条读法正常，两边视图分叉）。
+        "一局内不会变"的注释对，但**跨局必须重读**。
         """
         self._obj = None
         self._cls = None
         self._off = {}
         self._last_count = None
         self._logic_cache = None
+        self._my_side_cache = None
 
     def is_stale(self) -> bool:
         """**廉价新鲜度判据**（每次动作前调一次，成本 ≈ 2 次跨进程读）：
@@ -267,7 +280,7 @@ class MatchLog:
             return True
         if not cls_now or (self._cls and cls_now != self._cls):
             return True
-        n = self.count()
+        n = self._count_raw()      # ★ 不经 locate()，否则 locate() 里的新鲜度检查会自递归
         if self._last_count is not None and n < self._last_count:
             return True
         if n:
@@ -281,7 +294,7 @@ class MatchLog:
 
         ★ 重扫一次要走 `ObjectArray.iter_objects()` 对着可能几十万个活对象
         逐个再读 class/flags（§ 见下面 bug 说明背景），实测 ~4s，不是免费的。
-        `agent/record.py` 的轮询循环一次 tick 里会连着调好几处依赖
+        `player/record.py` 的轮询循环一次 tick 里会连着调好几处依赖
         `locate()` 的方法（`_silent()`/`_poll_matchlog()`/`_poll_mulligan()`），
         真没在对局里时如果每次都硬重扫，一个 0.5s 的 tick 会被拖到 12s+。
         `retry_cooldown` 秒内失败过就直接短路返回 `False`，不去重扫；
@@ -290,7 +303,7 @@ class MatchLog:
 
         ★ 2026-09-25 真实事故修的 bug（用户报的"round2 录制文件 0 字节"）：
         旧版 `if self._obj is not None: return self._obj` 把 `False`（没找到）
-        跟真正的对象指针一样**永久缓存**——`agent/record.py::Recorder` 在
+        跟真正的对象指针一样**永久缓存**——`player/record.py::Recorder` 在
         `AgentSession(warm=True)` 里建 `MatchLog` 时，如果那一刻游戏还停在
         牌组选择页（对局还没开始，`BP_OnlineMatch_C` 实例都还不存在），第一次
         `locate()` 必然扫空、缓存成 `False`；哪怕几秒后真的进了对局、对象已经
@@ -301,7 +314,11 @@ class MatchLog:
         `False`/`None` 只表示"这次没找到"，下次调用必须重新扫，不能当结论存住。
         """
         if self._obj:
-            return self._obj
+            if not self.is_stale():
+                return self._obj
+            # ★ 2026-10-02：缓存的对象已经失效（换局/被回收）⇒ 丢掉重找，不再把
+            #   上一局的 `BP_OnlineMatch_C` 永久当结论（D 局事故同族）。
+            self.forget()
         import time as _t
         now = _t.time()
         if now - self._last_scan_fail_t < retry_cooldown:
@@ -354,6 +371,13 @@ class MatchLog:
         """`AllMatchActions` 的长度。★ 它是**累积**的 ⇒ 拿它当增量游标。"""
         if not self.locate():
             return 0
+        return self._count_raw()
+
+    def _count_raw(self) -> int:
+        """`AllMatchActions` 计数，**不先 locate()** —— 专给 `is_stale()` 用
+        （`is_stale → count → locate → is_stale` 会自递归）。"""
+        if not self._obj or "all" not in (self._off or {}):
+            return 0
         _d, n, _ = _tarray(self.m, self._obj + self._off["all"], SZ_ACTION)
         return n
 
@@ -387,9 +411,19 @@ class MatchLog:
     #   确认"的证据——尤其 bool/enum 的具体取值含义（哪个值表示什么）大部分
     #   没有反向验证，用之前最好再跟已知场景对一次。
     def _logic(self):
-        """`BP_OnlineMatch_C.Logic` 指针 + 它的 UClass。缓存，找不到返回 `(None, None)`。"""
+        """`BP_OnlineMatch_C.Logic` 指针 + 它的 UClass。找不到返回 `(None, None)`。
+
+        ★ 2026-10-02：缓存**每次命中都要先验新鲜度**。常驻进程里同一个 MatchLog
+        跨越多局（`AgentSession.log`、`board_api._logic_matchlog` 的兜底实例、
+        `Injector._ml` 都是长寿命对象），而调用方不一定先 `forget()`/`is_stale()`；
+        换局后旧的 Logic 对象被销毁，这一对指针就成了"上一局的 Logic"（用户 2026-10-02
+        报的"Logic 疑似被缓存"）。`is_stale()` 只看 2 处（对象头 class +
+        `AllMatchActions` 计数），很便宜。
+        """
         if getattr(self, "_logic_cache", None) is not None:
-            return self._logic_cache
+            if not self.is_stale():
+                return self._logic_cache
+            self.forget()
         result = (None, None)
         if self.locate() and self._cls:
             from .props import find_prop
@@ -421,9 +455,15 @@ class MatchLog:
         **实机验证过一次**：换牌阶段读到 `mySide=1`，跟同一时刻
         `board_api.read_my_side()` 碰巧也算出的 `1` 一致；没验证过两者在
         `read_my_side()` 已知失效的窗口分歧的场景，但字节码看没有那个限制。
+
+        ★★ 2026-10-02：缓存**只在同一局内有效**。命中前先 `is_stale()` 验一次，
+        换局（对象 class 变 / `AllMatchActions` 计数回退）就 `forget()` 重读 ——
+        曾出现 C 局的座位被 D 局继续用、整局手牌判成 enemy 的事故。
         """
         if self._my_side_cache is not None:
-            return self._my_side_cache
+            if not self.is_stale():
+                return self._my_side_cache
+            self.forget()
         pr, ptr = self._logic_field("mySide")
         if not pr:
             return None
@@ -555,7 +595,7 @@ class MatchLog:
           筛只能回答"我方发生过一次这类动作"，答不了"是**这张牌**打出去了吗"——
           正常单线程调用不会撞（一次只发一个动作），但 `card_id` 恰好是唯一的
           （每张牌实例一个 id，不是卡名），干脆精确到牌，`play_unit`/`play_event`
-          的重试循环拿着更硬的回执。字段位置按 `agent/record.py::MINE_LABEL_FIELDS`
+          的重试循环拿着更硬的回执。字段位置按 `player/record.py::MINE_LABEL_FIELDS`
           （`XActionPlayCardFromHand` 的 subject 是 `data[0]`，已实机验证过）。
           ★ **不能拿"这张 card_id 在整局历史里出现过"当"已经打出去了"的缓存**——
           被撤回手牌的牌（比如部署后取消目标选择）可以再打一次，同一个 card_id

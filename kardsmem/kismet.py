@@ -391,8 +391,23 @@ def disasm(code: bytes, resolve=None, stop_on_error: bool = True):
 # --------------------------------------------------------------------------
 # 从内存取函数
 # --------------------------------------------------------------------------
+_FN_CACHE: dict = {}      # {(pid, ustruct): [...]}：类的函数链在进程生命周期内不变（见 props._SP_CACHE）
+_FF_CACHE: dict = {}      # {(pid, base, ustruct, name, inherited): addr}：find_function 的结果（含未命中）
+
+
 def functions(session, ustruct: int) -> list:
-    """某个 UClass/UStruct 自己的 `UFunction` → [{addr, name, native, size}]。"""
+    """某个 UClass/UStruct 自己的 `UFunction` → [{addr, name, native, size}]。（按 (pid, 地址) 缓存）"""
+    key = ((getattr(session, "pid", 0) or getattr(session.m, "pid", 0)), ustruct)
+    hit = _FN_CACHE.get(key)
+    if hit is not None:
+        return hit
+    out = _functions_uncached(session, ustruct)
+    if out:
+        _FN_CACHE[key] = out
+    return out
+
+
+def _functions_uncached(session, ustruct: int) -> list:
     m = session.m
     pool = session.names_pool()
     out, f, n = [], m.ptr_or_zero(ustruct + OFF_CHILDREN), 0
@@ -421,16 +436,31 @@ def find_function(session, ustruct: int, name: str, inherited: bool = True) -> O
 
     ★ 蓝图的虚调用（`EX_VirtualFunction`）只给函数名，不给指针 ⇒ 求值器要按名字
       在对象的类上找，而覆写往往在父类里 —— 不往上找就会莫名其妙"函数不存在"。
+
+    ★ 2026-10-02：**按 (pid, ustruct, name, inherited) 缓存结果**（含"没找到"）。
+      虚调用在工作线程里是热路径：每次都要沿着 SuperStruct 走一遍、linear scan 每层
+      的函数链；而类的函数链在进程生命周期内不变（与 `_FN_CACHE` 同一判据）。
+      缓存后同一 (类, 名字) 只扫一次 —— 这是"从游戏读 BP"这条路上唯一值得省的地方，
+      字节码本身（`script_of`，3 次本地读）不是瓶颈。
     """
+    # 键带上 base：pid 会被系统复用，base（ASLR）不会 —— 换个进程就一定是新键。
+    key = ((getattr(session, "pid", 0) or getattr(session.m, "pid", 0)),
+           getattr(session, "base", 0) or getattr(session.m, "base", 0),
+           ustruct, name, bool(inherited))
+    if key in _FF_CACHE:
+        return _FF_CACHE[key] or None
     seen = 0
     while ustruct and seen < 64:
         seen += 1
         for f in functions(session, ustruct):
             if f["name"] == name:
+                _FF_CACHE[key] = f["addr"]
                 return f["addr"]
         if not inherited:
+            _FF_CACHE[key] = 0
             return None
         ustruct = session.m.ptr_or_zero(ustruct + OFF_SUPER)
+    _FF_CACHE[key] = 0
     return None
 
 
@@ -462,7 +492,10 @@ class Resolve:
         if kind == "prop":                       # FField：名字在 +0x20
             idx = self.m.u32(p + 0x20)
             if idx:
-                out = self.name(idx)
+                # ★ FName 的 Number（+0x24）不能丢：BP 编译器给同名局部变量加后缀（`X_ReturnValue` / `X_ReturnValue_1`），
+                #   丢掉后两个变量在 VM 里撞成同一个槽（实测：`A FEW GOOD MEN` 的 faction 比较结果被 rarity 比较覆盖，
+                #   三选一池子从 18 张变成全部 89 张精英）。
+                out = self.name(idx, self.m.u32(p + 0x24) or 0)
         if out is None:                          # UObject：名字在 +0x18
             try:
                 out = self.pool.fname_of(p)

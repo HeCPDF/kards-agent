@@ -33,10 +33,10 @@
 ====
 **只读**。全部路径只用 `PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` +
 `ReadProcessMemory`；没有写入、注入、hook。（执行侧不在本包内 —— 现在是
-`../ops_inject.py`（游戏内合成事件，不挪真实光标）；旧的物理鼠标实现
+`../ops/inject.py`（游戏内合成事件，不挪真实光标）；旧的物理鼠标实现
 `ops.py` 已于 2026-09-27 归档到 `_archive/ops_mouse.py`。本包只负责"读"。）
 
-底层原语不重复实现：`board_api.py` 是 `OpenProcess/ReadProcessMemory` 与
+底层原语不重复实现：`kardsmem/board.py` 是 `OpenProcess/ReadProcessMemory` 与
 "盘面卡"逻辑的唯一实现处，本包继承/调用它，只补它缺的那几块。
 """
 

@@ -1,0 +1,17 @@
+# NN 侧独立 venv（不装进 kards-agent 主环境；录制器不依赖 torch）
+#   cd kards-agent
+#   python -m venv nn/venv
+#   nn/venv/Scripts/python.exe -m pip install -r nn/requirements.txt
+#
+# CUDA（RTX 3070 用 cu126 wheel，实测本机 2.14.0+cu126 可用）：
+#   nn/venv/Scripts/python.exe -m pip install torch==2.14.0 ^
+#       --index-url https://download.pytorch.org/whl/cu126
+torch==2.14.0
+numpy>=2.0
+#
+# ★ 在线回路 `agent/nn.py`（前端③）**同一个 venv** 里跑：它既要 torch（网络），
+#   也要注入侧读游戏（frida + pywin32）—— 主环境的 3.14 没 torch，所以把注入侧
+#   装进这个 venv，而不是反过来。
+frida
+pywin32
+comtypes

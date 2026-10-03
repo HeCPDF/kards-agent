@@ -88,8 +88,24 @@ def _field_class_name(pool, mem, field: int) -> Optional[str]:
     return _fname(pool, mem, fc) if fc else None
 
 
+# 反射缓存：{(pid, ustruct): [...]}。类的属性链在进程生命周期内不变，而 VM 空跑每读一个字段/调一个
+# 函数都会重走一遍（实测一张牌 12.8 万次内存读、5–40 s）。key 带 pid：游戏重启后地址可能复用。
+_SP_CACHE: dict = {}
+
+
 def struct_props(session, ustruct: int, pool=None) -> list:
-    """**只**这一层（不含父类）的属性 → [{...}]，按链表顺序。"""
+    """**只**这一层（不含父类）的属性 → [{...}]，按链表顺序。（按 (pid, 地址) 缓存）"""
+    key = ((getattr(session, "pid", 0) or getattr(session.m, "pid", 0)), ustruct)
+    hit = _SP_CACHE.get(key)
+    if hit is not None:
+        return hit
+    out = _struct_props_uncached(session, ustruct, pool)
+    if out:                                    # 空结果（读失败）不缓存，下次再试
+        _SP_CACHE[key] = out
+    return out
+
+
+def _struct_props_uncached(session, ustruct: int, pool=None) -> list:
     mem = session.m
     pool = pool or session.names_pool()
     out, f, n = [], mem.ptr_or_zero(ustruct + OFF_CHILD_PROPS), 0

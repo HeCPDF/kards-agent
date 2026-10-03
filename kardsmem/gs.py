@@ -40,6 +40,7 @@ OFF_DECK_IDS_RIGHT = 0x490
 OFF_DECK_IDS_LEFT = 0x4A0
 OFF_STATIC_CARDS = 0x670
 OFF_HIDDEN_KREDITS_MAP = 0x758
+OFF_MAX_POSSIBLE_KREDITS = 0x338      # getMaxPossibleKredits 的真值（IDA 0x144B3C010）
 TARRAY_NUM_OFF = 0x08
 TARRAY_MAX_OFF = 0x0C
 
@@ -118,6 +119,16 @@ class GameState:
             v = _decrypt(out["key"], X, Y, enc)
             (out["kredits"] if kind == "kredit" else out["slots"])[by_lr[lr]] = v
         return out
+
+    # -- 指挥点上限（不是槽数！） ----------------------------------------
+    @property
+    def max_possible_kredits(self) -> Optional[int]:
+        """`UBaseCardObject::getMaxPossibleKredits` 的真值：`int32@GS+0x338`（IDA 0x144B3C010）。
+
+        ★ 2026-10-02（用户）：以前 effectvm 把这个原语映射成"槽数"，与 IDA 不符 —— 它读的是
+        GameState 里的一个独立 int 字段。board_api 的快照也带同名属性（`max_possible_kredits`）。
+        """
+        return self.i32(OFF_MAX_POSSIBLE_KREDITS)
 
     # -- ★ 哪一边是本地玩家 ----------------------------------------------
     @property
@@ -239,6 +250,72 @@ class GameState:
 def load(session=None) -> GameState:
     from .proc import attach
     return GameState(session or attach())
+
+
+_STATIC_PROV_CACHE: dict = {}
+
+
+def _card_fname(mem, pool, ptr: int) -> Optional[str]:
+    """卡 data asset 的 `Name_0@0x50`（FName）→ 小写字符串。读不出 ⇒ None。"""
+    b = mem.read_exact(ptr + 0x50, 8)
+    if not b:
+        return None
+    idx, n = struct.unpack("<ii", b)
+    if not idx:
+        return None
+    nm = pool.fname(idx, n)
+    return nm.casefold() if nm else None
+
+
+def make_static_card_provider(session):
+    """**静态卡表提供者**（NATIVE-COVERAGE-1.60 §15.6）：
+
+    `AllStaticCardsSortedByName`（`GameState+0x670`，2019 张，`TArray<UBaseCardObject*>`）
+    → `{Name_0@0x50 小写: 指针}`；返回的 `static_card(name_lower)` 给出
+    `cards.read_raw(..., light_effects=False)` 视图（按指针缓存）。
+
+    用法：`cn = CardNatives(...); cn.static_card = make_static_card_provider(session);
+    cn.static_cards = provider.names`（`GetStatic*`/`getHasVeteranUpgrade` 用）。
+    读不到表（不在对局/未 attach）⇒ 返回**空提供者**（`.names = frozenset()`），
+    调用方的 `_static()` 会如实地把它当"未命中"抛 Unimplemented —— 不编造默认卡。
+    按 session.pid 缓存（2019 次名字读取只做一次）。
+    """
+    key = getattr(session, "pid", None) or id(session)
+    hit = _STATIC_PROV_CACHE.get(key)
+    if hit is not None:
+        return hit
+    table: dict = {}
+    try:
+        gs = GameState(session)
+        mem = session.m
+        p, num, _mx = _tarray(mem, gs.addr + OFF_STATIC_CARDS) if gs.addr else (0, None, None)
+        if p and num and 0 < num <= 8192:
+            pool = session.names_pool()
+            for i in range(int(num)):
+                cptr = mem.ptr(p + i * 8)
+                if not cptr:
+                    continue
+                nm = _card_fname(mem, pool, cptr)
+                if nm:
+                    table.setdefault(nm, cptr)
+    except Exception:                                         # noqa: BLE001
+        table = {}
+
+    dbghelp_cache: dict = {}
+
+    def static_card(name_lower):
+        cptr = table.get(str(name_lower).casefold())
+        if not cptr:
+            return None
+        if cptr not in dbghelp_cache:
+            from .cards import read_raw
+            dbghelp_cache[cptr] = read_raw(session, cptr, light_effects=False)
+        return dbghelp_cache[cptr]
+
+    static_card.names = frozenset(table)
+    static_card.table_size = len(table)
+    _STATIC_PROV_CACHE[key] = static_card
+    return static_card
 
 
 def main(argv=None) -> int:
