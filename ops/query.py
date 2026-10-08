@@ -960,6 +960,9 @@ class QueryMixin:
         ★ 2026-09-27（顺手）：`front`/`back` 前缀**要求后缀是数字**（或为空）—— 否则
           `frontline` 这种串会在 `int("line")` 上抛 ValueError（以前是真会崩的输入）。
         """
+        # ★ 2026-10-07（攻击执行 7.7 s 里的冗余）：数字直接返回，**不要先全量快照**（~0.35 s/次，白读）。
+        if isinstance(spec, int) or (isinstance(spec, str) and spec.strip().lstrip("-").isdigit()):
+            return {"ok": True, "card_id": int(spec), "kind": "id", "side": None}
         from kardsmem import board as BA
         st = BA.open_source("mem").snapshot()
 
