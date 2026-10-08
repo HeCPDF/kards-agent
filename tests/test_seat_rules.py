@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""座位规则（docs/SEAT-MIGRATION.md）：生产代码里不许再有 local / enemy 座位。
+"""座位规则：生产代码里不许再有 local / enemy 座位。
 
 游戏自己只有两个座位枚举（先手 left=1 / 后手 right=2）和 `mySide`；“我方”是 `side == mySide` 的谓词，不是第三种座位。
 AST 检查（不是 grep：注释、文档字符串、`"target": "enemy"` 这种『目标阵营关系词』不算）：

@@ -30,7 +30,7 @@ import time
 from .gamemodel import ECardLocation, ESide
 from .kismetlib import Unimplemented
 
-# ★ 座位迁移（2026-10-03，docs/SEAT-MIGRATION.md）—— 本模块对外语义变更：
+# ★ 座位迁移（2026-10-03）—— 本模块对外语义变更：
 #   * 不再有 "local"/"enemy"。座位一律是 ESideEnum 1/2（`ESide`，IntEnum，可与 int 互换）。
 #   * `BoardState.kredits / slots` 的键现在是 `ESide`（绝对座位）⇒ `getKreditBySide / getKreditSlotBySide`
 #     直接按座位取，**不再需要 my_seat**（以前要靠 my_seat 把座位翻成 local/enemy 才能取）。

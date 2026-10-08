@@ -45,14 +45,14 @@ interfaces/  shell / MCP        gui/ 面板        tools/ 一次性脚本（devt
 | 阶段 | 内容 | 退出条件 |
 |---|---|---|
 | **P0 整理**（已做大半） | 分层包、依赖方向测试、去上游遗留、路径统一、发布清理 | `tests/run_all.py` 全绿；`docs/STRUCTURE.md` |
-| **P1 原版数据模型** | S1 ✓ gamemodel；S2 ✓ 读侧产出；S3 ✓ 座位改 `ESide`+`mySide`、位置改 `obj` 谓词（`docs/SEAT-MIGRATION.md`）；S3' 其余字段别名→`obj.xxx`；S4 删别名 | 无代码再读 `Card.side="local"` 字符串；假卡全换 `BaseCardObject`；`BOARD-MODEL.md` |
+| **P1 原版数据模型** | S1 ✓ gamemodel；S2 ✓ 读侧产出；S3 ✓ 座位改 `ESide`+`mySide`、位置改 `obj` 谓词；S3' 其余字段别名→`obj.xxx`；S4 删别名 | 无代码再读 `Card.side="local"` 字符串；假卡全换 `BaseCardObject`；`BOARD-MODEL.md` |
 | **P2 engine 骨架** | `engine.state`（clone/undo）、`engine.triggers`、`engine.natives` 的**第一批**（现有 sim 里已移植过的：容量、SpawnCardToBoard、抽牌链、疲劳、压制、指挥点）；`sim` 变成 engine 的薄壳 | 现有 sim 测试通过；`test_sim_source_tags` 棘轮转到 engine，数量只升 |
 | **P3 natives 全量移植** | 按“被卡牌脚本实际调用的频次”从高到低移植：ChangeAttack/Defense/OperationCost（含 EChangeType）、DamageCard/ApplyDamageToCard、DestroyCard、MoveCardToFrontline、ConvertCard、MakeCardRetreat、TakeControl… | 每个 native 有“原版：函数名（文件:行）”注释；`SIM-FIDELITY.md` 表里“近似”清零 |
 | **P4 scripts 直跑** | `engine.scripts`：VM 在 engine 状态上直接执行 `OnPlayedFromHand` 等钩子；`effectvm` 降级为“记录模式”（仅用于覆盖缺口审计），`to_effects` 字典词汇表删除 | `test_effect_keys_consumed` 退役；同一批卡牌的直跑结果与旧记录路径逐卡对账一致（对账脚本） |
 | **P5 搜索迁移** | `policy` 直接在 engine 状态上搜索（clone + apply 动作 = 调原生函数）；评估并入；`boardeval` 门面删除 | 实机训练局胜率/决策耗时不退化（B1 同口径） |
 | **P6 巨型文件拆分** | `ops/inject.py` → `ops/{runtime,gestures,verbs/*}.py`（D1）；`player/rule.py` → `player/strategy/*`；`kardsmem/cli.py`、`board.py` 拆读写/自检 | 单文件 ≤ 1500 行（生成物除外）；`ops/` 的 lint 棘轮继续 |
 | **P7 构建自包含** | RVA 只走“用户缓存 → 种子表复验 → 扫描”（S3/H2）；删 `VERSION_TO_BUILD` 与双份表；`KARDS_BUILD` 仅作调试覆盖 | 未登记版本也能起来；`build_tables.json` 只是种子 |
-| **P8 发布** | README / CHANGELOG / requirements / install & 运行脚本 / `make_release.py` / CI；干净导出的离线测试；按“发布纪律”只推子树 | 空目录里 `pip install -r requirements.txt` + `python tests/run_all.py` 全绿 |
+| **P8 发布** | README / CHANGELOG / requirements / install & 运行脚本 / `make_release.py` / CI；干净导出的离线测试；由 `tools/make_release.py` 做干净导出并跑离线测试 | 空目录里 `pip install -r requirements.txt` + `python tests/run_all.py` 全绿 |
 
 ## 3. 做法与护栏
 

@@ -12,8 +12,8 @@
             └───────────────┬────────────────┘
  L4                    player/                     出牌的玩家：规则策略、在线回路、录制、热重载、开局闸门
                            │
- L3          agent/                  learn/        命令层（一组动词）        离线学习（torch，可选）
-                │                      │
+ L3          agent/                                命令层（一组动词）
+                │
  L2   ops/   semantics/   sim → evaluation → policy
         │         │              │
  L1          kardsmem/                              读侧：进程内存 / UE 反射 / Kismet VM / 盘面快照 / RVA 扫描
@@ -35,8 +35,7 @@
 | `evaluation/` | 盘面价值（只依赖 `sim` 的数据结构） | sim |
 | `policy/` | 搜索与应答：候选展开、`answer` / `forced` / `plan`；`boardeval.py` 是对 sim/evaluation/policy 的兼容门面 | sim, evaluation, kardsmem, base |
 | `agent/` | **命令层**：`AgentSession` 把读侧、写侧、合法性收成**一组动词**（出牌/攻击/选择…），加上盘面编号与渲染（`view`）、预检（`precheck`）、统一结果类型 | base, vendor, kardsmem, ops, semantics |
-| `learn/` | 离线学习：特征、模型、训练（torch，独立 venv，可选）。主环境不需要 | base |
-| `player/` | **玩家**。`rule`（规则策略 V2，决策）、`loop`（在线回路：每步 观察→决策→执行→回读）、`play`（把二者接起来的入口）、`record`（只读录制）、`hotreload`、`play_guard`（对局进行中绝不点开始） | agent, policy, sim, evaluation, semantics, ops, kardsmem, learn |
+| `player/` | **玩家**。`rule`（规则策略 V2，决策）、`loop`（在线回路：每步 观察→决策→执行→回读）、`play`（把二者接起来的入口）、`hotreload`、`play_guard`（对局进行中绝不点开始） | agent, policy, sim, evaluation, semantics, ops, kardsmem |
 | `interfaces/` | 给人 / LLM 用的入口：交互 `shell`、`mcp` server。只做适配 | agent |
 | `gui/` | 控制面板（tkinter）：开始/停止、状态、日志、检测更新；通过 `control.json` 与常驻监听器通信 | agent, player, kardsmem, base |
 | `tools/` | 一次性脚本（标定、探针、内存 dump、常驻监听器 `live_session.py`）。可依赖任何包，**不被任何包依赖** | 任意 |

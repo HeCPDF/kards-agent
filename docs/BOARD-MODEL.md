@@ -26,7 +26,7 @@
 * **S3 迁移消费者**（按依赖从底向上；每个包迁完删掉它对派生视图的依赖）：
   1. `sim/adapter.py`：`from_cards` 改成读 `card.obj` + `game.mySide`（`ESide` / `ECardLocation` / `EType`），容量判断改用 `GameState.FetchCardsByLocation` 同一套常量；
   2. `semantics/*`（legality / triggers / effectvm）：`.side` / `.location` / `.card_id` → `obj.side` / `obj.Location` / `obj.CardID`；
-  3. `policy/*`、`player/rule.py`（34 处 `.side`/`.location`）、`agent/view.py`、`interfaces/*`、`learn/schema.py`；
+  3. `policy/*`、`player/rule.py`（34 处 `.side`/`.location`）、`agent/view.py`、`interfaces/*`；
   4. 测试里的假卡（`_C` / `C` 一类）改成 `BaseCardObject`。
   替换用谓词，不用字符串比较：`obj.side == st.game.mySide`（我方）、`obj.Location in (ECardLocation.Hand_Left, ECardLocation.Hand_Right)`（手牌）、
   `obj.Location == ECardLocation.Board_Frontline`、`obj.Location in (Board_HQLeft, Board_HQRight) and obj.Type != EType.location`（支援线单位）。

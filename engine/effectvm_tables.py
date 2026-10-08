@@ -148,7 +148,7 @@ SPAWN_DECK_VERBS = frozenset(("SpawnCardInDeckBySide",))
 #     `FetchAllCardsWithEventTrigger(0x37)` 逐个 `OnOtherCardRevealed(cardRevealed)`、
 #     `cardRevealed->OnEnterPlay(0x4)`、`FetchAllCardsWithEventTrigger(0x2B)` 逐个
 #     `OnOtherCardEnterPlay(cardRevealed, 0x4)`。这些属于 triggers 钩子族，
-#     由 triggers 侧补（TODO §3g-3；subagent 撞限额，2026-10-02 16:11 恢复后处理），本模块不假装跑过。
+#     由 triggers 侧补，本模块不假装跑过。
 REVEAL_VERBS = frozenset(("RevealCard",))
 # 群体加防：`AddDefenseToMultipleCards(receiverIDs[], amount, giverCardID, &qqq)`
 #   amount ≥ 0 ⇒ 每张走 `ChangeDefense(+amount)` 管线；amount < 0 ⇒ `setAndEncryptDefense(总防+amount)`

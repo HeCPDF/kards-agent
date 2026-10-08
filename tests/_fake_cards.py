@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-"""learn/ 自检用的假牌工厂：产出真 `kardsmem.board.Card`（带原版 `BaseCardObject`）。
-
-learn/ 层只许依赖 base（tests/test_arch_rules.py 的分层表），所以 learn 里的自检不 import kardsmem，
-而是在各自 `if __name__ == "__main__":` 里从这里拿工厂，注入给 selftest。
+"""自检用的假牌工厂：产出真 `kardsmem.board.Card`（带原版 `BaseCardObject`）。
 
 座位是 `ESide`：本地玩家固定 `ME = ESide.left`，对方 `OPP = ESide.right`（与 `tests/_cards.py` 一致）。
-`zone` 用 learn 的区域名：hand / frontline / back / hq / deck / discard。
+`zone` 区域名：hand / frontline / back / hq / deck / discard。
 """
 import os
 import sys
