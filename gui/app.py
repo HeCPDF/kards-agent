@@ -229,8 +229,6 @@ class App(tk.Tk):
         self.btn_watch = ttk.Button(row3, text="启动监听器…", command=self.start_watcher)
         self.btn_watch.pack(side="left", padx=8)
         ttk.Button(row3, text="停止监听器…", command=self.stop_watcher).pack(side="left")
-        ttk.Label(box, text="跑的时候别让别的窗口盖住游戏（盖住时截图/点击会失败）。", foreground="#666").grid(
-            row=r + 4, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         # ---- 实时状态 ----
         st = ttk.LabelFrame(body, text="实时状态", padding=8)

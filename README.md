@@ -1,13 +1,13 @@
 # kards-agent
 
 **KARDS 自动对局框架**：只读进程内存拿实时盘面，在游戏进程内**合成**与真人等价的鼠标事件来出牌，
-上层是一个规则 bot（带盘外模拟 + 评估 + 搜索），可选再接一个神经网络策略。
+上层是一个规则 bot（带盘外模拟 + 评估 + 搜索）。
 
 > English summary — A Windows-only framework for automating the card game KARDS. It reads the live
 > game state through read-only process-memory access (UE reflection + a Kismet bytecode interpreter) and
 > performs actions by synthesizing the *full* mouse event sequence (hover → press → drag → release) inside the
 > game process, so what the server/opponent sees is indistinguishable from a human using a mouse. On top of
-> that sit an off-board simulator, an evaluator, a search-based rule bot, and an optional NN (torch) track.
+> that sit an off-board simulator, an evaluator and a search-based rule bot.
 > **Training/AI matches only. Never PvP.** GPL-3.0; originally forked from
 > [OCR-Kards-Auto](https://github.com/yumehanab1/OCR-Kards-Auto). No game files are included.
 
@@ -28,7 +28,7 @@
 * 已安装的 KARDS 客户端（Steam 或官方 launcher）。目前适配 1.60 系列；换版本会在运行时扫描 RVA 并缓存到
   `%LOCALAPPDATA%\kards-agent\rva-cache\`，新版本的兼容性以实机为准。
 * Python 3.12+（CI 跑 3.12 与 3.14；开发环境 3.14），需带 `tkinter`（控制面板）。
-* 主环境依赖仅 `frida`、`numpy`（见 `requirements.txt`）。NN 训练另需 `torch`（`requirements-nn.txt`，可选）。
+* 依赖仅 `frida`、`numpy`（见 `requirements.txt`）。
 
 离线部分（模拟、VM、评估、全部测试）**不需要游戏**；上线跑局才需要游戏在运行。
 
@@ -38,7 +38,6 @@
 git clone <本仓库>            # 或解压 dist\kards-agent-<版本>.zip
 cd kards-agent
 .\install.ps1                 # 建 .venv、装 requirements.txt、跑离线自检
-.\install.ps1 -Nn             # 可选：另建 nn\venv 并装 torch（体积大）
 ```
 
 手动也行：`python -m venv .venv && .venv\Scripts\pip install -r requirements.txt`。
@@ -47,8 +46,8 @@ cd kards-agent
 
 | 想做什么 | 命令 |
 |---|---|
-| 控制面板（推荐入口：开始/停止、局数、状态、决策历史、日志） | `run_gui.bat`（= `python -m gui.app`） |
-| 常驻监听器（先开游戏再开它；面板也会替你拉起） | `run_listener.bat`（= `python tools\live_session.py`） |
+| 控制面板（推荐入口：开始/停止、局数、状态、决策历史、日志） | `python -m gui.app`（免装 Python 的 exe 包见 Releases） |
+| 常驻监听器（先开游戏再开它；面板也会替你拉起） | `python tools\live_session.py`（= `run_listener.bat`） |
 | 离线测试（不需要游戏） | `run_tests.bat [关键字]`（= `python tests\run_all.py`） |
 | 读侧自检 / 读一眼盘面 | `python -m kardsmem selftest`、`python -m kardsmem --help` |
 | 交互式 shell / MCP server（给人或 LLM 用） | `python -m interfaces.shell`、`python -m interfaces.mcp` |
@@ -63,7 +62,7 @@ cd kards-agent
 ```
 L5  gui/  interfaces/  tools/        入口：面板 / shell+MCP / 一次性脚本
 L4  player/                          玩家：规则策略、在线回路、录制、开局闸门
-L3  agent/            learn/         命令层（一组动词）   离线学习（torch，可选）
+L3  agent/                          命令层（一组动词）
 L2  ops/  semantics/  sim → evaluation → policy
 L1  kardsmem/                        读侧：内存 / UE 反射 / Kismet VM / 盘面 / RVA 扫描
 L0  base/                            路径、版本、Win32 封装
