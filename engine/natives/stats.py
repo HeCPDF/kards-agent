@@ -27,7 +27,7 @@
 1. **`ExecuteAfterChangeAttackEvents` 全文件只有一个调用点（`:11174`），只从 default 分支（6-9）进**
    ⇒ changeType 0..5 这些**常规**改动**不**触发"数值变化通知"。（被调函数体见 `:11950`：未压制 ⇒
    自己 `OnAfterChangeAttack`；压制 ⇒ `FetchAllCardsWithEventTrigger(0x5)` 逐张 `OnAfterOtherCardChangeAttack`。）
-   ★ **证据强度（别当铁证）**：FModel 反编译的 ubergraph **控制流是有损的**（`CLAUDE.md` 弯路 #4：
+   ★ **证据强度（别当铁证）**：FModel 反编译的 ubergraph **控制流是有损的**（同类教训：
    "控制流变 goto 汤、个别节点会丢"）—— 那 5 条分支都写 `valueChanged = true; return;`，而函数体开头
    另有一个 `Label_434: if (!valueChanged) …` 在等它，两者**不可能同时成立** ⇒ "分支是否真的就地 return"
    还需要**第二来源**（IDA 读 Kismet 字节码）才能定案。本条只作**待核结论**，不据此改行为（R4）。

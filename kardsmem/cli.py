@@ -406,7 +406,7 @@ def _selftest_custom_json_flags(chk) -> None:
     给它一段我们自己按 UE 源码结构拼出来的字节，看它能不能摊开成正确的
     `{标记名: bool}`。
 
-    按 CLAUDE.md 弯路 #11 的教训，**只跑一组输入不算数**——一个"永远返回
+    按 同类教训 的教训，**只跑一组输入不算数**——一个"永远返回
     同一个值"的坏实现也能通过单组用例。所以这里拼两组内容不同的 customJson
     （键的集合不同、同名键的布尔值也故意相反），分别断言，确保解析结果
     真的跟着输入变，而不是巧合对上一次。
@@ -487,7 +487,7 @@ def _selftest_custom_json_flags(chk) -> None:
         chk("customJson A: 返回的键覆盖全部 43 个", sorted(flags_a), sorted(_C.JSON_BOOL_FLAG_NAMES))
 
         # 输入 B：换一组不同的键/不同的真假值——专治"永远返回同一个值"这种坏实现
-        # （CLAUDE.md 弯路 #11：card_targets.py 的 out() 就是靠"两组不同输入对比"才挖出来的）
+        # （同类教训：card_targets.py 的 out() 就是靠"两组不同输入对比"才挖出来的）
         build_custom_json(card_addr, [("triggered", False), ("inEffect", True),
                                       ("suppressionException", True)])
         flags_b = _C.read_custom_json_flags(sess, card_addr)

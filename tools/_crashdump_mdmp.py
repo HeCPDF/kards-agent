@@ -863,7 +863,7 @@ def _live_log_path() -> str:
 
     ★ 为什么不直接写死 import：本脚本要在整棵树被搬动/改坏时照常能跑（见文件头设计要点 7），
       所以做成"能拿到就拿、拿不到回退"——别让这一步把 .context.txt 带崩。
-      （2026-10-03：监听器从 `_nn_scratch/` 搬进 `tools/`，通道移到 `kards-data/live/`。）
+      （2026-10-03：监听器从 `` 搬进 `tools/`，通道移到 `kards-data/live/`。）
     """
     try:
         from base import paths as _paths          # noqa: PLC0415

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """`+hooks` 族（`run_play_hooks`/`run_enter_play`）的两个真 bug 回归测试（离线，桩掉 VM）。
 
-2026-10-02 实机只读探针（`_nn_scratch/probe_hooks_deep2.py`）抓到两条，症状都是
+2026-10-02 实机只读探针（`probe_hooks_deep2.py`）抓到两条，症状都是
 "链恒空、还被 except 吞掉"：
   ① `rule._play_hooks_triggers` 把 `board_api.Card` 传给 `exclude=`，而 `find_cards`
      以前直接 `set(exclude)` ⇒ 每次 `TypeError: unhashable type: 'Card'`；

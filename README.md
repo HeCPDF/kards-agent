@@ -20,7 +20,7 @@
    对手 `player_id` 为非负数即真人对局，不得启动。
 4. 不改游戏文件、不绕过反作弊/风控、不分发游戏资源。
 
-完整红线与判据原则见 [CLAUDE.md](CLAUDE.md)（面向接手的开发者/agent）。
+架构与判据原则见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 系统要求
 
@@ -90,9 +90,8 @@ L0  base/                            路径、版本、Win32 封装
 * 版本号：`base/version.py`；变更见 [CHANGELOG.md](CHANGELOG.md)。
 * 打包：`python tools\make_release.py`——对**已提交**内容 `git archive` 出 `dist\kards-agent-<版本>.zip`，
   并在干净目录里跑一遍离线测试（`--dry-run` 只看不写，`--no-venv` 用当前解释器）。
-* 发布纪律：`kards-agent/` 在开发时是伞仓库的一个**子树**，在里面直接 `git push` 会把整个伞仓库推上公网。
-  公开只推拆分出来的 `publish/kards-agent` 分支，并先核对两个 tree 相等；步骤见 [CLAUDE.md](CLAUDE.md)「发布纪律」。
-  `tools\make_release.py` 不做任何推送。
+* 发布：`python tools/build_exe.py` 构建免装 Python 的面板包（PyInstaller），解压后双击 `kards-agent.exe`；
+  发布物只含面板包，源码包由 GitHub 自动生成。
 
 ## 许可与鸣谢
 

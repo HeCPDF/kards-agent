@@ -683,7 +683,7 @@ class ChoiceMixin:
         ⇒ 闸门改成**游戏自己的状态**：只要 `card_being_played_from_hand()` 非 0 就继续点目标；
           真正的 `ok` 由**第二步** `select_unit_target` 的动作流判
           （`XActionPlayCardFromHand{targetCardID}`）。选项那步的 `ok=False` 如实留在 `choice` 里
-          （旁证不许进 `ok` —— CLAUDE.md 弯路 #22；判据只能**往后挪一步**，不能降级成旁证）。
+          （旁证不许进 `ok` —— 同类教训；判据只能**往后挪一步**，不能降级成旁证）。
         """
         a = self.pick_choice(int(index), trigger=trigger, kind=kind, verbose=verbose)
         playing = self.card_being_played_from_hand()

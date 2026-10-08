@@ -6,7 +6,7 @@
 `USubsystemBlueprintLibrary::GetGameInstanceSubsystem(ContextObject, Class)`（库静态函数，
 全游戏 368 次调用）。要复刻它就得"按类找 subsystem 实例"。两条已排除的便宜路：
   * 每次调用都扫一遍全部对象：96,044 个对象、只读类指针也要 **5.28 s**
-    （`_nn_scratch/probe_scan_cost.json`），远超求值链的 0.6 s 预算；
+    （`probe_scan_cost.json`），远超求值链的 0.6 s 预算；
   * 读反射属性：`BP_KardsGameInstance_C` 的 61 个属性里**没有**子系统容器
     （`UGameInstance::SubsystemCollection` 不是 UPROPERTY，`probe_gi_subsystems.json`）。
 所以这里走**一次性索引**：启动时（或首次需要时）扫一遍，按"类指针 → 实例"建表，

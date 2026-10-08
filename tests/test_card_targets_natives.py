@@ -4,7 +4,7 @@
 
 依据 `NATIVE-COVERAGE-1.60.md` §14.2 #2/#5/#6/#21 与 §7#6：类型 getter 的 `isAlso*`、
 `getTotalOperationCost` 的 buff/下限、`getTotalKreditCost` 的下限、EnumCompare 的 0/1 语义。
-每条都换一张卡（换数据），答案要跟着变（CLAUDE.md 弯路 #11）。
+每条都换一张卡（换数据），答案要跟着变（同类教训）。
 """
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))

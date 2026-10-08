@@ -10,7 +10,7 @@
 通道（文件，不用 stdin/管道，因为这个进程要跨多个工具调用持续存活）：
     kards-data/live/live_cmd.txt   <- 追加一行 = 下一条命令
     kards-data/live/live_log.txt   -> 结果按行追加
-（位置统一由 `agent/paths.py` 给；2026-10-03 从 `_nn_scratch/` 搬进 `kards-agent/tools/`。）
+（位置统一由 `agent/paths.py` 给；2026-10-03 从 `` 搬进 `kards-agent/tools/`。）
 
 一次只 attach 一次；不写任何自动打对局的循环逻辑；每条命令后打印
 precheck.healthy()，不健康就明说。

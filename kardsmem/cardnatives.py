@@ -903,14 +903,14 @@ def _is_reconnect_match(self, mc=None):
     ★ 2026-10-02（`+intel` 的最后一个卡点，TODO A7）：`CRUISER SCOUTS` / `STRETCH THE LINE`
       的打出钩子会调它；VM 以前撞上就整条断 ⇒ `SetCardsSeenByCipher` 到不了 ⇒ 情报标记不触发。
 
-    ★★ 只读实测（20:24，`_nn_scratch/probe_mc_chain.py` 走 CDO 的类链）确认：
+    ★★ 只读实测（20:24，`probe_mc_chain.py` 走 CDO 的类链）确认：
       **这三个名字是那个函数的出参，不是类上的字段**（`GObjects-Dump-WithProperties.txt`
       里它们出现在 `IsReconnectMatch` 的参数表 `[00000000..00000002]`）⇒ 反射**不可能**找到它们。
       运行时的 `MatchController_C` 类链上与本函数相关的真实字段只有：
         · `reconnectInSameTurn`（Bool，父类，off 760）
         · `MulliganData`（Struct，BP 类，off 4008）、`mulliganReplacementReceived`（Bool，4056）
         · `reconnectLoading`（ObjectProperty，4104）
-    ★★ 2026-10-02 第二步：**调用点已经读了**（`_nn_scratch/probe_reconnect_callsite.py` /
+    ★★ 2026-10-02 第二步：**调用点已经读了**（`probe_reconnect_callsite.py` /
       `probe_reconnect_body.py`）。唯一消费它的是 BP `CreateAction_AddSubAction`，形态是：
         21  Context(GetMatchController) → FinalFunction(IsReconnectMatch)(&a,&b,&c)
         80  JumpIfNot(to=276) on `a`        ← 只有第一个出参决定分支

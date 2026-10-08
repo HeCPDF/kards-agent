@@ -10,7 +10,7 @@
     python tools/info.py --all                   # 我方手牌全部
     python tools/info.py --board                 # 双方场上全部
 
-（2026-09-26 从 `_nn_scratch/info.py` 搬进 `tools/`；当时代替"每看一张牌就起一次注入"用。）
+（2026-09-26 从 `info.py` 搬进 `tools/`；当时代替"每看一张牌就起一次注入"用。）
 """
 import sys
 

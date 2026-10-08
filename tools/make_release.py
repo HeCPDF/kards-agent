@@ -10,7 +10,7 @@
    用隔离环境（清掉 PYTHONPATH / KARDS_* 环境变量）跑 `python tests/run_all.py`，只打印结果；
 4. 默认建临时 venv 并 `pip install -r requirements.txt`（需要网络）；`--no-venv` 直接用当前解释器。
 
-只读：不写回仓库，不做任何会改仓库或联网的 git 操作（发布纪律只在 README / CLAUDE.md 里以文字描述，
+只读：不写回仓库，不做任何会改仓库或联网的 git 操作（
 推送由人手工执行）。版本号来自 `base/version.py`。
 
 用法

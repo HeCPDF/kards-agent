@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""生产代码不得依赖 `_nn_scratch/`（用户 2026-10-03：“为什么这些没进 kards-agent 目录！！为什么这些不清理一下？”）。
+"""生产代码不得依赖草稿目录（`D:\Kards\scratch\`，旧名 `_nn_scratch`）。
 
-`_nn_scratch/` 只放一次性探针脚本。生产部件（监听器、开局闸门、API 缓存…）住在 `kards-agent/`，运行期文件的位置统一由
-`agent/paths.py` 给。本测试用 AST 扫生产目录里**非文档字符串**的字符串常量：出现 `_nn_scratch` 就红。
+草稿目录只放一次性探针脚本。生产部件（监听器、开局闸门、API 缓存…）住在 `kards-agent/` 里，运行期文件位置只由
+`agent/paths.py` 给。本测试用 AST 扫生产目录里**非文档字符串**的字符串常量：出现草稿目录路径就失败。
 （文档字符串/注释里提到“某个探针脚本验证过”是允许的——那是出处，不是依赖。）
 """
 import ast
@@ -45,7 +45,7 @@ def hits(path):
     out = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in doc_ids \
-                and "_nn_scratch" in node.value:
+                and any(k in node.value for k in ("_nn_scratch", "Kards" + chr(92) + "scratch", "Kards/scratch")):
             out.append((node.lineno, node.value[:60]))
     return out
 

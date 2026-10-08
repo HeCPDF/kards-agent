@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """base.paths —— 运行期文件的**唯一**位置表（监听器通道、日志、API 缓存、热重载开关）。
 
-以前这些路径散在 `D:\\Kards\\_nn_scratch\\…` 的硬编码里（gui / hotreload / rule / choosespawn / crashdump …），
-生产部件放在草稿目录里。现在统一从这里取；换位置只改这一个文件（或设环境变量）。
+运行期文件（监听器命令/日志通道、API 缓存、热重载开关）的位置只由这里给；换位置只改这一个文件（或设环境变量）。
 
 * 代码在 `kards-agent/`；运行期数据在 `kards-data/`（`.gitignore` 里，不入库）；
-* `_nn_scratch/` 只放一次性探针脚本，**生产代码不得依赖它**（`test_no_scratch_dep.py` 把关，这里也不给它留常量）。
+* 一次性探针放在仓库外的草稿目录，**生产代码不得依赖它**（`test_no_scratch_dep.py` 把关）。
 """
 from __future__ import annotations
 

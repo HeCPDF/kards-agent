@@ -433,7 +433,7 @@ class App(tk.Tk):
         if messagebox.askyesno(
                 "没能正常退出",
                 "90 秒内监听器没有退出（可能卡在一步里）。\n\n强制结束进程？\n"
-                "注意：强杀会卸载 frida agent，历史上出现过游戏随之崩溃（CLAUDE.md 弯路 #31）。确定要强杀？",
+                "注意：强杀会卸载 frida agent，历史上出现过游戏随之崩溃（同类教训）。确定要强杀？",
                 icon="warning"):
             killed = W.force_kill()
             C.update_status(state="stopped", busy=False, note="监听器已强杀 %s" % killed)

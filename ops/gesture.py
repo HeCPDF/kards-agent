@@ -425,7 +425,7 @@ class GestureMixin:
         if queue_gate:
             out["queue_idle"] = self.wait_queue_idle()
         # ⛔ 不调 `pc_drag_end()`：它内部 `ForceReleaseDrag()` 会额外触发一次 EndDrag
-        #   （候选卡点完即自毁 ⇒ 撞成 use-after-free，见 `_nn_scratch/click-crash-report.md`）。
+        #   （候选卡点完即自毁 ⇒ 撞成 use-after-free，见 `click-crash-report.md`）。
         # L1：悬停（红线：悬停必须发生）+ 转发
         f_enter = self.find_fn(cls, "OnActorMouseEnter")
         if f_enter:
@@ -514,7 +514,7 @@ class GestureMixin:
             arrow_length_gate=bool(use_mouse_up),   # 板卡（移动/上线）要过长度闸门
             # ★ 2026-09-26 更正（`drag-chain-report.md` §4 抓到的错）：这里原来写死
             #   `commit="both"`，注释还说"与重构前一致"——**不实**。老版
-            #   （`_nn_scratch/old_ops/inject.py`）手牌只发 `OnActorEndDrag`。
+            #   （`old_ops/inject.py`）手牌只发 `OnActorEndDrag`。
             #   而板卡的 `OnActorMouseUp` 在 `PlaceBoardCard()` 前有双闸
             #   `CanPlayCard() && IsTargetArrowLengthValid()`（BP_BoardCard.cpp:1404-1411），
             #   且 :1402 会**先把箭头全销毁** ⇒ 没有箭头/长度时它静默早退，
@@ -724,7 +724,7 @@ class GestureMixin:
         悬停是**发给对手的信息流**的一部分，所以哪怕很短也必须真的发生（不许 0 秒）。
 
         ★ 2026-09-30 用户点破"我们的悬停和真人悬停有差异，手牌悬停预览总是异步延迟加载"。
-          实测（`_nn_scratch/census.py` 对 GUObjectArray 做类名计数、前后做差）：真人悬停 10 张手牌后
+          实测（`census.py` 对 GUObjectArray 做类名计数、前后做差）：真人悬停 10 张手牌后
           预览相关对象**净减少**；我们合成悬停 10 次后 **+10 `TextureRenderTarget2D` / +10
           `W_CardHelpPage_C` / `cardHelpBar_Widget_PC_C` / `BP_HandCardLookUnlit_C` /
           `BP_Widget_HandCardTextV2_C` / `BP_Widget_DeckBoxLabel_C`，+20 `cardHelp_Widget_PC_C`**，

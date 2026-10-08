@@ -14,14 +14,14 @@ Python：池子从内存读，三张候选用 `kardsmem.rng.Stream` 直接算。
     i2 = RandomIntFromRangeWithStream(0, medium.len-1)   # 每次 d+2 次抽取（见 rng.Stream.wrapper_int）
     i3 = RandomIntFromRangeWithStream(0, heavy.len-1)    # ⇒ 一共 3 次调用、9~36 次抽取
 
-实机对账（`_nn_scratch/rng_ext2.jsonl` + `rule-live-20261001-223311.jsonl`，3 次预报）：
+实机对账（`rng_ext2.jsonl` + `rule-live-20261001-223311.jsonl`，3 次预报）：
     pre-seed 1053557799 → 预测 {heatwave, jungle_fever2, scorching_sun}，实际选中 heatwave，抽取 31 = 实测 31
     pre-seed 4188953836 → 预测 {heatwave2, jungle_fever, scorching_sun}，实际 heatwave2，抽取 22 = 实测 22
     pre-seed 3115859106 → 预测 {heatwave2, jungle_fever2, scorching_sun3}，实际 heatwave2，抽取 15 = 实测 15
 
 ★ 验证状态（2026-10-01 深夜，已全部验过）：
     * 机器人局回测 3/3：每次预报的 **light 档**都命中，且总抽取数 = 实测种子步数（31/22/15）；
-    * **用户手动局全量验证**（`_nn_scratch/forecast_validation_report.md` + 截图）：种子 4196626795 →
+    * **用户手动局全量验证**（`forecast_validation_report.md` + 截图）：种子 4196626795 →
       预测 rain = {暴雨 DELUGE, 骤雨 TORRENTIAL RAIN, 季风雨 MONSOON RAIN}，面板实际显示**逐张、按同一顺序**一致；
       面板出现后种子走到 2626744231 = **正好 28 步**（= 预测抽取数）。
       ⇒ **三档（light/medium/heavy）+ "UI 顺序 = 桶顺序" + 抽取数**三件全部坐实。
@@ -29,7 +29,7 @@ Python：池子从内存读，三张候选用 `kardsmem.rng.Stream` 直接算。
 ★★ 别按**名字**比对（用户 2026-10-01 点破）：同一(天气×花费)有 **3 个同名、效果完全不同**的变体，
     例如 DELUGE 的 `deluge`（随机分 6 防御）/ `deluge2`（全体敌方 -1 攻）/ `deluge3`（抑制+抽牌）。
     本模块返回的是**具体变体指针**，所以预测是对的；但下游评估/报告一律要用**变体**（或它的效果文本），
-    拿"暴雨"当答案等于没区分。核对方法见 `_nn_scratch/forecast_validation_report.md`（用 BP 导出的
+    拿"暴雨"当答案等于没区分。核对方法见 `forecast_validation_report.md`（用 BP 导出的
     `FText Text` + locres 中文逐张比屏幕文本）。
 
 只读：`ReadProcessMemory`；不写游戏、不注入。

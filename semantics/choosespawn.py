@@ -14,7 +14,7 @@
      ⇒ 用活种子的 `Stream` 副本洗；`keepOrder=true`：卡自己已在字节码里按流抽好，取前 3。
   3. 读不出种子 / API 缓存缺失 / VM 停了 ⇒ 如实返回 `stopped`（调用方记缺口、不编候选）。
 
-验证：`_nn_scratch/choose_spawn_predict.py --selftest` 的三次实机观测（含一次盲预测命中）；本模块的离线测试
+验证：`choose_spawn_predict.py --selftest` 的三次实机观测（含一次盲预测命中）；本模块的离线测试
 `test_choosespawn.py` 用同样的观测回放洗牌这一半，VM 那一半需要游戏在跑（实机见 TODO A8）。
 """
 from __future__ import annotations

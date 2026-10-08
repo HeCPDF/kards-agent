@@ -10,7 +10,7 @@
    FModel 导出的 BP（`reverse-data/exports-1.60.27292.launcher-only-decompiled-BP/…`，函数名 + 行号）或 IDA 里的原生函数（地址）。
    先读原版，再写 Python；不是先写 Python 再找依据。
 2. **出处写在代码旁边。** 约定的注释写法：`# 原版：BP_CardFunctions::SpawnCardToBoard（BP_CardFunctions.cpp:19212）`。没有这行的规则 = 待审计。
-3. **不编数。** 原版里读不到 / 没移植的部分：记缺口、价值 0，**不**按“估一个像样的值”顶替（CLAUDE.md 弯路 #38）。
+3. **不编数。** 原版里读不到 / 没移植的部分：记缺口、价值 0，**不**按“估一个像样的值”顶替（同类教训）。
    通用 2/2、`front_n < 5` 这类常数都属于“编的数”。
 4. **数据结构跟着原版的字段走。** `sim` 的状态量对应游戏里的字段（`GameState` / `BaseCardObject` 的字段名与偏移见 SDK dump），
    名字、取值范围、谁在谁的 `TArray` 里都尽量一致；做不到一致的（比如我们的 `U.row` 把支援线叫 `back`）在这里登记映射。

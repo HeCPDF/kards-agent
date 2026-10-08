@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """`selectCardToDraw` 三选一加入手牌（CRUISER SCOUTS / SOUL OF OLD JAPAN / 好人寥寥）。
 
-* 洗牌这一半（`choosespawn.shuffle_pick`）用三次实机观测回放（`_nn_scratch/choose_spawn_predict.py --selftest` 同源；
+* 洗牌这一半（`choosespawn.shuffle_pick`）用三次实机观测回放（`choose_spawn_predict.py --selftest` 同源；
   第三次是盲预测命中）。VM 那一半（跑卡自己的 `GetChooseSpawnCards`）需要游戏在跑，实机见 TODO A8。
 * sim 这一半：`choose_spawn` 标记 + 候选表 ⇒ 单层 `select_card_to_draw` 提示；选中的牌立刻进手牌；没有候选表 ⇒ 记缺口。
 """

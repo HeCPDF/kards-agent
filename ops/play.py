@@ -719,7 +719,7 @@ class PlayMixin:
         "视觉落位 + 箭头"（`cardBeingPlayedFromHand` 非 0）⇒ 这时才走第二阶段。
         早先的写法（阶段一不带 target 直接 `play_card(force=True)`）对指令卡是**错的**：
         松手时 `AttemptToPlayFinal` 找不到目标 ⇒ `ClearAndRearrange` ⇒ 卡直接回手。
-        ⚠ 这里不要留"看起来能越过判据、其实没读"的假参数（CLAUDE.md 弯路 #11）。
+        ⚠ 这里不要留"看起来能越过判据、其实没读"的假参数（同类教训）。
         """
         # ---- 退化路径 ①：没给目标 ----
         if target_id is None:
@@ -944,7 +944,7 @@ class PlayMixin:
 
         # ★★ 2026-09-26 重构：本体改走**统一原语 `drag_release()`**
         #   （L0 `queueIsRunning` 闸门 + L1 PC 拖拽状态机 + L2 箭头/`cardUnderCursor` + L3 落地口），
-        #   并按 `_nn_scratch/ida-attack-report.md` 补上两处以前漏掉的东西：
+        #   并按 `ida-attack-report.md` 补上两处以前漏掉的东西：
         #     ① **`cardUnderCursor`（在攻击者 actor 上，int32 cardID）** —— `PlaceBoardCard`
         #        决定"打谁 / 是移动还是攻击"的**唯一输入**，必须与落地同一次 JS 执行写；
         #     ② **只发一个 `OnActorMouseUp`** —— 老版（`1c6457c`，能打）就是单口；

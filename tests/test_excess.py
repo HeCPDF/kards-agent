@@ -9,7 +9,7 @@
   * 溢出随后 `DamageCard(GetLocationCardBySide(对面), ExcessDamage, 来源, false, false, false)`
     （`ApplyDamageToCard` `:16489-16498`）；
   * **FModel 导出那句 `goto Label_3496` 是反编译 artifact** —— 只读反汇编
-    （`_nn_scratch/probe_excess_asm.py`）显示拆分后直接落到 `setAndEncryptDefense`（伤害照常应用）。
+    （`probe_excess_asm.py`）显示拆分后直接落到 `setAndEncryptDefense`（伤害照常应用）。
 
 两个不同输入必须给出不同答案（弯路 #11）：带 `excess` vs 不带；伤害 > 总防 vs ≤ 总防。
 """

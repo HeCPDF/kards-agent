@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""热重载后旧实例调用零参 super() 不再报 TypeError（CLAUDE.md 弯路 #39 的根治）。"""
+"""热重载后旧实例调用零参 super() 不再报 TypeError（同类教训 的根治）。"""
 import importlib
 import os
 import sys

@@ -1,39 +1,49 @@
-# `kards-agent/tools/` —— 取材 / 标定 / 探针工具
+# `tools/` —— 入口脚本与取材 / 诊断工具
 
-> 2026-09-22 从 `reverse-data/tools/` **搬进这里**：自动化相关的东西一律归 `kards-agent/`。
-> **要读内存/路径的脚本**用 `import _bootstrap` 接好路径（**不要再写 `D:\` 绝对路径**）；
-> 纯像素/纯 PE 的（`crop` `crop_grid` `grid` `pick_cards` `find_tpl` `pe_tools` 等）不需要它。
+脚本里 `import _bootstrap` 接好 `sys.path`（不要写绝对路径）。读侧入口在上一层：`python -m kardsmem <cmd>`。
+崩溃转储工具另见 [CRASHDUMP.md](CRASHDUMP.md)。
 
-两个入口在上一层：读 **`python -m kardsmem <cmd>`**，动鼠标 **`python ops.py <cmd>`**。
-
-## 内存侧（读，全部只读）
+## 运行与打包
 
 | 文件 | 用途 |
 |---|---|
-| `mem_probe.py` | Stage-0 只读探针：构建校验 + kredits/slots/盘面 + 自带 `--selftest`（合成目标，不需要游戏） |
-| `mem_find.py` | 进程内字节特征搜索（定位 FNamePool 之类） |
-| `mdmp.py` | 最小 minidump 解析：`Memory64ListStream` → VA→文件偏移表 |
-| `dumpmem.py` | 把 minidump 当成一个**只读内存源**挂进 `kardsmem`（进程没了也能分析） |
-| `reconcile_batch.py` | **P5 影子对账的离线批量版**：整进程转储（`kards-data/crashdumps/*.dmp`）当内存后端，VM/盘面/RNG 全离线可跑；每转储 × 4 种盘面变体 × 每张指令牌做 A/B/C 对账，按牌出 same/diff_ab/diff_bc/skipped 表 + JSON 报告（`docs/RECONCILE-BATCH-REPORT.json`）。`python tools/reconcile_batch.py --all`；测试 `tests/test_reconcile_batch.py` |
-| `mulliganprobe.py` | 换牌勾选位的内存 diff 定位（基数/差分两趟） |
-| `mulverify.py` | 用两份 minidump 核对 `BP_HandCard_C::shouldDiscard`（三条判据） |
-| `pickdump.py` | 选择界面一开就把**完整卡表**打下来（挑 `pick_candidates` 的空档） |
-| `pickwatch.py` | 守选择界面的**正证据**：三条判据一非零就落 JSON + 截图 |
-| `pe_tools.py` | PE 解析：RVA→文件偏移、SizeOfImage、vtable 检查（`kardsmem/exes.py` 调它） |
+| `live_session.py` | 常驻监听器：一个进程、一次 attach，按命令文件逐条执行（面板的“启动监听器”就是起它） |
+| `gui_main.py` | 打包版 `kards-agent.exe` 的唯一入口（面板 / `--listener`）；开发布局下也能直接跑 |
+| `gui_closure.py` | 求面板运行所需代码的 import 闭包（供 `build_exe.py` 与 `gui_main.py` 自检） |
+| `build_exe.py` | 把面板打成免装 Python、免联网的 Windows x64 PyInstaller 包（onedir） |
+| `make_release.py` | 从已提交内容导出、打包，并在干净目录里跑离线测试 |
 
-## 像素 / 截图 / 坐标标定（找坐标用，**不**用来判身份）
+## 内存 / 读侧工具（只读）
 
 | 文件 | 用途 |
 |---|---|
-| `crop.py` / `crop_grid.py` / `grid.py` | 裁剪放大 / 加刻度网格（人眼读坐标） |
-| `find_tpl.py` | 在整帧里全屏匹配 `../ui_templates/*.png` |
-| `field.py` / `field_raw.py` | 上游 OCR 的卡框坐标 × 内存槽位配对（**只作核对**） |
-| `hover_probe.py` / `drag_probe.py` | 悬停/拖拽取证（"部署当回合不能动"的提示语就是这么读到的） |
-| `pick_cards.py` | 从帧里量候选卡列（备用像素法；身份要读内存） |
-| `release.py` / `reset_input.py` | 清掉卡住的鼠标拖拽状态 |
+| `mem_probe.py` | 只读探针：构建校验 + kredits/槽位/盘面，自带 `--selftest` |
+| `mem_find.py` | 进程内字节特征搜索 |
+| `info.py` | 给 card_id，打印它所有能读到的字段 |
+| `notifywatch.py` | 游戏提示文本的实机取材 |
+| `pickdump.py` / `pickwatch.py` / `pick_cards.py` | 选择界面的候选卡取证 |
+| `kards_api_reserved.py` / `choose_spawn_predict.py` | 官方 API “预备”状态 / 三选一候选预测 |
+| `effects_live_hand.py` | 对手牌逐张 VM 空跑，打印效果摘要 |
+| `canplay.py` / `card_targets.py` / `card_coverage.py` | 离线跑卡牌判据 / 可指向性 / 自动化可行性普查 |
+| `census_deferred.py` | 延迟 / 常驻效果普查 → `docs/DEFERRED-EFFECTS-CENSUS.md` |
+| `rvascan_live.py` | 对运行中的游戏做 RVA 扫描并与种子表对账 |
+| `pakread.py` | UE5 pak（v10/v11）只读读取器 |
+| `pe_tools.py` | PE 解析辅助 |
 
-## 规矩
+## 转储与离线分析
 
-1. 新脚本写在**这里**，`import _bootstrap` 拿路径；证据/截图仍落 `reverse-data/logs|shots`。
-2. 一次性探针用完 → 结论写进 `reverse-data/reports/` 与 docstring → 文件进 `../_archive/`。
-3. 改动后跑：`cd D:\Kards\kards-agent && python -m kardsmem selftest`。
+| 文件 | 用途 |
+|---|---|
+| `crashdump.py`（`_crashdump_*.py`） | 崩溃时自动落完整内存转储（常驻旁观，只读） |
+| `mdmp.py` / `dumpmem.py` | 解析 minidump / 把转储挂成只读内存源 |
+| `mulverify.py` | 用两份转储核对换牌标记字段 |
+| `reconcile_batch.py` | 影子对账的离线批量版（不需要游戏在跑） |
+| `bench_search_sim.py` | `RuleV2._search_sim` 的离线计时与等价对拍 |
+
+## 其他
+
+`depgraph.py`（包间依赖图）、`shot.py`（后台抓游戏客户区截图，不需要窗口在前台）。
+
+## 约定
+
+新脚本放这里；一次性探针不要放这里，放仓库外的临时目录，用完即弃。改动后跑 `python tests/run_all.py`。

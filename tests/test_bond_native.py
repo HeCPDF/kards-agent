@@ -204,7 +204,7 @@ def main():
             has(gs, 2529, "SetActiveBondsAtStartOfTurn") and has(gs, 2576, "Set_Add", "activeBondFactions"))
         lg = lines(os.path.join(base, "Blueprints", "Logic", "BP_Logic.cpp"))
         chk("出处 BP_Logic :10001 StartTurnBySide 里重算", has(lg, 10001, "SetActiveBondsAtStartOfTurn"))
-        # 回合开始流程里没有协力检查（更正 CLAUDE.md 旧说法）：全导出 fromBond=true 只有一处
+        # 回合开始流程里没有协力检查（更正早先的说法）：全导出 fromBond=true 只有一处
         import glob
         trues = []
         for p in glob.glob(os.path.join(base, "**", "*.cpp"), recursive=True):

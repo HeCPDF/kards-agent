@@ -19,12 +19,12 @@
 > deck_shuffle_skip=True}) → [[16, {"damage": 9}]]`（9 = 场上单位数，BP 兜底；单跑钩子
 > eff 为空，值是 rule 的 SABAE 兜底给的）。同时核实：两张洗切卡**在手牌**时不命中
 > （用户口径：`FetchAllCardsWithEventTrigger(0x16)` 不触发手牌）⇒ 之前没出现是"卡没上场 /
-> 没发生 skip 洗牌"，不是代码问题。见 `_nn_scratch/probe_shuffled_retest.json`。
+> 没发生 skip 洗牌"，不是代码问题。见 `probe_shuffled_retest.json`。
 >
 > 也就是说：**下一局只要凑齐卡，日志里就该看到标记**；若仍没有，先看 `probe.marker_err`
 > 与 `probe.intel_dbg["tried"]`（会写明"跑了但为什么空"），再怀疑牌组。
 >
-> ★ **构建级证据（2026-10-02，`_nn_scratch/probe_deckchg_cards.json`）**：拿静态卡表
+> ★ **构建级证据（2026-10-02，`probe_deckchg_cards.json`）**：拿静态卡表
 > （`GameState+0x670`，2019 张）逐类查钩子，**四个标记涉及的钩子在 1.60 全都在、都有字节码**：
 >
 > | 标记 | 覆写数 | 键名（FName） |
@@ -36,7 +36,7 @@
 > ⇒ **四个标记都不缺实现**，只缺"对应卡真的在场上/牌库里"。`+deckchg` 的三张当前牌组没有
 > （`probe_deckchg_cdo.json` 里那两条 `complete=true` 的 RM ROMA/BETASOM 是用**CDO**
 > 空跑的，CDO 的 `cardFunction=0` ⇒ 结论不可信；真实实例的门槛是 `cardFunction` 非空、
-> 其类上有 `GetDeckByside`，见 `probe_cardfunction_deck.json` 与 `CLAUDE.md` 弯路 #44）。
+> 其类上有 `GetDeckByside`，见 `probe_cardfunction_deck.json` 与 同类教训）。
 
 ## `+intel` —— 情报触发（0x1C `OnIntelTriggered`）
 
@@ -89,12 +89,12 @@
 1. 牌组至少含：`CRUISER SCOUTS`（情报源）+ 6 张触发者里的任意 1 张（`+intel`）、
    `5TH SASEBO SNLF`（`+hooks`）、`3RD MIXED REGIMENT` 或 `SABAE REGIMENT`（`+shuffled`）。
 2. `+deckchg` 单独换一副含 `LOVAT SCOUTS`/`RM ROMA`/`BETASOM` 的牌组（英/意）再跑。
-3. 每局跑完用 `_nn_scratch/_audit.py`（会打印 `eff_src` 收集结果）核对；`intel_dbg` 也在
+3. 每局跑完用 `_audit.py`（会打印 `eff_src` 收集结果）核对；`intel_dbg` 也在
    `probe` 里。
 
 ## 2026-10-02 实机只读排查（不靠对局，直接空跑钩子）
 
-用 `_nn_scratch/probe_intel_gate.py`（在活进程里对"情报源/触发者"逐张空跑 VM）实测到：
+用 `probe_intel_gate.py`（在活进程里对"情报源/触发者"逐张空跑 VM）实测到：
 
 | 卡 | 修复前停在哪 | 现在 | 结论 |
 |---|---|---|---|
@@ -111,7 +111,7 @@
 - `GObjects-Dump-WithProperties.txt` 里 `isReconnecting`/`clientMulliganDone`/`otherMulliganDone`
   出现在 **`IsReconnectMatch` 的参数表**（`[00000000..00000002]`）⇒ 它们是**函数出参**，
   反射（`props.find_prop`）**不可能**在 `MatchController_C` 上找到 ⇒ 只能读函数体才能复刻。
-- 只读实测（`_nn_scratch/probe_mc_chain.py`，走 CDO 的类链）列出运行时与该函数相关的**真实字段**：
+- 只读实测（`probe_mc_chain.py`，走 CDO 的类链）列出运行时与该函数相关的**真实字段**：
   `reconnectInSameTurn`(Bool@760，父类)、`MulliganData`(Struct@4008)、
   `mulliganReplacementReceived`(Bool@4056)、`reconnectLoading`(ObjectProperty@4104)。
   ⇒ **这就是给 IDA 的输入**：读 `AMatchControllerV2::IsReconnectMatch`，看三个出参是这四个字段的

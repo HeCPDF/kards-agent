@@ -94,7 +94,7 @@ class WorldMixin:
         """当前这一局的 `BP_Widget_Battle_HUD_PC_C` —— **优先走指针链，不扫 GObjects**。
 
         ★ 2026-09-26 用户问："能避免多 live 问题吗？不扫，而是查找当前对局挂的到底是。"
-        实测答案：**能，1 跳就够**（`_nn_scratch/probe_hud.py`）：
+        实测答案：**能，1 跳就够**（`probe_hud.py`）：
             `GetBoard()`（权威单例）→ `BP_Board_C::BattleHUD // 0x0AA0`
             ⇒ 拿到的对象**就是** `BP_Widget_Battle_HUD_PC_C`（与 GObjects 扫描结果同一个地址）。
         为什么这比扫描**更对**（不只是更快）：扫描会拿到**不属于当前对局**的对象 ——
@@ -257,7 +257,7 @@ class WorldMixin:
         return self.m.ptr(hud + off) or 0
 
     # ------------------------------------------------------------ 统一拖拽原语
-    # ★★ 2026-09-26 重构（依据：`_nn_scratch/ida-attack-report.md` + `history-selectedcard.md`）
+    # ★★ 2026-09-26 重构（依据：`ida-attack-report.md` + `history-selectedcard.md`）
     #
     #   证据：`AddMoveToPlayerMoveQueue(sourceCard, actionType, …)` 的全部调用点里，
     #   **出牌 `"playCardFromHand"`（BP_BaseCard.cpp:1012）/ 移动 `"moveCard"`（:1147）/
@@ -322,7 +322,7 @@ class WorldMixin:
     def matchlog(self, refresh: bool = False):
         """动作流读取器 —— **长寿命单例**（`_mark()`/`_receipt()` 共用）。
 
-        ★★ 2026-09-26 用户："动作为什么有点慢。" 实测（`_nn_scratch/probe_timing*.py`）：
+        ★★ 2026-09-26 用户："动作为什么有点慢。" 实测（`probe_timing*.py`）：
 
         | 组件 | 冷 | 同实例第二次 |
         |---|---|---|

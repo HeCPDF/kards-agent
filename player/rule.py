@@ -2739,7 +2739,7 @@ class RuleV2(StrategicRule):
             legal[c.obj.CardID] = lt
         _lap("legal_loop")
         # 已经在手里"激活"的反制（gotcha_activated>0）不再列成走法：`ToggleGotcha` 是开关，
-        # 再 play 一次会把它关掉（board_api 注释/CLAUDE.md 反制一节）。它仍留在手牌里，只是不再是候选。
+        # 再 play 一次会把它关掉（board_api 注释与 docs/GAME-FACTS.md 反制一节）。它仍留在手牌里，只是不再是候选。
         # `avoid`（用户指定不想打的牌）也在这里去掉：原来只在"带目标牌的合法目标枚举"里检查，
         # 不带目标的牌照样进搜索——实机 SEABORNE INVASION / NZANS 都在回避名单里却被打了出去。
         cards = [c for c in st.cards

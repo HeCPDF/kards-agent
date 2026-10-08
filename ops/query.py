@@ -344,7 +344,7 @@ class QueryMixin:
         st = BA.open_source("mem").snapshot()
         card = next((c for c in st.cards if c.obj.CardID == card_id and c.side == st.my_side), None)
         kred = (st.kredits or {}).get(st.my_side)
-        # ⓿ **有别的选择界面开着** ⇒ 出牌/移动/攻击全部无效（游戏机制事实，CLAUDE.md 环境坑）。
+        # ⓿ **有别的选择界面开着** ⇒ 出牌/移动/攻击全部无效（游戏机制事实，项目规则）。
         #    实机踩过：`isSelectingHandTarget=1` 卡住（我们的 175th 部署效果"选一张手牌
         #    放回牌组顶"从没完成），接下来每一张牌的总闸都回 False、而三种下钻
         #    （指挥点/支援线/卡自己的覆写）一个都不匹配 ⇒ `reason=None`，

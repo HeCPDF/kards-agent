@@ -54,7 +54,7 @@ def _log(msg: str) -> None:
 def _rebind_class_cell(member, new, old) -> int:
     """零参 `super()` 的方法带一个 `__class__` 闭包单元，指向**定义它的类**。把新类的方法并回旧类时，
     这个单元仍指新类 ⇒ 旧实例调用 `super()` 报 `TypeError: obj is not an instance or subtype of type`
-    （CLAUDE.md 弯路 #39）。根治：把单元里的类改指旧类。返回改写的单元数。"""
+    （同类教训）。根治：把单元里的类改指旧类。返回改写的单元数。"""
     fns = []
     if isinstance(member, (classmethod, staticmethod)):
         fns.append(member.__func__)

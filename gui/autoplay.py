@@ -164,7 +164,7 @@ def verify_start(sess, precheck, timeout_s: float = 60.0, poll_s: float = 1.5,
                  notify_window_s: float = 10.0, sleep=None, now=None) -> dict:
     """点完“开始”后的**只读后置验证**：真的进了对局才算开局成功。
 
-    ★ 为什么必须有（2026-10-03 实机，`_nn_scratch/_dbg_press.json`）：对战/休闲模式下
+    ★ 为什么必须有（2026-10-03 实机，`_dbg_press.json`）：对战/休闲模式下
       `press_play` 的客户端按钮校验只是 UX 级；大厅/服务端会按“卡组含未拥有卡”拒入厅，
       游戏只弹一条 **1~2 s 的浮动通知**（`ENTERING LOBBY FAILED BECAUSE OF DECK ERROR` /
       中文渲染“卡组错误，进入大厅失败”），而 `press_play` 依然返回 ok=True。

@@ -422,7 +422,7 @@ class Legality:
 
         ★★ 2026-09-25 晚**第二次更正**（这条注释之前也写错过）：
           旧话"那个游戏函数会看指挥点"**是错的**——把它的字节码全量 dump 之后看清楚了，
-          它**一条指挥点检查都没有**（`_nn_scratch/dump_lib_fn.py`）。它读的是
+          它**一条指挥点检查都没有**（`dump_lib_fn.py`）。它读的是
           `PlayerController->SelectedCard`（"当前正在拖的那张卡"，`// 0x0950`）、
           `SelectedCard.CardLocation`（`// 0x03B0`）、`IsLocationFull`、
           `IsSelectedCardOrder`、`DoesSideControlTheFrontline`。

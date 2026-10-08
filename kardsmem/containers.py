@@ -16,10 +16,10 @@
 真正的判据只有一个：`TSparseArray::AllocationFlags`（`FBitArray`）第 i 位是不是
 `1`。本模块老老实实读这个位图，不猜、不近似。
 
-字节布局来自哪里（① grep SDK dump，见 CLAUDE.md 查找顺序）
+字节布局来自哪里（① grep SDK dump，先 grep SDK dump，再反射链）
 ============================================================
 不是照抄 UE 官方源码得来的——**这是 fork**（`++UE5+Release-5.6-Fork-kards`，
-CLAUDE.md 弯路 #3 就是「照抄原版布局」栽的跟头）。这次布局来自这个游戏自己的
+同类教训 就是「照抄原版布局」栽的跟头）。这次布局来自这个游戏自己的
 Dumper-7 SDK 导出**自带的容器实现**：
 `reverse-data/sdk/<build>/CppSDK/UnrealContainers.hpp`
 （Dumper-7 生成、给外部工具直接 `#include` 用的头文件，跟游戏本体一套二进制

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""BySide 族原语的断言（离线）。每条都换 side / 换局面，答案必须跟着变（CLAUDE.md 弯路 #11）。"""
+"""BySide 族原语的断言（离线）。每条都换 side / 换局面，答案必须跟着变（同类教训）。"""
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import sys

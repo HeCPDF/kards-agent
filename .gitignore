@@ -16,3 +16,6 @@ scratch_*
 .pytest_cache/
 *.egg-info/
 Thumbs.db
+
+# Agent 的本地工作规则，不公开
+/CLAUDE.md

@@ -80,7 +80,7 @@ python tools\crashdump.py now --pid 30256 --tag 复现1
 |---|---|
 | `<名字>.dmp` | 完整内存（`MiniDumpWithFullMemory` + HandleData + ThreadInfo + UnloadedModules + FullMemoryInfo + ProcessThreadData） |
 | `<同名>.json` | 异常码/故障 RIP 与 RVA/模块基址/寄存器/全部线程 tid+RIP/进程运行时长(秒)/UTC+本地时间/模块表/`exe` 的 SizeOfImage+md5+PE TimeDateStamp/`memory_summary` |
-| `<同名>.context.txt` | 崩溃时刻 `nn\logs\rule-live-*.jsonl`（最新）与 `_nn_scratch\live_log.txt` 的**最后 30 行**原样拷贝 |
+| `<同名>.context.txt` | 崩溃时刻 `nn\logs\rule-live-*.jsonl`（最新）与 `live_log.txt` 的**最后 30 行**原样拷贝 |
 | `<同名>.memory.csv` | `VirtualQueryEx` 走一遍的地址空间图（`base,size,state,protect,type`）—— 野指针落在**已提交/已保留/未映射**哪一类，看它 |
 | `<同名>.txt` | `analyze` 的 cdb 原始输出 |
 

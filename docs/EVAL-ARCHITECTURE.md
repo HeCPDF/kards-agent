@@ -26,7 +26,7 @@
 2. 本轮**碰到的旧规则**（夹取、死亡、压制、关键词、控制权、抽牌队列、触发分发等）**顺手迁到模拟侧**，评估侧同步删掉对应规则；**没碰到的旧规则不动**，留给后续；
 3. "连锁到稳态"所需的**事件队列/分发器是本轮必须做的**（A1 的第 9 项"补接触发"依赖它），其余全量迁移（`trace` 全面化、概率分支、`policy/` 拆分、目录整理）**另开后续任务**，不并入本轮 goal；
 4. **一个提交只做一件事**：纯重构提交（行为不变，必须有"迁移前后评估输出不变"的特征测试：对一批已保存的局面快照，迁移前后 `evaluate`/搜索选择完全一致）与改行为提交分开；
-5. 每次改了类结构后**重启监听器**再开局（热重载零参 `super()` 问题，CLAUDE.md 弯路 #39）。
+5. 每次改了类结构后**重启监听器**再开局（热重载零参 `super()` 问题，同类教训）。
 
 ## 2. 用户的架构判断（原话精神，作为最高约束）
 1. **评估部分和模拟部分分开。**
@@ -56,12 +56,12 @@
      （`card_event_storm2_thunderstorm.cpp:28`）⇒ 字节码问的就是 **`self`**，是我们的空跑 VM 把 `self`
      求成了 `None`（`vm.call` 的 hook 拿到的是 `[eval(kid) for kid in e.kids]`，self pin 走了影子帧变量读；
      `effectvm.py:1085` 明明传了 `self_obj=card_ptr`）。⇒ **`field_overrides` 这类"喂座位"在这条路上
-     永远匹配不上**；正确方向是**把实例当作 `self` 交进空跑**（与 CLAUDE.md 弯路 #44 同族）。
+     永远匹配不上**；正确方向是**把实例当作 `self` 交进空跑**（与 同类教训 同族）。
      ★ **已修（2026-10-04，`0ae86d9`）**：真因是 `hk_seat` 把 **receiver 丢掉、只看了 `args[0]`（出参）** ——
      只读反汇编显示 `FinalFunction(GetOppositeSide)` 的唯一 kid 就是出参 `LocalVariable(...)`，卡是 receiver
      （`vm.py:571` 只在 native 那条路回退 `f.self_obj`，hook 这条路没有）。修法：`hk_seat` 取 receiver、
      None 时回退 `frame.self_obj`；`_opposite` 优先 receiver、退回 `args[0]`。已用**独立只读探针**
-     （`_nn_scratch/probe_opposite_eval.py`）直接对静态卡空跑验证：两张卡都 `stopped=None`（不再停）。
+     （`probe_opposite_eval.py`）直接对静态卡空跑验证：两张卡都 `stopped=None`（不再停）。
 
 ## 3. 架构标准
 

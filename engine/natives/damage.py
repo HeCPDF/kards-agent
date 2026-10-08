@@ -95,7 +95,7 @@ def excess_split(state, dealer, target, dmg):
 
     ★ 反编译的坑（弯路 #4）：FModel 导出里 excess 拆分之后写的是 `goto Label_3496`，
       而那个 label 是"摧毁/终局"段，看起来**跳过了伤害应用**。只读反汇编
-      （`_nn_scratch/probe_excess_asm.py`，`ExecuteAttackCard` 623 行）证明它其实**直接落下**
+      （`probe_excess_asm.py`，`ExecuteAttackCard` 623 行）证明它其实**直接落下**
       到 `provideKeysAndFrameCount → getTotalDefense → Subtract_IntInt → setAndEncryptDefense`
       ⇒ 伤害照常落在防守方身上。这里就是照那个真实控制流实现的。
     ★ 局限（如实记）：溢出的那份走**总部直减**（与 `sim` 其它总部伤害同一口径），

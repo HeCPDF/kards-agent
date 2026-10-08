@@ -6,7 +6,7 @@
 （默认实现只写出参：`GetPlayFromHandDamage → Damage=0`、`CanBeTargetted → canIt=True`、
 回显型如 `OnCardDealDamage_ModifyDamageDealt → newDamage=Damage`）。
 
-每条都换函数/换入参，答案要跟着变（CLAUDE.md 弯路 #11）。
+每条都换函数/换入参，答案要跟着变（同类教训）。
 """
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))

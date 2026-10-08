@@ -123,7 +123,7 @@ def derive_fname_pool(exe: str, append_rva: int, window: int = 0x80) -> Optional
 
     判据（两个构建都实测过）：函数开头先 `cmp byte ptr [rip+flag], 0`（初始化标志），
     紧接着 `lea r8, [rip+pool]` + `lea rcx, [rip+pool]`，**同一个目标出现两次**。
-    Steam 那份用这个方法复现出已知的 `0x0911B9C0`，见 `_nn_scratch/find_fnamepool.py`。
+    Steam 那份用这个方法复现出已知的 `0x0911B9C0`，见 `find_fnamepool.py`。
     """
     try:
         from capstone import CS_ARCH_X86, CS_MODE_64, Cs, CS_OP_MEM, CS_OP_REG

@@ -619,7 +619,7 @@ class VM:
         #       `CanPlayFromHand`、129 个 `GetPlayFromHandDamage` 覆写全吃掉。
         target = obj if obj is not None else f.self_obj
         if not target and isinstance(name, str):
-            # 静态卡对象（卡类 CDO / 候选牌）的 `cardFunction` 字段是空的（CLAUDE.md 弯路 #44）：`cardFunction->X()` 的
+            # 静态卡对象（卡类 CDO / 候选牌）的 `cardFunction` 字段是空的（同类教训）：`cardFunction->X()` 的
             # 接收者为 null。真游戏里这张牌此刻有自己的 `cardFunction`——就是对局唯一那个活的 `BP_CardFunctions_C`，
             # 所以接收者为空且该函数确实是它的蓝图函数时，改用活实例（只读字节码，副作用仍走 recorder 的钩子）。
             try:

@@ -8,7 +8,7 @@
   * **检查发生在"打出时"，不是回合开始**：全仓只有 3 处 `ApplyFatigueDamage` 调用点，`fromBond=true` 只有一处 ——
     `BP_CardFunctions::CardPlayedFromHand`（`BP_CardFunctions.cpp:18682-18697`）。另两处 `fromBond=false`：空库抽牌
     （`:12979`）与 `BP_OnlineMatch.cpp:17328`（服务端动作回放）。回合开始流程（`BP_Logic::StartTurnBySide` `:9981-10005`、
-    `ExecuteStartOfTurnEvents` `:11795`）里**没有**任何 `HasBond`。⇒ `CLAUDE.md` 旧说法"手牌里带 Bond 的牌在回合开始
+    `ExecuteStartOfTurnEvents` `:11795`）里**没有**任何 `HasBond`。⇒ 早先的说法"手牌里带 Bond 的牌在回合开始
     扣总部"**不成立**（已更正）；回合开始只做一件事：重算 `activeBondFactions`。
   * `activeBondFactions` = `BP_GameState_Battle.cpp:2529-2576` `SetActiveBondsAtStartOfTurn(side)`：先 `Clear`，再对
     `GetAllCardInBattle()` 每张牌：`side 相等 ∧ IsLocatedOnBoard ∧ IsUnit ∧ ¬IsUnrevealedCovertCard` ⇒ 把它的 `faction` 加进集合。

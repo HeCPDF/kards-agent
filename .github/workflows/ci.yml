@@ -1,6 +1,4 @@
 # 离线 CI：没有游戏，只跑 `python tests/run_all.py`（依赖方向、模拟、VM、合成内存等纯离线测试）。
-# 注意：这个文件在 kards-agent 子树根（公开库只发这棵子树，见 CLAUDE.md「发布纪律」），
-# 开发期在伞仓库里它位于 kards-agent/.github/，不会被 GitHub 识别——只有发布出去的库里才生效。
 name: offline-tests
 
 on:
