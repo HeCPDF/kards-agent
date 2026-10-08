@@ -166,7 +166,7 @@ buf = io.StringIO()
 rc = GM.selfcheck(modules=["json", "no_such_module_xyz"], out=buf)
 chk("selfcheck 缺模块 ⇒ 退出码 1 且点名失败项", rc == 1 and "FAIL import no_such_module_xyz" in buf.getvalue())
 buf = io.StringIO()
-rc = GM.selfcheck(modules=["learn.model_not_there"], out=buf)
+rc = GM.selfcheck(modules=["player.model_not_there"], out=buf)
 chk("selfcheck：非可选模块缺依赖不被当成 SKIP", rc == 1)
 chk("selfcheck 设了 KARDS_BUILD 覆盖（不读游戏进程内存选表）", os.environ.get("KARDS_BUILD") == "current")
 # 写日志用的 stdio 兜底：stdout 为 None 时接到文件

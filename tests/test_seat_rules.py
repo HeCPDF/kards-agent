@@ -17,7 +17,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-PKGS = ("base", "kardsmem", "ops", "semantics", "sim", "evaluation", "policy", "agent", "learn", "player",
+PKGS = ("base", "kardsmem", "ops", "semantics", "sim", "evaluation", "policy", "agent", "player",
         "interfaces", "gui", "tools")
 SEAT_WORDS = {"local", "enemy"}
 LOC_WORDS = {"hand", "frontline", "back", "hq", "discard", "deck"}

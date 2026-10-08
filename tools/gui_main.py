@@ -35,7 +35,7 @@ if not FROZEN:
             sys.path.insert(0, _p)
 
 #: 自检里允许“缺依赖就跳过”的模块（可选依赖，不随包发；缺了不算失败）。
-OPTIONAL_MODULES = {"learn.model": "torch"}
+OPTIONAL_MODULES: dict = {}
 #: 不在 gui_closure 里、但运行期靠 sys.path 注入按名字 import 的模块（`from canplay import ...`），打包时作为顶层模块带上。
 EXTRA_TOPLEVEL = ("canplay", "_bootstrap")
 

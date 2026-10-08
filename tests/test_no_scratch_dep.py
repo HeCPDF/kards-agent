@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 SCAN_DIRS = ("base", "kardsmem", "semantics", "sim", "evaluation", "policy", "ops", "agent", "player",
-             "interfaces", "learn", "gui")
+             "interfaces", "gui")
 SCAN_FILES = ()
 # 白名单已清空（2026-10-03：crashdump.py 改用 base.paths.LIVE_LOG）；只许空，不许加
 ALLOW = set()

@@ -35,7 +35,7 @@ ALLOWED = {
 
 #: 生产包（测试目录不算）。
 PKGS = ("base", "kardsmem", "engine", "ops", "semantics", "sim", "evaluation", "policy",
-        "learn", "agent", "player", "interfaces", "gui")
+        "agent", "player", "interfaces", "gui")
 
 PAT = re.compile(r"\b(to_effects|record_effects)\s*\(")
 

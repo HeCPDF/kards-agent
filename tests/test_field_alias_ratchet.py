@@ -25,7 +25,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 BOARD = os.path.join(ROOT, "kardsmem", "board.py")
-PKGS = ("base", "kardsmem", "ops", "engine", "semantics", "sim", "evaluation", "policy", "agent", "learn",
+PKGS = ("base", "kardsmem", "ops", "engine", "semantics", "sim", "evaluation", "policy", "agent",
         "player", "interfaces", "gui", "tools")
 SKIP_FILES = {"kardsmem/board.py"}          # 别名的**定义处**（它自己用别名不算消费者）
 

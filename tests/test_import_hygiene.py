@@ -30,7 +30,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 PKGS = ("base", "kardsmem", "engine", "ops", "semantics", "sim", "evaluation", "policy",
-        "learn", "agent", "player", "interfaces", "gui", "tools")
+        "agent", "player", "interfaces", "gui", "tools")
 PAT = re.compile(r'^\s*import\s+([A-Za-z_][\w.]*)\s+as\s+([A-Za-z_]\w*)')
 
 fails = 0

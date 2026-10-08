@@ -82,9 +82,8 @@ LAYERS = {
     "sim": {"base", "kardsmem", "engine"},
     "evaluation": {"sim"},
     "policy": {"sim", "evaluation", "kardsmem", "base"},
-    "learn": {"base"},
     "agent": {"base", "kardsmem", "ops", "semantics"},
-    "player": {"base", "kardsmem", "ops", "semantics", "sim", "evaluation", "policy", "agent", "learn"},
+    "player": {"base", "kardsmem", "ops", "semantics", "sim", "evaluation", "policy", "agent"},
     "interfaces": {"base", "kardsmem", "agent"},
     "gui": {"base", "kardsmem", "agent", "player"},
 }

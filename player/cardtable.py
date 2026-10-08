@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""nn.features —— 卡牌静态特征表（KARDS-NN.md §3.2）。
+"""player.cardtable —— 卡牌静态特征表（`CardTable`）。
 
 卡型键 = **FName**（`card_unit_175th_infantry_regiment` 这种资产名）——它是
 三级 id（实例 uid / 对局槽位 card_id / 卡型 FName）里唯一跨局、跨启动稳定的键。
@@ -16,7 +16,7 @@ threat_level（`UBaseCardObject::threat_level`，float @0x544，261/2019 张非�
 
 跑自检：
     cd kards-agent
-    nn/venv/Scripts/python.exe -m nn.features
+    python -m player.cardtable
 """
 from __future__ import annotations
 

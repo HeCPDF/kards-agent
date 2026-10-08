@@ -1,14 +1,12 @@
 # kards-agent installer (Windows PowerShell 5.1+ / PowerShell 7).
 # Creates .venv next to this script, installs requirements, runs the offline test suite.
 #   .\install.ps1                # main environment + offline self-check
-#   .\install.ps1 -Nn            # also create nn\venv with torch (large download)
 #   .\install.ps1 -SkipTests     # install only
 #   .\install.ps1 -Python "py -3.12"
 # Never touches the game. Paths are relative to this script; nothing is hard-coded.
 [CmdletBinding()]
 param(
     [string]$Python = "python",
-    [switch]$Nn,
     [switch]$SkipTests
 )
 $ErrorActionPreference = "Stop"
@@ -43,19 +41,7 @@ $reqFile = "requirements.txt"
 if (-not $SkipTests) { $reqFile = "requirements-dev.txt" }
 Invoke-Native $py @("-m", "pip", "install", "-r", (Join-Path $Root $reqFile))
 
-# 3. optional NN venv
-if ($Nn) {
-    $nnvenv = Join-Path $Root "nn\venv"
-    $nnpy = Join-Path $nnvenv "Scripts\python.exe"
-    if (-not (Test-Path $nnpy)) {
-        Write-Host "Creating $nnvenv"
-        Invoke-Native $exe ($pre + @("-m", "venv", $nnvenv))
-    }
-    Invoke-Native $nnpy @("-m", "pip", "install", "--upgrade", "pip")
-    Invoke-Native $nnpy @("-m", "pip", "install", "-r", (Join-Path $Root "requirements-nn.txt"))
-}
-
-# 4. offline self-check (no game needed)
+# 3. offline self-check (no game needed)
 if (-not $SkipTests) {
     Write-Host "Running offline tests (tests\run_all.py) ..."
     Invoke-Native $py @((Join-Path $Root "tests\run_all.py"))
@@ -63,6 +49,6 @@ if (-not $SkipTests) {
 
 Write-Host ""
 Write-Host "Done. Next:"
-Write-Host "  run_gui.bat        control panel"
+Write-Host "  python -m gui.app  control panel"
 Write-Host "  run_listener.bat   resident listener (start the game first)"
 Write-Host "  run_tests.bat      offline tests"

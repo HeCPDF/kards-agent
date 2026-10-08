@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from learn.features import CardTable
+from player.cardtable import CardTable
 from player.loop import Loop
 from player.rule import RuleV2
 

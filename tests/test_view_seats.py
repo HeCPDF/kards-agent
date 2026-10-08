@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _learn_cards import BoardState, mk_card                 # noqa: E402
+from _fake_cards import BoardState, mk_card                 # noqa: E402
 from agent import view                                       # noqa: E402
 from kardsmem.gamemodel import ESide                         # noqa: E402
 

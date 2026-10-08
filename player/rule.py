@@ -53,7 +53,7 @@ _wire_sim()
 
 from typing import Optional
 
-from learn.baselines import StrategicRule
+from player.strategic import StrategicRule
 
 import json
 import time
@@ -3699,7 +3699,7 @@ class _Sess:
 
 
 def selftest() -> int:
-    from learn.features import CardTable
+    from player.cardtable import CardTable
     table = CardTable.load()          # 只给换牌口径用（isKreditsBuff），不参与出牌语义
     fails = 0
 

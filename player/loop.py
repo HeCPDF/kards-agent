@@ -1,34 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""player.loop —— 前端③：**神经网络在线回路**（KARDS-NN.md §7 / §9-P3）。
+"""player.loop —— 在线回路 `Loop`：每步读盘面 → 让策略出动作 → 发给游戏 → 核对回执。
 
-本文件里**只有神经网络策略**（`NNPolicy`）和回路（`Loop`）。手写启发式不在这
-——它们跟离线评估那三条基线一起放在 `nn/baselines.py`（网络必须打赢的对照组），
-要用得显式 `--policy rule`。
+策略是可换的（`StrategicRule` / `RuleV2`，见 `player/strategic.py`、`player/rule.py`），回路只管节奏与收尾：
 
-`NNPolicy` 的动作**完全来自网络**：
-
-    type 头     选动作类型（play / attack / move / end，按 phase 掩码）
-    subject 头  选主体（play=手牌，attack/move=我方场上单位）
-    target 头   选目标（敌方场上单位 + 总部；hand_target=我方手牌）
-    option 头   pick / 牌库选牌
-    mulligan 头 起手逐张 keep/discard
-
-主回合四选一是**一起比**的：`type_logit[type] + 指针分` 取最大（§4.2 的在线侧），
-没有任何"致命一击优先"之类的手写优先级。默认 `strict`：编码/推理失败就停手，
-不偷偷换规则——这样"动作确实是网络给的"可验证；要降级得显式 `--fallback-rule`。
-
-其它纪律（跟项目一致）：
     * **默认 dry-run**，`--live` 才真发动作；只在训练局跑，排位/休闲要用户同意；
     * 判据只挑不判（这里只用来**排序**，真动作照样发给游戏自己判）；
     * 每步核对回执，被拒就打印游戏自己的提示并停手；
-    * 决策全落盘 `kards-data/nn/logs/`（配 `python -m player.record` 就是 bootstrap 数据）。
+    * 决策全落盘 `kards-data/nn/logs/`。
 
 用法：
     python -m player.loop --selftest
-    python -m player.loop --ckpt D:\\Kards\\kards-data\\nn\\runs\\x\\ckpt.pt            # dry-run
-    python -m player.loop --ckpt ... --live --max-actions 60
-    python -m player.loop --policy rule --ckpt ...        # 对照组（启发式基线）
+    python -m player.loop --policy rule2 --live --max-actions 60
 """
 from __future__ import annotations
 
@@ -43,7 +26,7 @@ from typing import Optional
 
 from agent import precheck
 from agent import session as _session
-from learn.baselines import StrategicRule
+from player.strategic import StrategicRule
 
 
 def _settle(seconds: float, frames: int = 6) -> None:
@@ -126,363 +109,6 @@ class Step:
 # ---------------------------------------------------------------------------
 # 神经网络策略
 # ---------------------------------------------------------------------------
-class NNPolicy(StrategicRule):
-    """吃 `nn/train_bc.py` 的 checkpoint，三个头直接出动作。
-
-    继承 `StrategicRule` 只复用它的两个**纯函数**（`needs_target` / `_best_target`），
-    决策逻辑全部重写在下面对应的 `choose_*` / `decide_*` 里。
-    """
-
-    name = "nn"
-    MAIN_TYPES = ("play", "attack", "move", "end")
-
-    def __init__(self, sess, table, ckpt_path=None, device=None, strict: bool = True,
-                 roster: Optional[dict] = None, mulligan_rule: bool = True):
-        super().__init__(sess, table=table)
-        import torch
-        from learn.encode import TYPE_ID
-        from learn.model import KardsNet, ModelConfig
-        self.torch = torch
-        self.TYPE_ID = TYPE_ID
-        ckpt = None
-        if ckpt_path:
-            ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-            cfg = ModelConfig(**{k: v for k, v in ckpt["config"].items()
-                                 if k in ModelConfig.__dataclass_fields__})
-        else:
-            # 无 checkpoint = 随机初始化：只用于自检/对照，不是可用策略
-            cfg = ModelConfig(vocab_size=len(getattr(table, "vocab", None) or {}) or 2048)
-        self.model = KardsNet(cfg)
-        if ckpt:
-            self.model.load_state_dict(ckpt["state_dict"])
-        self.model.eval()
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-        self.strict = strict
-        self.roster = roster
-        self.ckpt_path = ckpt_path
-        # ★ 2026-09-29 用户定调："换牌全留是败笔，这套是跳费卡组"。
-        #   mulligan 头只有 8 条标签、全是"全留" ⇒ 没训出来，不能拿它当真策略；
-        #   默认走 `StrategicRule.choose_mulligan`（留便宜/跳费、扔贵），
-        #   要对比网络头就 `--mulligan nn`。
-        self.mulligan_rule = bool(mulligan_rule)
-        self.probe: dict = {}
-
-    # ------------------------------------------------------------ 编码 / 前向
-    def _encode(self, st, phase: str, ltype: Optional[str] = None,
-                options=None, option_index=None):
-        from learn import schema
-        from learn.encode import encode_sample
-        if st.my_side is None:
-            raise ValueError("本地座位读不出（st.my_side 为空）：不能编码『我方』视角")
-        state = schema.project_state(st, st.my_side, self.roster)
-        cands = {"subject": [], "target": [], "option": list(options or [])}
-        if option_index is not None:
-            cands["option_index"] = list(option_index)
-        sample = {
-            "game": "live", "patch": None, "seat": int(st.my_side),
-            "turn": getattr(st, "turn", None), "t": time.time(),
-            "phase": phase, "state": state, "candidates": cands,
-            "verdict": {}, "raw": [], "receipt": {}, "events": [],
-            "state_hash": "",
-            "label": {"type": ltype, "subject": None, "target": None, "option": None},
-            "label_src": "live", "label_available": False,
-        }
-        return encode_sample(sample, self.table, dedup_options=False)
-
-    def _forward(self, encs: list) -> list:
-        from learn.dataset import to_torch_batch
-        outs = []
-        with self.torch.no_grad():
-            for enc in encs:
-                outs.append(self.model(to_torch_batch([enc], device=self.device)))
-        return outs
-
-    def _np(self, x):
-        if hasattr(x, "detach"):
-            return x.detach().float().cpu().numpy()
-        return x                       # 已经是 ndarray（force_play 里会二次转换）
-
-    @staticmethod
-    def _card(st, card_id):
-        for c in st.cards:
-            if c.obj.CardID == card_id:
-                return c
-        return None
-
-    # ------------------------------------------------------------ 主回合
-    def choose_main(self, st, exclude_cards=None) -> Action:
-        encs = {}
-        for t in ("play", "attack", "move"):
-            enc = self._encode(st, "main", ltype=t)
-            if enc is not None:
-                encs[t] = enc
-        if not encs:
-            raise RuntimeError("main 相位编码失败（0 个变体）")
-        outs = dict(zip(encs.keys(), self._forward(list(encs.values()))))
-
-        tl, scores, detail = None, {}, {}
-        for t, out in outs.items():
-            tl = self._np(out["type_logits"][0])
-            base = float(tl[self.TYPE_ID[t]])
-            enc = encs[t]
-            if t == "play" and len(enc.subj):
-                s = self._np(out["subject_scores"][0])
-                if exclude_cards:
-                    for _i, _cid in enumerate(enc.debug["subj_ids"]):
-                        if _cid in exclude_cards:
-                            s[_i] = -1e9
-                si = int(s.argmax())
-                card_id = enc.debug["subj_ids"][si]
-                extra, tij = 0.0, None
-                card = self._card(st, card_id)
-                if card is not None and self.needs_target(card, self.table) \
-                        and len(enc.targ):
-                    ts = self._np(out["target_scores"][0])
-                    tij, extra = int(ts.argmax()), float(ts.max())
-                scores[("play", si, tij)] = base + float(s[si]) + extra
-                detail["play"] = {"type_logit": round(base, 3),
-                                  "subject": round(float(s[si]), 3),
-                                  "target": round(extra, 3), "card_id": card_id}
-            elif t == "attack" and len(enc.subj) and len(enc.targ):
-                s, ts = self._np(out["subject_scores"][0]), self._np(out["target_scores"][0])
-                if exclude_cards:
-                    for _i, _cid in enumerate(enc.debug["subj_ids"]):
-                        if _cid in exclude_cards:
-                            s[_i] = -1e9
-                si, tij = int(s.argmax()), int(ts.argmax())
-                scores[("attack", si, tij)] = base + float(s[si]) + float(ts[tij])
-                detail["attack"] = {"type_logit": round(base, 3),
-                                    "subject": round(float(s[si]), 3),
-                                    "target": round(float(ts[tij]), 3),
-                                    "card_id": enc.debug["subj_ids"][si],
-                                    "target_id": enc.debug["targ_ids"][tij]}
-            elif t == "move" and len(enc.subj):
-                s = self._np(out["subject_scores"][0])
-                if exclude_cards:
-                    for _i, _cid in enumerate(enc.debug["subj_ids"]):
-                        if _cid in exclude_cards:
-                            s[_i] = -1e9
-                si = int(s.argmax())
-                scores[("move", si, None)] = base + float(s[si])
-                detail["move"] = {"type_logit": round(base, 3),
-                                  "subject": round(float(s[si]), 3),
-                                  "card_id": enc.debug["subj_ids"][si]}
-        if tl is not None:
-            scores[("end", None, None)] = float(tl[self.TYPE_ID["end"]])
-            detail["end"] = {"type_logit": round(float(tl[self.TYPE_ID["end"]]), 3)}
-        if not scores:
-            raise RuntimeError("main 相位一个候选都没编出来")
-
-        best = max(scores, key=scores.get)
-        self.probe = {"scores": {"|".join(str(x) for x in k): round(v, 3)
-                                 for k, v in sorted(scores.items(), key=lambda kv: -kv[1])},
-                      "detail": detail}
-        kind, enc = best[0], encs.get(best[0])
-        if kind == "end":
-            return Action("end", note="nn:end", score=scores[best])
-        card_id = enc.debug["subj_ids"][best[1]]
-        if kind == "move":
-            return Action("move_up", card=card_id, score=scores[best], note="nn:move")
-        if kind == "attack":
-            return Action("attack", card=card_id,
-                          target=enc.debug["targ_ids"][best[2]],
-                          score=scores[best], note="nn:attack")
-        card = self._card(st, card_id)
-        is_unit = bool(getattr(card, "attack", 0)) or bool(getattr(card, "defense", 0))
-        target = enc.debug["targ_ids"][best[2]] if best[2] is not None else None
-        if is_unit and target is not None:
-            return Action("play_unit_target", card=card_id, target=target,
-                          score=scores[best], note="nn:play(指向单位)")
-        if is_unit:
-            return Action("play_unit", card=card_id, score=scores[best], note="nn:play")
-        if target is not None:
-            return Action("play_event_target", card=card_id, target=target,
-                          score=scores[best], note="nn:play(指向指令)")
-        return Action("play_event", card=card_id, score=scores[best], note="nn:play")
-
-    def force_play(self, st, exclude_cards=None) -> Optional[Action]:
-        """只在这个 phase 的**出牌**分支里取最优（给"不许空过"的守卫用）。
-
-        `Loop` 在"网络选了 end，但手里确实有费用够、游戏也说能出的牌"时会调它
-        —— 类型被守卫改写，但**出哪张仍然是网络给的**（指针头 argmax）。
-
-        ★ 2026-09-29 用户："我没见过它打出过牌。" ⇒ 这里改成**沿分数降序找第一张
-          游戏自己也说能出的牌**（`can_play`；判据说不知道的也放行，让游戏在真实
-          上下文里再判一次）。这样既不会因为指针头首选被游戏否掉就整回合空过，
-          也不会拿手写优先级替网络挑牌。
-        """
-        enc = self._encode(st, "main", ltype="play")
-        if enc is None or not len(enc.subj):
-            return None
-        out = self._forward([enc])[0]
-        s = self._np(out["subject_scores"][0])
-        if exclude_cards:
-            for i, cid in enumerate(enc.debug["subj_ids"]):
-                if cid in exclude_cards:
-                    s[i] = -1e9
-        card_id, card, si = None, None, -1
-        for cand in self._np(s).argsort()[::-1]:
-            cid = enc.debug["subj_ids"][int(cand)]
-            if cid is None:
-                continue
-            c = self._card(st, cid)
-            if c is None:
-                continue
-            try:
-                if self.sess.can_play(c).get("can") is False:
-                    continue
-            except Exception:                                     # noqa: BLE001
-                pass
-            card_id, card, si = cid, c, int(cand)
-            break
-        if card is None:
-            return None
-        needs = self.needs_target(card, self.table) if card is not None else None
-        target = None
-        if needs and len(enc.targ):
-            tij = int(self._np(out["target_scores"][0]).argmax())
-            target = enc.debug["targ_ids"][tij]
-        is_unit = bool(getattr(card, "attack", 0)) or bool(getattr(card, "defense", 0))
-        if is_unit and target is not None:
-            return Action("play_unit_target", card=card_id, target=target,
-                          note="guard:出牌（网络选）")
-        if is_unit:
-            return Action("play_unit", card=card_id, note="guard:出牌（网络选）")
-        if target is not None:
-            return Action("play_event_target", card=card_id, target=target,
-                          note="guard:出牌（网络选）")
-        return Action("play_event", card=card_id, note="guard:出牌（网络选）")
-
-    # ------------------------------------------------------------ pick / 选牌
-    def decide_pick(self, st, rows: list) -> Optional[Action]:
-        names = [r.get("label") or r.get("name") or "?" for r in rows]
-        idx = [r.get("index") if r.get("index") is not None else i
-               for i, r in enumerate(rows)]
-        enc = self._encode(st, "pick", options=names, option_index=idx)
-        if enc is None:
-            raise RuntimeError("pick 编码失败")
-        out = self._forward([enc])[0]
-        s = self._np(out["option_scores"][0])
-        k = int(s.argmax())
-        row = rows[k] if k < len(rows) else rows[0]
-        self.probe = {"pick": {"scores": [round(float(v), 3) for v in s.tolist()],
-                               "chosen": k, "index": row.get("index"),
-                               "kind": row.get("kind"),
-                               "needs_target": row.get("needs_target")}}
-        meta = {"kind": row.get("kind"), "trigger_id": row.get("trigger_id")}
-        if row.get("needs_target"):
-            tg = self._pick_target(st)
-            if tg is not None:
-                return Action("pick", index=row.get("index"), target=tg[0],
-                              score=float(s[k]), meta=meta, note="nn:pick+指向")
-        return Action("pick", index=row.get("index"), score=float(s[k]), meta=meta,
-                      note="nn:pick")
-
-    def _pick_target(self, st):
-        enc = self._encode(st, "deploy_target")
-        if enc is None or not len(enc.targ):
-            return None
-        s = self._np(self._forward([enc])[0]["target_scores"][0])
-        j = int(s.argmax())
-        return enc.debug["targ_ids"][j], float(s[j])
-
-    # ------------------------------------------------------------ 选目标 / 换牌
-    def decide_hand_target(self, st, pend=None, exclude_cards=None) -> Optional[Action]:
-        enc = self._encode(st, "hand_target")
-        if enc is None or not len(enc.targ):
-            raise RuntimeError("hand_target 没有候选")
-        s = self._np(self._forward([enc])[0]["target_scores"][0])
-        if exclude_cards:
-            for i, cid in enumerate(enc.debug["targ_ids"]):
-                if cid in exclude_cards:
-                    s[i] = -1e9
-        j = int(s.argmax())
-        if float(s[j]) < -1e8:
-            raise RuntimeError("hand_target 候选全被排除")
-        return Action("hand_target", card=enc.debug["targ_ids"][j],
-                      score=float(s[j]), note="nn:手牌目标")
-
-    def decide_board_target(self, st, instigator: int) -> Optional[Action]:
-        enc = self._encode(st, "deploy_target")
-        if enc is None or not len(enc.targ):
-            raise RuntimeError("deploy_target 没有候选")
-        s = self._np(self._forward([enc])[0]["target_scores"][0])
-        j = int(s.argmax())
-        return Action("board_target", card=instigator,
-                      target=enc.debug["targ_ids"][j],
-                      score=float(s[j]), note="nn:待点目标")
-
-    def decide_mulligan(self, st, marks: list) -> Optional[Action]:
-        if self.mulligan_rule:
-            act = as_action(StrategicRule.choose_mulligan(self, marks))
-            if act is not None:
-                act.note = "mulligan:规则（NN mulligan 头未训练）— " + act.note
-            return act
-        names = [m.get("name") or "?" for m in marks]
-        slots = [m.get("slot") for m in marks]
-        enc = self._encode(st, "mulligan", options=names, option_index=slots)
-        if enc is None:
-            raise RuntimeError("mulligan 编码失败")
-        logits = self._np(self._forward([enc])[0]["mulligan_logits"][0])[:len(marks)]
-        disc = [slots[i] for i, v in enumerate(logits) if float(v) > 0.0]
-        if len(disc) >= len(marks) > 1:
-            disc = disc[:-1]                      # 不许把起手全丢
-        self.probe = {"mulligan": {"logits": [round(float(v), 3) for v in logits.tolist()],
-                                   "discard_slots": disc}}
-        return Action("mulligan", marks=tuple(disc), note="nn:换牌 %s" % (disc or "全留"))
-
-    # ------------------------------------------------------------ 统一入口
-    def _rule_decide(self, st, phase: str, pend: Optional[dict], exclude_cards=None) -> Optional[Action]:
-        """降级路径：**显式调用父类（StrategicRule）的实现**。
-
-        ⚠ 不能写成 `super().decide(...)` —— 那是 `self.decide` 的父类版本，
-        里面又回头调 `self.choose_main`（已被本类覆盖）⇒ 无限递归/再次失败。
-        """
-        if phase == "main":
-            return as_action(StrategicRule.choose_main(self, st))
-        if phase == "pick":
-            rows = (pend or {}).get("choose_one") or []
-            return as_action(StrategicRule.choose_pick(self, rows)) if rows else None
-        if phase == "hand_target":
-            return as_action(StrategicRule.choose_hand_target(self, st, pend, exclude_cards=exclude_cards))
-        if phase == "board_target":
-            bt = (pend or {}).get("board_target")
-            inst = bt if isinstance(bt, int) else None
-            return (as_action(StrategicRule.choose_board_target(self, st, inst))
-                    if inst else None)
-        if phase == "mulligan":
-            marks = self.sess.mulligan_marks()
-            return as_action(StrategicRule.choose_mulligan(self, marks)) if marks else None
-        return None
-
-    def decide(self, st, phase: str, pend: Optional[dict] = None,
-               exclude_cards=None) -> Optional[Action]:
-        try:
-            if phase == "main":
-                return self.choose_main(st, exclude_cards=exclude_cards)
-            if phase == "pick":
-                rows = (pend or {}).get("choose_one") or []
-                return self.decide_pick(st, rows) if rows else None
-            if phase == "hand_target":
-                return self.decide_hand_target(st, pend, exclude_cards=exclude_cards)
-            if phase == "board_target":
-                bt = (pend or {}).get("board_target")
-                inst = bt if isinstance(bt, int) else None
-                return self.decide_board_target(st, inst) if inst else None
-            if phase == "mulligan":
-                marks = self.sess.mulligan_marks()
-                return self.decide_mulligan(st, marks) if marks else None
-            return None
-        except Exception as e:                                    # noqa: BLE001
-            if self.strict:
-                raise
-            act = self._rule_decide(st, phase, pend, exclude_cards)
-            if act is not None:
-                act.note = "nn 失败(%s) → 规则：%s" % (e, act.note)
-            return act
-
-
 # ---------------------------------------------------------------------------
 # 回路
 # ---------------------------------------------------------------------------
@@ -1271,7 +897,7 @@ class _Sess:
 
 
 def selftest() -> int:
-    from learn.features import CardTable
+    from player.cardtable import CardTable
     fails = 0
 
     def chk(name, ok):
@@ -1280,62 +906,15 @@ def selftest() -> int:
         fails += 0 if ok else 1
 
     from player.rule import ME, OPP
-    table = CardTable.load()
+    CardTable.load()
     st = _S([_C(ME, "hand", 20, "WE CAN DO IT!", 0, 0, 5, 0),
              _C(ME, "frontline", 10, "A", 5, 3, 3, 1),
              _C(OPP, "hq", 41, "HQ", 0, 20, 0, 0),
              _C(OPP, "back", 50, "E", 2, 3, 2, 1)], kredits=5)
 
-    # ① 网络策略：决策来自网络（probe 里必须有三类 + end 的分数）
-    pol = NNPolicy(_Sess(), table, ckpt_path=None, device="cpu")
-    a = pol.choose_main(st)
-    chk("NN：主回合给出动作", isinstance(a, Action) and a.kind in (
-        "play_unit", "play_event", "play_unit_target", "play_event_target",
-        "attack", "move_up", "end"))
-    chk("NN：probe 里是网络的分项分数（type+指针）",
-        "scores" in pol.probe and "detail" in pol.probe
-        and any(k.startswith("play") for k in pol.probe["scores"])
-        and any(k.startswith("end") for k in pol.probe["scores"]))
-    a_again = pol.choose_main(st)
-    chk("NN：同一局面两次决策一致（确定性）", a.to_dict() == a_again.to_dict())
-
-    # ② **网络驱动证明**：改 type 头的 bias，动作必须跟着变
-    tid = pol.TYPE_ID
-    with pol.torch.no_grad():
-        pol.model.type_head.bias[tid["play"]] += 60.0
-    a_play = pol.choose_main(st)
-    chk("NN 驱动：把 type 头 bias 推向 play ⇒ 动作变成 play",
-        a_play.kind.startswith("play"))
-    with pol.torch.no_grad():
-        pol.model.type_head.bias[tid["play"]] -= 60.0
-        pol.model.type_head.bias[tid["attack"]] += 60.0
-    a_atk = pol.choose_main(st)
-    chk("NN 驱动：把 bias 推向 attack ⇒ 动作变成 attack（目标由目标头给）",
-        a_atk.kind == "attack" and a_atk.target in (41, 50))
-    with pol.torch.no_grad():
-        pol.model.type_head.bias[tid["attack"]] -= 60.0
-
-    # ③ 指针头驱动：把 subject 打分器改成"只看某个实体"（用 query 权重放大），
-    #    只要动作跟着变就说明主体确实来自指针头而不是别的什么东西
-    enc_play = pol._encode(st, "main", ltype="play")
-    out_play = pol._forward([enc_play])[0]
-    si = int(pol._np(out_play["subject_scores"][0]).argmax())
-    chk("NN：play 主体下标落在候选范围内",
-        0 <= si < len(enc_play.subj)
-        and enc_play.debug["subj_ids"][si] is not None)
-    with pol.torch.no_grad():
-        pol.model.type_head.bias[tid["end"]] -= 60.0
-    no_end = pol.choose_main(st).to_dict()
-    with pol.torch.no_grad():
-        pol.model.type_head.bias[tid["end"]] += 120.0
-    must_end = pol.choose_main(st).to_dict()
-    chk("NN 驱动：压低 end bias ⇒ 不做 end；抬高 ⇒ 一定做 end（双向）",
-        no_end["kind"] != "end" and must_end["kind"] == "end")
-    with pol.torch.no_grad():
-        pol.model.type_head.bias[tid["end"]] -= 60.0
-
-    # ④ 回路：dry-run 不执行、finished 会收尾、dict 动作能转 Action
-    lp = Loop(_Sess(), pol, live=False, max_actions=1)
+    # ① 回路：dry-run 不执行、finished 会收尾、dict 动作能转 Action
+    rule = StrategicRule(_Sess({(10, 41): True}))
+    lp = Loop(_Sess(), rule, live=False, max_actions=1)
     lp.sess.snapshot = lambda: st
     rec = lp.step()
     chk("回路 dry-run：有动作但 executed=False",
@@ -1351,45 +930,22 @@ def selftest() -> int:
     chk("空盘面 + 残留 finished 不算结束（防开局误判）",
         lp3.step().phase != "finished")
 
-    # ⑤ 规则基线（在 nn/baselines.py 里）也能被回路当策略用（dict -> Action）
-    rule = StrategicRule(_Sess({(10, 41): True}))
+    # ② 规则基类也能被回路当策略用（dict -> Action）
     ra = as_action(rule.choose_main(st))
-    chk("规则基线经 as_action 可用于回路",
+    chk("规则基类经 as_action 可用于回路",
         isinstance(ra, Action) and ra.kind in ("attack", "play_event"))
-
-    # ⑥ strict vs fallback：**编码失败**时，strict 必须抛，fallback 必须退规则
-    pol_s = NNPolicy(_Sess(), table, ckpt_path=None, device="cpu", strict=True)
-    pol_s._encode = lambda *a, **k: None
-    try:
-        pol_s.choose_main(st)
-        chk("strict：编码失败必须抛错（不悄悄降级）", False)
-    except Exception:
-        chk("strict：编码失败必须抛错（不悄悄降级）", True)
-    pol_f = NNPolicy(_Sess(), table, ckpt_path=None, device="cpu", strict=False)
-    pol_f._encode = lambda *a, **k: None
-    fb = pol_f.decide(st, "main", {})
-    chk("fallback：编码失败退回规则基线（不是递归/崩溃）",
-        isinstance(fb, Action) and fb.note.startswith("nn 失败"))
 
     print("player.loop selftest: %s（%d 项失败）" % ("PASS" if not fails else "FAIL", fails))
     return fails
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="NN 在线回路（前端③；默认 dry-run）")
+    ap = argparse.ArgumentParser(description="在线回路（默认 dry-run）")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--live", action="store_true", help="真的发动作（默认只打印）")
-    ap.add_argument("--policy", default="nn", choices=["nn", "rule", "rule2"],
-                    help="nn=网络策略（默认）；rule=旧启发式基线；"
-                         "rule2=player/rule.py（字节码画像 + 游戏闸门；推荐在常驻会话里用 "
+    ap.add_argument("--policy", default="rule2", choices=["rule", "rule2"],
+                    help="rule=基类启发式；rule2=player/rule.py（字节码画像 + 游戏闸门；推荐在常驻会话里用 "
                          "player.rule.play，不要起短命进程 —— 退出会卸载 frida 崩游戏）")
-    ap.add_argument("--ckpt", default=None)
-    ap.add_argument("--fallback-rule", action="store_true",
-                    help="网络失败时退回规则（默认 strict：失败即停手）")
-    ap.add_argument("--device", default=None)
-    ap.add_argument("--mulligan", default="rule", choices=["rule", "nn"],
-                    help="换牌决策：rule=跳费口径（默认；NN mulligan 头未训练）；"
-                         "nn=用网络头（只有 8 条全留标签，仅作对比）")
     ap.add_argument("--max-actions", type=int, default=40)
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--no-log", action="store_true")
@@ -1412,18 +968,11 @@ def main(argv=None) -> int:
     sess = _session.AgentSession(translate=False, warm=True)
     table = None
     try:
-        from learn.features import CardTable
+        from player.cardtable import CardTable
         table = CardTable.load()
     except Exception:                                             # noqa: BLE001
         pass
-    if a.policy == "nn":
-        if not a.ckpt:
-            print("--policy nn 需要 --ckpt（没有权重就不是神经网络策略）")
-            return 2
-        policy = NNPolicy(sess, table, ckpt_path=a.ckpt, device=a.device,
-                          strict=not a.fallback_rule,
-                          mulligan_rule=(a.mulligan == "rule"))
-    elif a.policy == "rule2":
+    if a.policy == "rule2":
         from player.rule import RuleV2
         policy = RuleV2(sess, table=table)
     else:

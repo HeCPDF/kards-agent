@@ -100,9 +100,6 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="只列出将导出的内容，不写任何文件、不跑测试")
     ap.add_argument("--no-venv", action="store_true", help="不建临时 venv，直接用当前解释器跑测试")
     ap.add_argument("--no-test", action="store_true", help="只打包，不跑测试")
-    ap.add_argument("--gui-only", action="store_true",
-                    help="只打控制面板（gui.app + 常驻监听器）运行所需的最小代码闭包（tools/gui_closure.py），"
-                         "不含 tests/docs/其余工具；测试改为在干净 venv（只装 requirements.txt）里逐模块 import 冒烟")
     ap.add_argument("--keep", action="store_true", help="保留测试用临时目录（默认测完删除）")
     ap.add_argument("--overlay", action="append", default=[], metavar="PATH",
                     help="（预演用）把工作区里这个相对路径的文件叠到导出物上；可重复")
@@ -110,7 +107,7 @@ def main(argv=None) -> int:
 
     prefix = repo_prefix()
     ver = read_version(a.ref, prefix)
-    name = "kards-agent-" + ("gui-" if a.gui_only else "") + ver
+    name = "kards-agent-" + ver
     print("ref=%s  版本=%s  子树前缀=%r" % (a.ref, ver, prefix))
 
     data = export_tar(a.ref, prefix)
@@ -141,20 +138,6 @@ def main(argv=None) -> int:
             shutil.rmtree(dir_path)
         os.makedirs(dir_path)
         tf.extractall(dir_path, filter="data")
-    if a.gui_only:
-        sys.path.insert(0, HERE)
-        import gui_closure as GC
-        allf = sorted(os.path.relpath(os.path.join(r, f), dir_path).replace("\\", "/")
-                      for r, _d, fs in os.walk(dir_path) for f in fs)
-        keep = set(GC.files(dir_path, tracked=allf))
-        for rel in allf:
-            if rel not in keep:
-                os.remove(os.path.join(dir_path, *rel.split("/")))
-        for r, _d, _f in sorted(os.walk(dir_path, topdown=False)):
-            if not os.listdir(r) and r != dir_path:
-                os.rmdir(r)
-        GC_MODULES = sorted(GC.closure(dir_path))
-        print("--gui-only：保留 %d 个文件（闭包 %d 个模块）" % (len(keep), len(GC_MODULES)))
     for rel, p in overlays:
         dst = os.path.join(dir_path, *rel.split("/"))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -186,38 +169,12 @@ def main(argv=None) -> int:
             if run([sys.executable, "-m", "venv", venv], tmp, env) != 0:
                 raise SystemExit("建 venv 失败")
             py = os.path.join(venv, "Scripts" if os.name == "nt" else "bin", "python" + (".exe" if os.name == "nt" else ""))
-            if run([py, "-m", "pip", "install", "--disable-pip-version-check", "-q", "-r", "requirements.txt" if a.gui_only else "requirements-dev.txt"], root, env) != 0:
+            if run([py, "-m", "pip", "install", "--disable-pip-version-check", "-q", "-r", "requirements-dev.txt"], root, env) != 0:
                 raise SystemExit("pip install 失败（需要网络）")
             run([py, "-m", "pip", "list", "--disable-pip-version-check", "--format=freeze"], root, env)
-        if a.gui_only:
-            print("\n=== GUI 包冒烟：干净目录逐模块 import：%s ===" % root, flush=True)
-            code = ("import importlib, sys\n"
-                    "sys.path.insert(0, 'tools')  # 监听器是脚本式运行：tools/ 在 sys.path 上，`import _bootstrap`\n"
-                    "mods = %r\n"
-                    "bad = []\n"
-                    "for m in mods:\n"
-                    "    try:\n"
-                    "        importlib.import_module(m)\n"
-                    "    except Exception as e:\n"
-                    "        if 'torch' not in repr(e):  # NN 轨的可选依赖（requirements-nn.txt）\n"
-                    "            bad.append((m, repr(e)[:200]))\n"
-                    "try:\n"
-                    "    from ops import load_js_template\n"
-                    "    from kardsmem import build as _b\n"
-                    "    assert len(load_js_template()) > 1000, 'agent.js.tpl 过短'\n"
-                    "    assert _b.TABLES_JSON.exists(), 'build_tables.json 缺失'\n"
-                    "except Exception as e:\n"
-                    "    bad.append(('数据文件', repr(e)[:200]))\n"
-                    "print('导入失败 %%d / %%d' %% (len(bad), len(mods)))\n"
-                    "for b in bad:\n"
-                    "    print('  ', b)\n"
-                    "sys.exit(1 if bad else 0)\n") % (GC_MODULES,)
-            rc = run([py, "-c", code], root, env)
-            print("=== GUI 冒烟退出码 %d（%s）===" % (rc, "全部可导入" if rc == 0 else "有失败"))
-        else:
-            print("\n=== 干净目录离线测试：%s ===" % root, flush=True)
-            rc = run([py, os.path.join("tests", "run_all.py")], root, env)
-            print("=== run_all 退出码 %d（%s）===" % (rc, "全绿" if rc == 0 else "有失败"))
+        print("\n=== 干净目录离线测试：%s ===" % root, flush=True)
+        rc = run([py, os.path.join("tests", "run_all.py")], root, env)
+        print("=== run_all 退出码 %d（%s）===" % (rc, "全绿" if rc == 0 else "有失败"))
     finally:
         if a.keep:
             print("保留临时目录：" + tmp)

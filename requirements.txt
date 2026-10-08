@@ -1,15 +1,14 @@
 # kards-agent 主环境依赖（Windows，Python 3.10+；开发环境为 3.14）。
 # 分层：运行时必需 / 可选工具。标准库（含 tkinter，控制面板用）不列。
-# 学习/torch 另见 requirements-nn.txt；跑测试多装一个包，见 requirements-dev.txt。
+# 跑测试多装一个包，见 requirements-dev.txt。
 
 # ---- 运行时必需 ----
 # frida：进程内注入（ops/inject.py，惰性 import；只读离线测试不需要游戏，但上线跑局必需）
 frida>=17.0
-# numpy：RVA 扫描（kardsmem/rvascan.py）、后台截图（base/winapi.py）、特征编码
+# numpy：RVA 扫描（kardsmem/rvascan.py）、后台截图（base/winapi.py）、卡牌特征表（player/cardtable.py）
 numpy>=2.0
 
 # ---- 可选（只有对应的 tools/ 脚本才用，缺了不影响 bot 与控制面板）----
 # pycryptodome>=3.20     # tools/pakread.py：读 pak 里的 DefaultGame.ini（AES）；测试要用，见 requirements-dev.txt
 # capstone>=5.0          # kardsmem/buildsrc.py：重新生成 build_tables.json（开发期）
 # opencv-python>=4.9     # tools/shot.py、pickwatch.py、pick_cards.py：截图/像素取证
-# pywin32>=306           # tools/release.py、reset_input.py：松开卡住的鼠标键

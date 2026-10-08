@@ -1,26 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""gui_closure.py —— 只含控制面板（GUI）运行所需代码的发布包：静态求 import 闭包。
+"""gui_closure.py —— 求控制面板（GUI）运行所需代码的 import 闭包（供 build_exe 打包、gui_main 自检用）。
 
-入口 = 面板 `gui.app` + 面板拉起的常驻监听器 `tools.live_session`（面板的"启动监听器"就是起它）。
-闭包按 AST 求（函数体内的延迟 import 也算），再补上闭包模块用到的数据文件（`DATA_GLOBS`）。
-`make_release.py --gui-only` 用它过滤导出物；`--list` 直接打印闭包。
+入口 = 面板 `gui.app` + 面板拉起的常驻监听器 `tools.live_session`。闭包按 AST 求（函数体内的延迟 import 也算）。
+`--list` 直接打印闭包。
 """
 from __future__ import annotations
 
 import ast
-import fnmatch
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 ENTRIES = ("gui.app", "tools.live_session")
-#: 闭包里用到、但不是 .py 的运行期数据（相对仓库根；glob）。
-DATA_GLOBS = ("kardsmem/build_tables.json", "ops/agent.js.tpl", "tools/native_calls.json")
-#: 面板包必带的顶层文件。
-TOP_FILES = ("README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "requirements.txt", "install.ps1",
-             "run_gui.bat", "run_listener.bat", "start_gui.bat", "GUI-QUICKSTART.md")
 
 
 def _mod_path(mod: str, root: str):
@@ -89,16 +82,6 @@ def closure(root: str = ROOT, entries=ENTRIES) -> dict:
                     todo.append(cand)
                     break
     return seen
-
-
-def files(root: str = ROOT, tracked=None) -> list:
-    """面板包应含的文件（相对路径，正斜杠）。`tracked`：仓库内已提交文件列表（只收其中的）。"""
-    fs = set(closure(root).values()) | set(TOP_FILES)
-    if tracked is not None:
-        for g in DATA_GLOBS:
-            fs |= {t for t in tracked if fnmatch.fnmatch(t, g)}
-        fs &= set(tracked)
-    return sorted(fs)
 
 
 if __name__ == "__main__":
