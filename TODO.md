@@ -59,7 +59,7 @@
 ## D. 架构（REFACTOR-PLAN 状态表）
 | # | 事项 | 状态 | 指针 |
 |---|---|---|---|
-| D1 | P1 收尾：S3'（字段别名改直读 `obj`，`tests/test_field_alias_ratchet.py` 基线只减不增）与 S4（删派生视图） | 待做 | `docs/REFACTOR-PLAN.md`、`docs/BOARD-MODEL.md` |
+| D1 | P1 收尾：S3' 的属性读已清零（棘轮基线 0）。**剩 S4（删 `Card` 上的派生别名属性）**：还有约 80 处 `getattr(c, "card_id", None)` 这类按名字的鸭子类型读法（`engine/triggers*.py`、`player/rule.py`、`ops/play.py` 等，棘轮和 AST 看不见），直接删属性会静默变成 None；要先逐处改成读 `obj.xxx`（假卡/字典输入要一并核对），再删。纯离线可做，但无实机保护，需要时再动 | 待做 | `docs/REFACTOR-PLAN.md`、`docs/BOARD-MODEL.md` |
 | D2 | P2/P3/P4：engine 骨架余项、natives 全量移植、`scripts` 直跑（`effectvm` 降为记录模式）| 进行中 | `docs/REFACTOR-PLAN.md` |
 | D3 | P5：搜索切到 engine 状态上，删 `boardeval` 门面 | 待做 | |
 | D4 | P6：拆 `player/rule.py`（约 3.3k 行）、`kardsmem/cli.py`、`kardsmem/board.py`；OPS 余下步骤（各动词改返回 `Result`、`answer_prompt` 接真动词） | 待做 | `docs/OPS-ARCHITECTURE.md` |
