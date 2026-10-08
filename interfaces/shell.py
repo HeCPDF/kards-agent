@@ -9,7 +9,7 @@
     board [full]        盘面（`full` 连敌方手牌一起列）
     pins                盘面 + 逐实例的**被压制**（慢，要读每张卡的 live effects）
     i / inspect <卡>    一张卡的全部
-    log [n] [me|enemy]  对局历史（双方动作，§7.6g）
+    log [n] [me|opp|left|right|1|2]  对局历史（双方动作，§7.6g）
     events              自上次以来的新提示（拒绝理由等）
     wait                等到我方回合
     play <手牌> [目标]   出牌
@@ -68,6 +68,7 @@ import time
 from typing import Optional
 
 
+from agent import view  # noqa: E402
 from agent.session import ACTION_TYPES, AgentSession  # noqa: E402
 
 BANNER = """KARDS agent shell —— 输入 help 看命令，q 退出
@@ -115,13 +116,14 @@ class Shell:
         except EOFError:
             return False
 
-    def _card(self, token: str, want_side: Optional[str] = None):
+    def _card(self, token: str, mine: bool = False):
+        """解析一张卡；`mine=True` 时要求是我方的卡（`card.side == st.my_side`）。"""
         c = self.a.resolve(token)
         if c is None:
             print("  认不出 %r。先 `board` 看短号，或用 #卡表id / @uid" % token)
             return None
-        if want_side and c.side != want_side:
-            print("  %s 是%s的卡" % (token, "我方" if c.side == "local" else "敌方"))
+        if mine and not self.a.is_mine(c):
+            print("  %s 是%s的卡" % (token, view.side_zh(self.a.st, c.side)))
             return None
         return c
 
@@ -194,15 +196,24 @@ class Shell:
 
     def do_log(self, arg=""):
         parts = arg.split()
-        n, mine = 20, None
+        n, side_tok = 20, None
         for p in parts:
-            if p.isdigit():
+            if p in ("1", "2"):                # 座位号（整数 1/2 歧义时当座位；条数请写 >=3 的数）
+                side_tok = p
+            elif p.isdigit():
                 n = int(p)
-            elif p in ("me", "my", "我"):
-                mine = True
-            elif p in ("enemy", "opp", "敌"):
-                mine = False
-        r = self.a.history(tail=n, mine=mine)
+            else:
+                side_tok = p
+        side = None
+        if side_tok is not None:              # 输入入口一次性解析成 ESide
+            if self.a.st is None:
+                self.a.snapshot()
+            try:
+                side = view.parse_side(side_tok, self.a.st.my_side)
+            except ValueError as e:
+                print("  " + str(e))
+                return
+        r = self.a.history(tail=n, side=side)
         if not r.get("ok"):
             print("  " + r["error"])
             return
@@ -234,11 +245,11 @@ class Shell:
         if not parts:
             print("  用法：play <手牌> [目标]   （play ! … 强制发出）")
             return
-        c = self._card(parts[0], "local")
+        c = self._card(parts[0], mine=True)
         if c is None:
             return
-        if c.location != "hand":
-            print("  %s 不在手牌里（在%s）" % (parts[0], c.location))
+        if not c.obj.InHand():
+            print("  %s 不在手牌里（在%s）" % (parts[0], view.row_of(c)))
             return
         tgt = None
         tcard = None
@@ -246,9 +257,9 @@ class Shell:
             t = self._card(parts[1])
             if t is None:
                 return
-            tgt = t.card_id
+            tgt = t.obj.CardID
             tcard = t
-        elif c.needs_hand_target:
+        elif c.obj.selectTargetOnPlayedFromHand:
             # ★ 指向类的牌缺参数就**问**，不自己挑（规格 §11.1 F1）
             print("  %s 需要指向目标。用 `play %s <目标>` 指定。"
                   % (self.a.tr(c.name), parts[0]))
@@ -270,7 +281,7 @@ class Shell:
                                   ("→" + parts[1]) if tgt else "",
                                   "（强制）" if force else ""),
                   self._play_fn(c, tgt, force),
-                  ACTION_TYPES["play"], c.card_id, tgt)
+                  ACTION_TYPES["play"], c.obj.CardID, tgt)
 
     def _play_fn(self, card, tgt, force: bool):
         """出牌的执行口 —— **按语义分派**（2026-09-27 语义分层）：
@@ -297,7 +308,7 @@ class Shell:
         if not arg.strip():
             print("  用法：can <我方单位>")
             return
-        c = self._card(arg.strip(), "local")
+        c = self._card(arg.strip(), mine=True)
         if c is None:
             return
         print("%s 现在能打谁：" % self.a.tr(c.name))
@@ -309,7 +320,7 @@ class Shell:
         if len(parts) < 2:
             print("  用法：attack <我方单位> <目标>   （attack ! … 强制发出）")
             return
-        c = self._card(parts[0], "local")
+        c = self._card(parts[0], mine=True)
         if c is None:
             return
         t = self._attack_spec(parts[1])
@@ -330,7 +341,7 @@ class Shell:
         self._act("用 %s 攻击 %s%s" % (self.a.tr(c.name), parts[1],
                                        "（强制）" if force else ""),
                   lambda cid, tgt: self.a.attack(cid, tgt, force=force),
-                  ACTION_TYPES["attack"], c.card_id, t)
+                  ACTION_TYPES["attack"], c.obj.CardID, t)
 
     def _attack_spec(self, token: str):
         """短号 → `ops.attack_card` 认的目标串（`hq` / `front<i>` / `back<i>`）。
@@ -347,24 +358,25 @@ class Shell:
                 return token
             print("  认不出目标 %r" % token)
             return None
-        if c.side != "enemy":
+        if self.a.is_mine(c):
             print("  %s 是我方的卡，不能当攻击目标" % token)
             return None
-        if c.location == "hq":
+        crow = view.row_of(c)
+        if crow == "hq":
             return "hq"
-        if c.location not in ("frontline", "back"):
-            print("  %s 不在场上（在%s）" % (token, c.location))
+        if crow not in ("frontline", "back"):
+            print("  %s 不在场上（在%s）" % (token, crow))
             return None
         row = sorted([x for x in self.a.st.cards
-                      if x.side == "enemy" and x.location == c.location
-                      and (c.location == "back" or x.card_type not in ("order", "counter"))],
+                      if x.side == c.side and view.row_of(x) == crow
+                      and (crow == "back" or x.card_type not in ("order", "counter"))],
                      key=lambda x: (x.slot if x.slot is not None else 99))
         try:
             i = [x.uid for x in row].index(c.uid)
         except ValueError:
-            print("  %s 不在敌方 %s 行里（盘面变了？先 refresh）" % (token, c.location))
+            print("  %s 不在敌方 %s 行里（盘面变了？先 refresh）" % (token, crow))
             return None
-        return ("front%d" if c.location == "frontline" else "back%d") % i
+        return ("front%d" if crow == "frontline" else "back%d") % i
 
     def do_front(self, arg=""):
         force = arg.strip().startswith("!")
@@ -372,7 +384,7 @@ class Shell:
         if not parts:
             print("  用法：front <我方支援单位> [slot]   （front ! … 强制发出）")
             return
-        c = self._card(parts[0], "local")
+        c = self._card(parts[0], mine=True)
         if c is None:
             return
         # ★ 2026-09-27：不再有"落点 x"（那是物理鼠标的坐标）。新版走**合成事件**
@@ -393,7 +405,7 @@ class Shell:
                 print("  （判据没算出来：%s —— 照发）" % (r.get("stopped") or "")[:60])
         self._act("把 %s 移到前线%s" % (self.a.tr(c.name), "（强制）" if force else ""),
                   lambda cid, sl: self.a.move_up(cid, slot=sl, force=force),
-                  ACTION_TYPES["move"], c.card_id, slot)
+                  ACTION_TYPES["move"], c.obj.CardID, slot)
 
     def do_end(self, arg=""):
         self._act("结束回合", self.a.end_turn, ACTION_TYPES["end"])
@@ -457,7 +469,7 @@ class Shell:
             if not self._confirm("选选项 #%d → 指向 %s" % (index, self.a.tr(t.name))):
                 print("  取消")
                 return
-            self._print_result(self.a.choose_one_with_target(index, t.card_id, trigger=trigger))
+            self._print_result(self.a.choose_one_with_target(index, t.obj.CardID, trigger=trigger))
         else:
             if not self._confirm("选选项 #%d" % index):
                 print("  取消")
@@ -473,13 +485,13 @@ class Shell:
         if not arg.strip():
             print("  用法：mullmark <手牌>")
             return
-        c = self._card(arg.strip(), "local")
+        c = self._card(arg.strip(), mine=True)
         if c is None:
             return
         if not self._confirm("翻转 %s 的换牌标记" % self.a.tr(c.name)):
             print("  取消")
             return
-        self._print_result(self.a.mulligan_mark(c.card_id))
+        self._print_result(self.a.mulligan_mark(c.obj.CardID))
 
     def do_mullgo(self, arg=""):
         if not self._confirm("确认换牌"):
@@ -492,13 +504,13 @@ class Shell:
         if not arg.strip():
             print("  用法：htarget <手牌>")
             return
-        c = self._card(arg.strip(), "local")
+        c = self._card(arg.strip(), mine=True)
         if c is None:
             return
         if not self._confirm("选 %s 当手牌目标" % self.a.tr(c.name)):
             print("  取消")
             return
-        self._print_result(self.a.select_hand_target(c.card_id))
+        self._print_result(self.a.select_hand_target(c.obj.CardID))
 
     def do_surrender(self, arg=""):
         """投降。**不可逆**，游戏没有二次确认——必须显式打 `surrender confirm`。"""
@@ -525,18 +537,18 @@ class Shell:
         if t is None:
             return
         if len(parts) > 1:
-            c = self._card(parts[1], "local")
+            c = self._card(parts[1], mine=True)
             if c is None:
                 return
             if not self._confirm("点选 %s 指向 %s" % (self.a.tr(c.name), self.a.tr(t.name))):
                 print("  取消")
                 return
-            self._print_result(self.a.select_unit_target(c.card_id, t.card_id))
+            self._print_result(self.a.select_unit_target(c.obj.CardID, t.obj.CardID))
         else:
             if not self._confirm("点选目标 %s" % self.a.tr(t.name)):
                 print("  取消")
                 return
-            self._print_result(self.a.select_target(t.card_id))
+            self._print_result(self.a.select_target(t.obj.CardID))
 
     def do_mulldone(self, arg=""):
         print("  %s" % self.a.mulligan_done())
@@ -548,10 +560,10 @@ class Shell:
         if not arg.strip():
             print("  用法：htlegal <手牌>")
             return
-        c = self._card(arg.strip(), "local")
+        c = self._card(arg.strip(), mine=True)
         if c is None:
             return
-        print("  %s" % self.a.hand_target_legal(c.card_id))
+        print("  %s" % self.a.hand_target_legal(c.obj.CardID))
 
     def do_canplay(self, arg=""):
         """`canplay <手牌> [目标]` —— 只读预检（只挑不判，见 §7.6f）。"""
@@ -559,7 +571,7 @@ class Shell:
         if not parts:
             print("  用法：canplay <手牌> [目标]")
             return
-        c = self._card(parts[0], "local")
+        c = self._card(parts[0], mine=True)
         if c is None:
             return
         t = self._card(parts[1]) if len(parts) > 1 else None
@@ -576,7 +588,7 @@ class Shell:
         if not arg.strip():
             print("  用法：canmove <单位>")
             return
-        c = self._card(arg.strip(), "local")
+        c = self._card(arg.strip(), mine=True)
         if c is None:
             return
         r = self.a.can_move(c)
@@ -592,10 +604,10 @@ class Shell:
         if not arg.strip():
             print("  用法：canact <单位>")
             return
-        c = self._card(arg.strip(), "local")
+        c = self._card(arg.strip(), mine=True)
         if c is None:
             return
-        print("  %s" % self.a.can_act_now(c.card_id))
+        print("  %s" % self.a.can_act_now(c.obj.CardID))
 
     def do_pinned(self, arg=""):
         if not arg.strip():
@@ -604,7 +616,7 @@ class Shell:
         c = self._card(arg.strip())
         if c is None:
             return
-        print("  %s" % self.a.is_pinned(c.card_id))
+        print("  %s" % self.a.is_pinned(c.obj.CardID))
 
     def do_target(self, arg=""):
         """`target <规格>` —— 目标规格串（`hq`/`mhq`/`front<i>`/`back<i>`/`guard<i>`）→ card_id。"""
@@ -615,7 +627,15 @@ class Shell:
 
     def do_picktarget(self, arg=""):
         """启发式挑一个目标，**不算判据**——只是给"要选一个"的动作一个默认值。"""
-        side = arg.strip() or "enemy"
+        side = None                       # 缺省 = 对方（session 里按 my_side 算）
+        if arg.strip():                   # 输入入口一次性解析成 ESide
+            if self.a.st is None:
+                self.a.snapshot()
+            try:
+                side = view.parse_side(arg.strip(), self.a.st.my_side)
+            except ValueError as e:
+                print("  " + str(e))
+                return
         print("  %s" % self.a.pick_target(side=side))
 
     def do_totals(self, arg=""):
@@ -625,7 +645,7 @@ class Shell:
         c = self._card(arg.strip())
         if c is None:
             return
-        print("  %s" % self.a.card_totals(c.card_id))
+        print("  %s" % self.a.card_totals(c.obj.CardID))
 
     def do_hints(self, arg=""):
         """游戏刚弹的提示（拒绝理由的权威来源）。提示短命，只能轮询。"""
@@ -634,11 +654,11 @@ class Shell:
 
     def do_preflight(self, arg=""):
         parts = arg.split()
-        card = self._card(parts[0], "local") if parts else None
+        card = self._card(parts[0], mine=True) if parts else None
         if parts and card is None:
             return
         target = parts[1] if len(parts) > 1 else None
-        print("  %s" % self.a.preflight(card.card_id if card else None, target=target))
+        print("  %s" % self.a.preflight(card.obj.CardID if card else None, target=target))
 
     def do_picklayers(self, arg=""):
         """`picklayers <index> [kind]` —— 一口气走完多层抉择链（预报"天气→2K/4K/6K"那种）。"""

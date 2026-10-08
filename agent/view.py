@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-LOCAL, ENEMY = "local", "enemy"
+from kardsmem.gamemodel import ECardLocation, ESide
 
 # 关键词位 → 显示名。顺序即显示顺序。
 KW_ZH = [
@@ -90,11 +90,62 @@ def kw_of(card) -> list:
     return list(getattr(card, "keywords", None) or [])
 
 
-def _row_of(card) -> str:
-    return card.location or "?"
+_DECK_LOCS = (ECardLocation.Deck_Left, ECardLocation.Deck_Right, ECardLocation.Deck)
 
 
-def guarded_map(st, side: str) -> dict:
+def row_of(card) -> str:
+    """牌所在的『行』（**显示/分组用**的行概念，不是座位）：frontline / back（支援线单位）/ hq / hand / discard / deck / ?。
+    由原版 `obj.Location` 的谓词现算；读不出位置 => "?"。"""
+    o = card.obj
+    if o.IsHQ():
+        return "hq"
+    if o.InFrontline():
+        return "frontline"
+    if o.InSupportLine():
+        return "back"
+    if o.InHand():
+        return "hand"
+    if o.InDiscard():
+        return "discard"
+    if o.Location in _DECK_LOCS:
+        return "deck"
+    return "?"
+
+
+def side_zh(st, side) -> str:
+    """面向人的座位文字：`side == st.my_side` 现算，只渲染、不存不比较。my_side 读不出 => 写座位号（不假设谁是我方）。"""
+    if side is None:
+        return "?"
+    if st is None or st.my_side is None:
+        return "座位%d" % int(side)
+    return "我方" if side == st.my_side else "敌方"
+
+
+def is_mine(st, card) -> bool:
+    """`card.side == st.my_side`。my_side 读不出 => ValueError（不默认按 1 号座位）。"""
+    return card.side == st.seat()
+
+
+_ME_TOKENS = ("me", "my", "mine", "我", "我方")
+_OPP_TOKENS = ("opp", "other", "敌", "对方", "敌方")
+
+
+def parse_side(token, my_side: Optional[ESide]) -> ESide:
+    """MCP / shell 的**输入**入口：把 me/opp/left/right/1/2 一次性解析成 `ESide`。
+    me/opp 需要 `my_side`（None => ValueError）；认不出 => ValueError。"""
+    t = str(token).strip().lower()
+    if t in ("left", "1"):
+        return ESide.left
+    if t in ("right", "2"):
+        return ESide.right
+    if t in _ME_TOKENS or t in _OPP_TOKENS:
+        if my_side is None:
+            raise ValueError("本地座位 mySide 读不出：无法把 %r 解析成座位（改用 left/right/1/2）" % token)
+        return my_side if t in _ME_TOKENS else (ESide.right if my_side == ESide.left else ESide.left)
+    raise ValueError("认不出座位 %r（接受 me/opp/left/right/1/2）" % token)
+
+
+def guarded_map(st, side: ESide) -> dict:
     """→ {uid: True}：**被守护**的单位。
 
     ★ 2026-09-23 更正：这里先前是**按相邻关系推算**的（"同方同行、slot 相差 1 有守护单位"）。
@@ -109,9 +160,9 @@ def guarded_map(st, side: str) -> dict:
     """
     out = {}
     for c in st.cards:
-        if c.side != side or c.location not in UNIT_ROWS:
+        if c.side != side or not c.obj.IsFieldUnit():
             continue
-        v = getattr(c, "is_being_guarded", None)
+        v = c.obj.isBeingGuarded     # S3'：原版字段（下面仍保留 raw 兜底）
         if v is None:
             v = (c.raw or {}).get("is_being_guarded")
         if v:
@@ -139,19 +190,20 @@ class Handles:
         def sortkey(c):
             return (c.slot if c.slot is not None else 99, c.uid)
 
-        for i, c in enumerate(sorted(st.hand(LOCAL), key=sortkey), 1):
+        me, opp = st.seat(), st.other_side            # my_side 读不出 => ValueError（不默认按 1）
+        for i, c in enumerate(sorted(st.hand(me), key=sortkey), 1):
             self._put("h%d" % i, c)
-        for i, c in enumerate(sorted(st.hand(ENEMY), key=sortkey), 1):
+        for i, c in enumerate(sorted(st.hand(opp), key=sortkey), 1):
             self._put("H%d" % i, c)
-        for pfx, side in (("m", LOCAL), ("e", ENEMY)):
+        for pfx, side in (("m", me), ("e", opp)):
             n = 0
             for row in UNIT_ROWS:
                 for c in sorted([x for x in st.cards
-                                 if x.side == side and x.location == row],
+                                 if x.side == side and row_of(x) == row],
                                 key=sortkey):
                     n += 1
                     self._put("%s%d" % (pfx, n), c)
-        for h, side in (("hq", LOCAL), ("ehq", ENEMY)):
+        for h, side in (("hq", me), ("ehq", opp)):
             c = (st.hq or {}).get(side)
             if c is not None:
                 self._put(h, c)
@@ -178,8 +230,9 @@ def resolve(st, token: str, handles: Optional[Handles] = None):
             cid = int(t[1:], 0)
         except ValueError:
             return None
-        hits = [c for c in st.cards if c.card_id == cid and c.side == LOCAL] or \
-               [c for c in st.cards if c.card_id == cid]
+        me = st.seat()
+        hits = [c for c in st.cards if c.obj.CardID == cid and c.side == me] or \
+               [c for c in st.cards if c.obj.CardID == cid]
         return hits[0] if len(hits) == 1 else None
     c = st.by_uid(t)
     if c is not None:
@@ -189,7 +242,8 @@ def resolve(st, token: str, handles: Optional[Handles] = None):
         cid = int(t, 0)
     except ValueError:
         return None
-    hits = [c for c in st.cards if c.card_id == cid and c.side == LOCAL]
+    me = st.seat()
+    hits = [c for c in st.cards if c.obj.CardID == cid and c.side == me]
     return hits[0] if len(hits) == 1 else None
 
 
@@ -200,7 +254,7 @@ def ambiguous(st, token: str) -> list:
         cid = int(t, 0)
     except ValueError:
         return []
-    return [c for c in st.cards if c.card_id == cid]
+    return [c for c in st.cards if c.obj.CardID == cid]
 
 
 # --------------------------------------------------------------- 渲染
@@ -213,7 +267,7 @@ def _stat(c) -> str:
     a, d = c.attack, c.defense
     if a is None and d is None:
         return "?/?"
-    b = c.attack_buff or 0
+    b = c.obj.attackBuff or 0          # 原版字段（S3'：不再读 Card.attack_buff 别名）
     at = "%s%s" % (_n(a), ("+%d" % b) if b else "")
     return "%s/%s" % (at, _n(d))
 
@@ -225,7 +279,7 @@ def _marks(c, guarded: dict, pinned: Optional[bool] = None) -> str:
         out.append("被守护")
     if pinned is True:
         out.append("被压制")
-    if c.is_suppressed:
+    if c.obj.isSuppressed:
         out.append("被抑制")
     # ★ 2026-09-27：伏击「是否已用掉」。规则原文（`KARDS-RULES-ENCYCLOPEDIA.md:42`）：
     #   「伏击单位**每回合首次被攻击时**，会首先造成反击伤害」⇒ 要用**被动**旗标
@@ -234,7 +288,7 @@ def _marks(c, guarded: dict, pinned: Optional[bool] = None) -> str:
     #   **攻击过**）只差一个 `Been`，语义相反 —— 写结论时一定带主语（谁打谁）。
     #   ⚠ 这是**推断**（SDK 里没有 `ambushTriggered` 这类字段），正例未跑；文案写**事实**
     #   （"本回合已被攻击"），不断言"伏击已触发"。
-    if "ambush" in kw_of(c) and getattr(c, "has_been_attacked_this_turn", None):
+    if "ambush" in kw_of(c) and c.obj.hasBeenAttackedThisTurn:
         out.append("伏击(本回合已被攻击)")
     # 去重且保序
     seen, uniq = set(), []
@@ -247,7 +301,7 @@ def _marks(c, guarded: dict, pinned: Optional[bool] = None) -> str:
 
 def _name(c, w=18, tr=None):
     """卡名。★ 内存里是**英文**，`tr` 给了就翻成中文（`kardsmem.locres`）。"""
-    s = c.name or ("#%s" % c.card_id if c.card_id is not None else "?")
+    s = c.name or ("#%s" % c.obj.CardID if c.obj.CardID is not None else "?")
     if tr:
         s = tr(s) or s
     return s if len(s) <= w else s[:w - 1] + "…"
@@ -256,6 +310,9 @@ def _name(c, w=18, tr=None):
 def render_board(st, handles: Optional[Handles] = None, full: bool = False,
                  pins: Optional[dict] = None, tr=None) -> str:
     """把盘面渲染成一张表。`pins` 是 {uid: True/False/None}（压制，贵，按需传）。"""
+    if st.my_side is None:       # 不知道谁是我方 => 不渲染（不默认按 1 号座位）
+        return "（本地座位 mySide 读不出：无法区分我方/敌方，盘面不渲染。unknown=%s）" % (st.unknown[:3],)
+    me, opp = st.my_side, st.other_side
     h = handles or Handles(st)
     pins = pins or {}
     L = []
@@ -263,12 +320,12 @@ def render_board(st, handles: Optional[Handles] = None, full: bool = False,
     L.append("回合 %s   %s   指挥点 我 %s / 敌 %s   指挥部 %s:%s   前线 %s%s" % (
         _n(st.turn),
         "【我方回合】" if st.our_turn else ("敌方回合" if st.our_turn is False else "回合归属未知"),
-        _n(k.get(LOCAL)), _n(k.get(ENEMY)),
-        _n((st.slots or {}).get(LOCAL)), _n((st.slots or {}).get(ENEMY)),
-        _n(st.frontline_owner),
+        _n(k.get(me)), _n(k.get(opp)),
+        _n((st.slots or {}).get(me)), _n((st.slots or {}).get(opp)),
+        side_zh(st, st.frontline_owner),
         "   ★对局已结束" if st.match_finished else ""))
     # ★ 2026-09-27：牌库厚度（用户要的字段）。**只报张数**，不列内容（对手牌库名单是隐藏信息）。
-    L.append("牌库厚度：我 %d   敌 %d" % (_deck_count(st, LOCAL), _deck_count(st, ENEMY)))
+    L.append("牌库厚度：我 %d   敌 %d" % (_deck_count(st, me), _deck_count(st, opp)))
     # ★ 2026-09-27：站位图例。用户要"清楚反映站位" —— 所以每行先给一行速览
     #   （`列号:名字`，从左到右），再按 `[列号]` 逐格列。总部和支援线**同一行**
     #   （`locEnum=5`），共用一套列号。
@@ -288,7 +345,7 @@ def render_board(st, handles: Optional[Handles] = None, full: bool = False,
         """
         locs = ("back", "hq") if row == "back" else (row,)
         return sorted([x for x in st.cards
-                       if x.side == side and x.location in locs],
+                       if x.side == side and row_of(x) in locs],
                       key=lambda c: (c.slot if c.slot is not None else 99, c.uid))
 
     def _seat_line(side, zh):
@@ -323,7 +380,7 @@ def render_board(st, handles: Optional[Handles] = None, full: bool = False,
                     rows.append("     [%-2d] （空）" % i)
                     continue
                 rows.append("  [%-2d] %-4s %-19s id=%-6s %-7s 行动费%-7s %s%s" % (
-                    i, h.handle(hit), _name(hit, tr=tr), _n(hit.card_id, "-"), _stat(hit),
+                    i, h.handle(hit), _name(hit, tr=tr), _n(hit.obj.CardID, "-"), _stat(hit),
                     _op_cost(hit), _marks(hit, g, pins.get(hit.uid)),
                     ("  资产名 %s" % hit.fname) if (full and getattr(hit, "fname", None)) else ""))
             # 列号有空洞时也要说明（游戏会"压实"，这里把真实 locationNumber 报出来）
@@ -334,36 +391,36 @@ def render_board(st, handles: Optional[Handles] = None, full: bool = False,
 
     hq = (st.hq or {})
     L.append("-- 敌方 --------------------------------------------------------")
-    L.append("  " + _seat_line(ENEMY, "敌"))
-    L += unit_rows(ENEMY) or ["  （空）"]
-    eh = st.hand(ENEMY)
+    L.append("  " + _seat_line(opp, "敌"))
+    L += unit_rows(opp) or ["  （空）"]
+    eh = st.hand(opp)
     if full and eh:
-        gE = guarded_map(st, ENEMY)
+        gE = guarded_map(st, opp)
         L.append("  敌方手牌 %d 张（★ 这是对手的不公开信息）：" % len(eh))
         for c in sorted(eh, key=lambda c: (c.slot if c.slot is not None else 99, c.uid)):
             L.append("    [%-2s] %-4s %-19s %-7s 费%-3s %s" % (
                 _n(c.slot, "-"), h.handle(c), _name(c, tr=tr), _stat(c),
-                _n(c.kredit_cost, "-"), _marks(c, gE)))
+                _n(c.obj.getTotalKredits(), "-"), _marks(c, gE)))
     elif eh:
         L.append("  敌方手牌 %d 张（`board full` 才展开）" % len(eh))
 
     L.append("-- 我方 --------------------------------------------------------")
-    L.append("  " + _seat_line(LOCAL, "我"))
-    L += unit_rows(LOCAL) or ["  （空）"]
+    L.append("  " + _seat_line(me, "我"))
+    L += unit_rows(me) or ["  （空）"]
 
     L.append("-- 手牌（按手牌次序）-------------------------------------------")
-    gL = guarded_map(st, LOCAL)
-    hand = sorted(st.hand(LOCAL), key=lambda c: (c.slot if c.slot is not None else 99, c.uid))
+    gL = guarded_map(st, me)
+    hand = sorted(st.hand(me), key=lambda c: (c.slot if c.slot is not None else 99, c.uid))
     if not hand:
         L.append("  （空）")
     for c in hand:
-        tax = c.kredits_tax_as_enemy_target
+        tax = c.obj.KreditsTax_AsEnemyTarget
         L.append("  [%-2s] %-4s %-19s %-9s id=%-6s %-7s 费%-3s%s%s%s" % (
             _n(c.slot, "-"), h.handle(c), _name(c, tr=tr), (c.card_type or "?"),
-            _n(c.card_id, "-"), _stat(c),
-            _n(c.kredit_cost, "-"),
-            (" 行动费%s" % _op_cost(c)) if (c.operation_cost is not None) else "",
-            " 需指向" if c.needs_hand_target else "",
+            _n(c.obj.CardID, "-"), _stat(c),
+            _n(c.obj.getTotalKredits(), "-"),
+            (" 行动费%s" % _op_cost(c)) if (c.obj.operationCost is not None) else "",
+            " 需指向" if c.obj.selectTargetOnPlayedFromHand else "",
             (" 被指向+%d费" % tax) if tax else ""))
         mk = _marks(c, gL)
         if mk:
@@ -373,9 +430,9 @@ def render_board(st, handles: Optional[Handles] = None, full: bool = False,
     return "\n".join(L)
 
 
-def _deck_count(st, side: str) -> int:
+def _deck_count(st, side: ESide) -> int:
     """牌库厚度（张数）。牌库名单对玩家隐藏，所以**只报数**。"""
-    return len([c for c in st.cards if c.side == side and c.location == "deck"])
+    return len([c for c in st.cards if c.side == side and row_of(c) == "deck"])
 
 
 def _op_cost(c) -> str:
@@ -385,8 +442,8 @@ def _op_cost(c) -> str:
       ⇒ 被减行动费的卡（TIGER、修复类效果）显示成原价。要权威值用注入侧
       `ops_inject.card_totals()`（它调游戏自己的 `getTotalOperationCost()`）。
     """
-    base = getattr(c, "operation_cost", None)
-    buff = getattr(c, "operation_cost_buff", None) or 0
+    base = c.obj.operationCost                 # S3'：原版字段（原来走 getattr(c, "operation_cost")）
+    buff = c.obj.operationCostBuff or 0
     if base is None:
         return "-"
     return "%d(%+d)" % (base + buff, buff) if buff else str(base)
@@ -398,7 +455,6 @@ LOC_ZH = {"hand": "手牌", "frontline": "前线", "back": "支援", "hq": "总�
           # 动作流里用的是引擎侧的 location 串（ELocationEnum 的名字），和归一后的不一样
           "board_frontline": "前线", "board_hqleft": "支援", "board_hqright": "支援",
           "hand_left": "手牌", "hand_right": "手牌"}
-SIDE_ZH = {LOCAL: "我方", ENEMY: "敌方"}
 
 
 import re as _re
@@ -425,44 +481,47 @@ def render_inspect(d: dict, st=None, tr=None) -> str:
     L.append("%s  %s%s" % (d.get("handle", "?"), title,
                            ("（%s）" % en) if en and en != title else ""))
     L.append("  %-6s %-6s %s" % (
-        SIDE_ZH.get(c.side, "?"), d.get("faction") or "国籍读不到",
+        side_zh(st, c.side), d.get("faction") or "国籍读不到",
         (c.card_type or "类型读不到")))
     # ★ 2026-09-27：id / 资产名（用户要的字段）。资产名是 FName（`Name_0@0x50`），
     #   和上面那个 FText 标题（`title@0x58`）**是两样东西**：
     #   标题可被 campaignName 覆盖，资产名才是"这张牌到底是哪个模板"。
     L.append("  card_id：%s   资产名：%s" % (
-        _n(c.card_id, "?"), getattr(c, "fname", None) or "读不到"))
-    if getattr(c, "rarity_enum", None) is not None or getattr(c, "card_set_enum", None) is not None:
+        _n(c.obj.CardID, "?"), getattr(c, "fname", None) or "读不到"))
+    # ★ S3'：稀有度/卡集直接读原版字段。`rarity_enum` 别名当年多做了一次 `int(...)`
+    #   （`obj.rarity` 是 `ERarity` IntEnum），这里保持同样的取整口径。
+    if c.obj.rarity is not None or c.obj.cardSet is not None:
         L.append("  稀有度枚举：%s   卡集枚举：%s" % (
-            c.rarity_enum, c.card_set_enum))
+            None if c.obj.rarity is None else int(c.obj.rarity), c.obj.cardSet))
     # 位置
-    loc = LOC_ZH.get(c.location, c.location or "?")
+    row = row_of(c)
+    loc = LOC_ZH.get(row, row)
     pos = "%s" % loc
-    if c.slot is not None and c.location in ("frontline", "back", "hand"):
+    if c.slot is not None and row in ("frontline", "back", "hand"):
         pos += " 第%d位" % c.slot
     L.append("  位置：%s%s" % (
-        pos, ("（进场于回合 %s）" % c.enter_play_on_turn)
-        if c.enter_play_on_turn is not None else ""))
+        pos, ("（进场于回合 %s）" % c.obj.enterPlayOnTurn)
+        if c.obj.enterPlayOnTurn is not None else ""))
     # 数值
     #   ★ 行动费 = 基础 + buff（`operationCostBuff@0xB4`）。UI 用的是
     #   `getTotalOperationCost()`；要权威值用 `ops_inject.card_totals(card_id)`
     #   （注入式只读调用游戏本体，与卡面显示一字不差）。
     L.append("  费用：%s   行动费：%s%s" % (
-        _n(c.kredit_cost, "-"), _op_cost(c),
-        ("   被敌方指向时 +%d费" % c.kredits_tax_as_enemy_target)
-        if c.kredits_tax_as_enemy_target else ""))
+        _n(c.obj.getTotalKredits(), "-"), _op_cost(c),
+        ("   被敌方指向时 +%d费" % c.obj.KreditsTax_AsEnemyTarget)
+        if c.obj.KreditsTax_AsEnemyTarget else ""))
     if c.attack is not None or c.defense is not None:
         L.append("  攻防：%s%s" % (
             _stat(c),
-            ("   上限 %s/%s" % (c.max_attack, c.max_defense))
-            if c.max_attack is not None else ""))
+            ("   上限 %s/%s" % (c.obj.maxAttack, c.obj.maxDefense))
+            if c.obj.maxAttack is not None else ""))
     # 词条 / 状态
-    g = {c.uid: True} if getattr(c, "is_being_guarded", None) else {}
+    g = {c.uid: True} if c.obj.isBeingGuarded else {}
     mk = _marks(c, g)
     L.append("  词条/状态：%s" % (mk or "（无）"))
-    if c.needs_hand_target:
+    if c.obj.selectTargetOnPlayedFromHand:
         L.append("  ★ 出牌时需要指向目标")
-    if getattr(c, "under_enemy_control", None):
+    if c.obj.underEnemyControl:
         L.append("  ★ 处于敌方控制之下")
     # 文本
     # ★ 白板卡（没有技能）的 `Text@0x90` 装的是**史实文案**，和 `flavorText` 一样。
@@ -486,7 +545,7 @@ def _src_name(st, card_id, tr=None):
     if st is None or card_id is None:
         return "#%s" % card_id
     for c in st.cards:
-        if c.card_id == card_id:
+        if c.obj.CardID == card_id:
             nm = (tr(c.name) if tr else c.name) or "?"
             return "%s(#%s)" % (nm, card_id)
     return "#%s" % card_id

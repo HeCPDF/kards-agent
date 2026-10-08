@@ -50,12 +50,20 @@ def _deck_ready(precheck) -> bool:
 
 def leave_result_page(precheck, tries: int = 20, should_abort=lambda: False) -> dict:
     """结算页点“继续”直到回到牌组页；结算页不在 ⇒ 看牌组页是否就绪（没就绪=过渡态，只等）。"""
-    steps, left = [], False
+    steps, left, stale_n = [], False, 0
     for _ in range(tries):
         if should_abort():
             break
         r = precheck.call_write("end_of_match_continue", verbose=False) or {}
         if not r.get("ok") and "没有 W_EndOfMatch_C" in str(r.get("error") or ""):
+            # 每日任务弹窗是浮层：背后牌组页的控件仍读得到（deck_ready=True），点“开始”会被弹窗吃掉。
+            # 所以不在结算页时，**先**点一次左侧「开始」（关弹窗/回牌组页；已在牌组页无害），再判就绪。
+            if "sidebar" not in steps:
+                steps.append("sidebar")
+                sb = precheck.call_write("press_sidebar", "play") or {}
+                steps.append("sidebar:%s" % ("ok" if sb.get("ok") else str(sb.get("error"))[:40]))
+                precheck.call_write("settle", 1.5, 6)
+                continue
             if _deck_ready(precheck):
                 steps.append("deck_ready")
                 left = True
@@ -67,6 +75,23 @@ def leave_result_page(precheck, tries: int = 20, should_abort=lambda: False) -> 
         if r.get("left_screen"):
             left = True
             break
+        # 结算页控件的陈旧实例（上一局的 W_EndOfMatch_C 还没被回收）：点“继续”读得到、却永远没有进展
+        # （2026-10-06 实机：连续 20 次 continue:None，牌组页早已就绪 ⇒ 开局失败）。
+        # 连续 3 次没进展 ⇒ 按“不在结算页”处理：点一次侧栏，牌组页就绪就算离开。
+        if r.get("step_after") is None:
+            stale_n += 1
+            if stale_n >= 3:
+                if "sidebar" not in steps:
+                    steps.append("sidebar")
+                    sb = precheck.call_write("press_sidebar", "play") or {}
+                    steps.append("sidebar:%s" % ("ok" if sb.get("ok") else str(sb.get("error"))[:40]))
+                    precheck.call_write("settle", 1.5, 6)
+                if _deck_ready(precheck):
+                    steps.append("deck_ready(stale_end_of_match)")
+                    left = True
+                    break
+        else:
+            stale_n = 0
         precheck.call_write("settle", 1.5, 6)
     precheck.call_write("settle", 3.0, 6)
     return {"left": left, "deck_ready": _deck_ready(precheck), "steps": steps}
@@ -185,6 +210,18 @@ def start_next(sess, precheck) -> dict:
     ok, im, why = _guard().safe_to_start(sess)
     if not ok:
         return {"ok": False, "why": why, "leave": lv}
+    # 模式必须是**训练**：对战模式下「开始」是灰的（卡组含未拥有卡），点了没反应；训练局也不会碰到真人对手
+    # （2026-10-05 实机：停在别的模式时 press_play 点了灰按钮 ⇒ 60 s 没进对局）。已是训练就不动。
+    try:
+        sm = precheck.call_read("selected_mode") or {}
+        if not (sm.get("selected") == 1 and sm.get("chosen") == 1):
+            mr = precheck.call_write("select_mode_by_label", "TRAINING", verbose=False) or {}
+            C.log_event("切到训练模式：%s" % ("ok" if mr.get("ok") else str(mr)[:120]))
+            if not mr.get("ok"):
+                return {"ok": False, "why": "切训练模式失败：%s" % str(mr.get("error") or mr)[:100], "leave": lv, "mode": mr}
+            precheck.call_write("settle", 1.0, 6)
+    except Exception as ex:                                  # noqa: BLE001
+        C.log_event("读/切模式出错（不阻断，沿用当前模式）：%s: %s" % (type(ex).__name__, ex))
     r = precheck.call_write("press_play", verbose=True) or {}
     if not r.get("ok"):
         return {"ok": False, "why": r.get("error") or "press_play 失败", "leave": lv, "press": r}
@@ -266,6 +303,19 @@ def step(sess, precheck, play=None, enqueue_fn=enqueue) -> dict:
                        should_stop=lambda: bool(C.load_control().get("abort_now")))
         except Exception as exc:                          # noqa: BLE001
             res = {"exception": "%s: %s" % (type(exc).__name__, exc)}
+        if res.get("stuck"):                              # 回路卡死看门狗停手
+            # 2026-10-07 实机：看门狗在 KING'S AFRICAN RIFLES 的**真**选择提示上误判卡死并投降 ⇒ 白送一局。
+            # 所以缺省**不投降**：只停手、记事件、等人接管；要自动放弃本局，在控制文件里设 `surrender_on_stuck=true`。
+            C.log_event("回路卡死看门狗：%s ⇒ 停手" % (res["stuck"],))
+            if c2.get("surrender_on_stuck") and not c2.get("dry_run"):
+                C.update_status(state="stopped", note="回路卡死（%s）⇒ 投降放弃本局" % res["stuck"].get("reason"))
+                try:
+                    sr = sess.surrender(confirm=True)
+                except Exception as exc:                  # noqa: BLE001
+                    sr = {"ok": False, "error": str(exc)}
+                C.log_event("卡死后投降：%s" % (sr,))
+            else:
+                C.update_status(state="stopped", note="回路卡死（%s）⇒ 已停手，等待人工接管" % res["stuck"].get("reason"))
         played = bool(res.get("done")) and not res.get("exception")
         result = {"played": played, "seconds": round(time.time() - t0, 1),
                   "n": res.get("n"), "exception": res.get("exception")}

@@ -38,7 +38,7 @@ from typing import Optional
 
 from . import kismet
 from .kismetlib import (ImpureCall, NativeOut, Unimplemented, arity as native_arity,
-                        call as native_call)
+                        call as native_call, is_fallthrough)
 from .virtual_defaults import NO_EXECUTE, VIRTUAL_DEFAULTS
 
 
@@ -527,7 +527,9 @@ class VM:
 
         # 1) 调用方注入的钩子优先（比如"当前指向的是哪张卡"这种 UI 态）
         if name in self.hooks:
-            return self.hooks[name](self, f, obj, args, e)
+            r_ = self.hooks[name](self, f, obj, args, e)
+            if not is_fallthrough(r_):               # 软钩子（`FALLTHROUGH`）：这次调用不归钩子管 ⇒ 往下走字节码/原语
+                return r_
 
         # 1b) 容器变更原语：容器是**局部/影子变量**（蓝图按引用传），在影子堆里改，不碰游戏内存。
         #     ★ NATIVE-SPEC-GAPS §9/§11 D1：Set/Map 用 **dict**（保序，近似 TSet 稀疏槽序）；

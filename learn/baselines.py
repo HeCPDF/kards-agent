@@ -199,7 +199,7 @@ class StrategicRule:
         if not cands:
             return None
         return min(cands, key=lambda x: (float(x.defense or 0),
-                                         -float(x.attack or 0))).card_id
+                                         -float(x.attack or 0))).obj.CardID
 
     def choose_mulligan(self, marks: list) -> dict:
         """**跳费/中速卡组的换牌口径**（用户 2026-09-29 定调："换牌全留是败笔，
@@ -230,11 +230,13 @@ class StrategicRule:
                 "note": "规则：留便宜/跳费，扔贵 %s" % (pick or "（全留）")}
 
     def choose_main(self, st) -> dict:
-        me = [c for c in st.cards if c.side == "local" and c.location in ("frontline", "back")]
-        foes = [c for c in st.cards if c.side == "enemy" and c.location in ("frontline", "back")]
-        ehq = [c for c in st.cards if c.side == "enemy" and c.location == "hq"]
-        hand = list(st.hand("local"))
-        kred = int((st.kredits or {}).get("local") or 0)
+        # 我方 = st.my_side（读不出 => st.seat() 抛 ValueError，不默认按 1 号座位）；对方 = st.other_side
+        mine, theirs = st.seat(), st.other_side
+        me = [c for c in st.cards if c.side == mine and c.obj.IsFieldUnit()]
+        foes = [c for c in st.cards if c.side == theirs and c.obj.IsFieldUnit()]
+        ehq = [c for c in st.cards if c.side == theirs and c.obj.IsHQ()]
+        hand = list(st.hand(mine))
+        kred = int((st.kredits or {}).get(mine) or 0)
 
         if ehq:                                   # ① 致命一击
             hq_def = float(ehq[0].defense or 0)
@@ -244,8 +246,8 @@ class StrategicRule:
                     dmg += float(a.attack or 0)
                     hitters.append(a)
             if hitters and dmg >= hq_def:
-                return {"kind": "attack", "card": hitters[0].card_id,
-                        "target": ehq[0].card_id, "score": 100.0,
+                return {"kind": "attack", "card": hitters[0].obj.CardID,
+                        "target": ehq[0].obj.CardID, "score": 100.0,
                         "note": "规则：致命 %d≥%d" % (dmg, hq_def)}
 
         best, best_s = None, -1e9                 # ② 有利交换
@@ -260,11 +262,11 @@ class StrategicRule:
                     best, best_s = (a, t), s
         if best is not None and best_s > 0:
             a, t = best
-            return {"kind": "attack", "card": a.card_id, "target": t.card_id,
+            return {"kind": "attack", "card": a.obj.CardID, "target": t.obj.CardID,
                     "score": best_s, "note": "规则：交换 %s→%s" % (a.name, t.name)}
 
-        affordable = [c for c in hand if (c.kredit_cost or 0) <= kred]   # ③ 出牌
-        affordable.sort(key=lambda c: self.unit_score(c) / max(1, c.kredit_cost or 1),
+        affordable = [c for c in hand if (c.obj.getTotalKredits() or 0) <= kred]   # ③ 出牌
+        affordable.sort(key=lambda c: self.unit_score(c) / max(1, c.obj.getTotalKredits() or 1),
                         reverse=True)
         for c in affordable:
             if self.sess.can_play(c).get("can") is False:
@@ -274,23 +276,23 @@ class StrategicRule:
             if is_unit and wants:
                 tg = self._best_target(foes + ehq)
                 if tg is not None:
-                    return {"kind": "play_unit_target", "card": c.card_id,
+                    return {"kind": "play_unit_target", "card": c.obj.CardID,
                             "target": tg, "note": "规则：部署指向 %s" % c.name}
             if is_unit and not wants:
-                return {"kind": "play_unit", "card": c.card_id,
+                return {"kind": "play_unit", "card": c.obj.CardID,
                         "note": "规则：部署 %s" % c.name}
             if not is_unit and wants:
                 tg = self._best_target(foes + ehq)
                 if tg is not None:
-                    return {"kind": "play_event_target", "card": c.card_id,
+                    return {"kind": "play_event_target", "card": c.obj.CardID,
                             "target": tg, "note": "规则：指向指令 %s" % c.name}
             if not is_unit:
-                return {"kind": "play_event", "card": c.card_id,
+                return {"kind": "play_event", "card": c.obj.CardID,
                         "note": "规则：指令 %s" % c.name}
 
         for u in me:                              # ④ 上线
-            if u.location == "back" and self.sess.can_move(u).get("can"):
-                return {"kind": "move_up", "card": u.card_id,
+            if u.obj.InSupportLine() and self.sess.can_move(u).get("can"):
+                return {"kind": "move_up", "card": u.obj.CardID,
                         "note": "规则：上线 %s" % u.name}
 
         return {"kind": "end", "note": "规则：没有更好的动作"}   # ⑤ 结束
@@ -307,19 +309,22 @@ class StrategicRule:
                 "meta": {"kind": row.get("kind"), "trigger_id": row.get("trigger_id")},
                 "note": "规则：候选 %d 个" % len(cands)}
 
-    def choose_hand_target(self, st, pending=None):
-        legal = [c for c in st.hand("local")
-                 if self.sess.hand_target_legal(c).get("can") is not False]
+    def choose_hand_target(self, st, pending=None, exclude_cards=None):
+        legal = [c for c in st.hand(st.seat())
+                 if c.obj.CardID not in (exclude_cards or ())
+                 and self.sess.hand_target_legal(c).get("can") is not False]
         if not legal:
             return None
         c = max(legal, key=self._val)
-        return {"kind": "hand_target", "card": c.card_id,
+        return {"kind": "hand_target", "card": c.obj.CardID,
                 "note": "规则：手牌目标 %s" % c.name}
 
     def choose_board_target(self, st, instigator: int):
-        cands = [c for c in st.cards if c.side == "enemy"
-                 and c.location in ("frontline", "back")]
-        cands += [c for c in st.cards if c.side == "enemy" and c.location == "hq"]
+        theirs = st.other_side
+        if theirs is None:
+            raise ValueError("本地座位 mySide 读不出：无法确定对方")
+        cands = [c for c in st.cards if c.side == theirs and c.obj.IsFieldUnit()]
+        cands += [c for c in st.cards if c.side == theirs and c.obj.IsHQ()]
         tg = self._best_target(cands)
         if tg is None:
             return None
@@ -335,7 +340,7 @@ class StrategicRule:
             rows = (pend or {}).get("choose_one") or []
             return self.choose_pick(rows) if rows else None
         if phase == "hand_target":
-            return self.choose_hand_target(st, pend)
+            return self.choose_hand_target(st, pend, exclude_cards=exclude_cards)
         if phase == "board_target":
             bt = (pend or {}).get("board_target")
             inst = bt if isinstance(bt, int) else None
@@ -347,25 +352,6 @@ class StrategicRule:
 
 
 # ---------------------------------------------------------------------------
-class _C:
-    """离线自检用的假卡（跟 board_api.Card 同字段名）。"""
-
-    def __init__(self, side, loc, cid, name="X", atk=0, dfn=0, cost=0, slot=0):
-        self.side, self.location, self.card_id, self.name = side, loc, cid, name
-        self.attack, self.defense, self.kredit_cost, self.slot = atk, dfn, cost, slot
-        self.uid, self.is_revealed, self.keywords, self.raw = "0x%X" % cid, False, [], {}
-
-
-class _S:
-    def __init__(self, cards, kredits=3, our_turn=True, turn=5, finished=False):
-        self.cards = cards
-        self.kredits = {"local": kredits, "enemy": 2}
-        self.our_turn, self.turn, self.match_finished = our_turn, turn, finished
-
-    def hand(self, side):
-        return [c for c in self.cards if c.side == side and c.location == "hand"]
-
-
 class _Sess:
     """假命令层：只回答判据。"""
 
@@ -373,7 +359,7 @@ class _Sess:
         self.attacks = attacks or {}
 
     def can_attack(self, a, t):
-        return {"ok": True, "can": self.attacks.get((a.card_id, t.card_id), False)}
+        return {"ok": True, "can": self.attacks.get((a.obj.CardID, t.obj.CardID), False)}
 
     def can_play(self, c):
         return {"ok": True, "can": True}
@@ -388,9 +374,15 @@ class _Sess:
         return []
 
 
-def selftest() -> int:
+def selftest(mk, BoardState, ME=1, OPP=2) -> int:
+    """`mk(card_id, side, zone, name, attack, defense, kredit_cost, ...)` 造真 `Card`，`BoardState` 是
+    `kardsmem.board.BoardState`（本层不 import kardsmem：`python -m learn.baselines` 从 tests/_learn_cards.py 注入）。"""
     from .encode import _fake_card, _fake_state, _sample, encode_sample
     from .features import CardTable
+
+    def _S(cards, kredits=3, my_side=ME):
+        return BoardState(source="selftest", cards=cards, my_side=my_side, turn=5, our_turn=True,
+                          kredits={ME: kredits, OPP: 2})
 
     table = CardTable.load()
     fails = 0
@@ -401,7 +393,7 @@ def selftest() -> int:
         fails += 0 if ok else 1
 
     st = _fake_state()
-    st["cards"].append(_fake_card("local", "back", 9001, "15th ENGINEERS", 5, 2, 5, 2))
+    st["cards"].append(_fake_card(1, "back", 9001, "15th ENGINEERS", 5, 2, 5, 2))
     atk = encode_sample(_sample(st, label={"type": "attack", "subject": 13003,
                                            "target": 59, "option": None}), table)
     pk = encode_sample(_sample(st, phase="pick",
@@ -433,19 +425,19 @@ def selftest() -> int:
     chk("greedy：pick 里看不出费用时也不越界", 0 <= g2["opt"] < len(pk.opt))
 
     # ---- StrategicRule（在线强基线）：这里离线测它的**排序逻辑**
-    st = _S([_C("local", "frontline", 10, "A", 5, 2, 3),
-             _C("local", "frontline", 11, "B", 6, 4, 4),
-             _C("enemy", "hq", 41, "HQ", 0, 9, 0),
-             _C("enemy", "back", 50, "E", 2, 3, 2)])
+    st = _S([mk(10, ME, "frontline", "A", 5, 2, 3),
+             mk(11, ME, "frontline", "B", 6, 4, 4),
+             mk(41, OPP, "hq", "HQ", 0, 9, 0),
+             mk(50, OPP, "back", "E", 2, 3, 2)])
     sr = StrategicRule(_Sess({(10, 41): True, (11, 41): True}))
     a = sr.choose_main(st)
     chk("rule 基线：致命一击优先（5+6≥9 打总部）",
         a["kind"] == "attack" and a["target"] == 41)
 
-    st2 = _S([_C("local", "frontline", 10, "A", 5, 5, 3),
-              _C("enemy", "hq", 41, "HQ", 0, 30, 0),
-              _C("enemy", "back", 50, "SOFT", 1, 3, 1),
-              _C("enemy", "back", 51, "BIG", 7, 9, 6)])
+    st2 = _S([mk(10, ME, "frontline", "A", 5, 5, 3),
+              mk(41, OPP, "hq", "HQ", 0, 30, 0),
+              mk(50, OPP, "back", "SOFT", 1, 3, 1),
+              mk(51, OPP, "back", "BIG", 7, 9, 6)])
     sr2 = StrategicRule(_Sess({(10, 41): False, (10, 50): True, (10, 51): True}))
     a2 = sr2.choose_main(st2)
     chk("rule 基线：有利交换挑软的", a2["kind"] == "attack" and a2["target"] == 50)
@@ -453,20 +445,31 @@ def selftest() -> int:
                               (10, 51): False})).choose_main(st2)
     chk("rule 基线反例：判据全 False 时不许攻击", a6["kind"] != "attack")
 
-    st3 = _S([_C("local", "hand", 20, "CHEAP", 2, 2, 2),
-              _C("local", "hand", 21, "BEST", 5, 5, 3),
-              _C("local", "hand", 22, "TOO-EXPENSIVE", 9, 9, 9),
-              _C("enemy", "hq", 41, "HQ", 0, 20, 0)], kredits=3)
+    st3 = _S([mk(20, ME, "hand", "CHEAP", 2, 2, 2),
+              mk(21, ME, "hand", "BEST", 5, 5, 3),
+              mk(22, ME, "hand", "TOO-EXPENSIVE", 9, 9, 9),
+              mk(41, OPP, "hq", "HQ", 0, 20, 0)], kredits=3)
     a3 = StrategicRule(_Sess()).choose_main(st3)
     chk("rule 基线：费用内挑价值最高的", a3["kind"] == "play_unit" and a3["card"] == 21)
 
-    st4 = _S([_C("local", "back", 30, "U", 3, 3, 3),
-              _C("enemy", "hq", 41, "HQ", 0, 20, 0)], kredits=0)
+    st4 = _S([mk(30, ME, "back", "U", 3, 3, 3),
+              mk(41, OPP, "hq", "HQ", 0, 20, 0)], kredits=0)
     chk("rule 基线：没牌可打就上线",
         StrategicRule(_Sess()).choose_main(st4)["kind"] == "move_up")
-    st5 = _S([_C("enemy", "hq", 41, "HQ", 0, 20, 0)], kredits=0)
+    st5 = _S([mk(41, OPP, "hq", "HQ", 0, 20, 0)], kredits=0)
     chk("rule 基线：无事可做 -> 结束",
         StrategicRule(_Sess()).choose_main(st5)["kind"] == "end")
+    # 座位换边（本地玩家是 2 号座位）：结论必须跟着 my_side 走，不是写死 1 号座位
+    st6 = _S([mk(10, OPP, "frontline", "A", 5, 2, 3), mk(11, OPP, "frontline", "B", 6, 4, 4),
+              mk(41, ME, "hq", "HQ", 0, 9, 0)], my_side=OPP)
+    st6.kredits = {ME: 2, OPP: 3}
+    a7 = StrategicRule(_Sess({(10, 41): True, (11, 41): True})).choose_main(st6)
+    chk("rule 基线：我方是 2 号座位时致命一击照样成立", a7["kind"] == "attack" and a7["target"] == 41)
+    try:
+        StrategicRule(_Sess()).choose_main(_S([mk(41, OPP, "hq", "HQ", 0, 9, 0)], my_side=None))
+        chk("反例：my_side 读不出必须报错（不默认按 1）", False)
+    except ValueError:
+        chk("反例：my_side 读不出必须报错（不默认按 1）", True)
 
     marks = [{"slot": i, "name": n, "card_id": i + 1} for i, n in
              enumerate(("A", "B", "C", "D"))]
@@ -479,5 +482,8 @@ def selftest() -> int:
 
 
 if __name__ == "__main__":
+    import os
     import sys
-    sys.exit(1 if selftest() else 0)
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests"))
+    from _learn_cards import BoardState, mk_card, ME, OPP
+    sys.exit(1 if selftest(mk_card, BoardState, int(ME), int(OPP)) else 0)

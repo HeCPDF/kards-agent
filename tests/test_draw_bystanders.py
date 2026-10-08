@@ -13,10 +13,12 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
 import semantics.triggers as TR                                    # noqa: E402
-from policy.boardeval import H, U                               # noqa: E402
+from engine.state import H, Sim, U                                 # noqa: E402
+from evaluation.value import W                                     # noqa: E402
 from sim.chain import draw_chain                               # noqa: E402
+from sim.engine import _apply_eff, _res_eff                        # noqa: E402
 
 fails = 0
 
@@ -107,29 +109,29 @@ def main():
     # ---------------- draw_chain 的接线（纯函数） ----------------
     top = H(7, "TOP", 1, "order", eff={})
     def mk(**kw):
-        return B.Sim({1: U(1, "local", "back", 2, 2, 2, "infantry")},
-                     {"local": 20, "enemy": 20}, 5.0, {}, deck=[7], deck_cards={7: top}, **kw)
+        return Sim({1: U(1, ME, "back", 2, 2, 2, "infantry")},
+                     {ME: 20, OPP: 20}, 5.0, {}, deck=[7], deck_cards={7: top}, **kw, my_side=ME)
 
     s0 = mk()
-    B._res_eff(s0, {"draw": 1})
+    _res_eff(s0, {"draw": 1})
     chk("没有 draw_fx ⇒ 抽牌行为不变", next(iter(s0.hand.values())).name == "TOP" and s0.kredits == 5.0)
 
     s1 = mk(event_fx={"draw": {7: {"kredit": 1}}})
-    B._res_eff(s1, {"draw": 1})
+    _res_eff(s1, {"draw": 1})
     chk("旁观者效果结算（抽到 7 ⇒ 指挥点 +1）", s1.kredits == 6.0, "kred=%s" % s1.kredits)
 
     s2 = mk(event_fx={"draw": {8: {"kredit": 1}}})          # 键对不上抽到的那张
-    B._res_eff(s2, {"draw": 1})
+    _res_eff(s2, {"draw": 1})
     chk("键对不上 ⇒ 不生效（只有抽到 7 时才算）", s2.kredits == 5.0, "kred=%s" % s2.kredits)
 
     # 旁观者也会"再抽"：只入队、不双算
     a = H(11, "A", 1, "order", eff={})
     b = H(12, "B", 1, "order", eff={})
-    s3 = B.Sim({1: U(1, "local", "back", 2, 2, 2, "infantry")}, {"local": 20, "enemy": 20}, 5.0, {},
+    s3 = Sim({1: U(1, ME, "back", 2, 2, 2, "infantry")}, {ME: 20, OPP: 20}, 5.0, {},
                deck=[11, 12], deck_cards={11: a, 12: b},
-               event_fx={"draw": {11: {"draw": 1}, 12: {"draw": 1}}})
-    run = draw_chain(s3, 1, apply_effect=B._apply_eff, hand_cap=B.W["hand_cap"],
-                     anon_hold=B.W["draw_v"], bystander_fx=s3.event_fx["draw"].get)
+               event_fx={"draw": {11: {"draw": 1}, 12: {"draw": 1}}}, my_side=ME)
+    run = draw_chain(s3, 1, apply_effect=_apply_eff, hand_cap=W["hand_cap"],
+                     anon_hold=W["draw_v"], bystander_fx=s3.event_fx["draw"].get)
     names = [h.name for h in s3.hand.values()]
     # 链条：抽 A → A 的旁观者"再抽 1" → 抽 B → B 的旁观者也"再抽 1" → 牌库空 ⇒ 疲劳（0 伤、计数→1）
     chk("旁观者的'再抽 1 张'入队，连到牌库空 ⇒ 疲劳（不双算、不死循环）",
@@ -141,9 +143,9 @@ def main():
     # 自己先、旁观者后：两条都改指挥点，顺序不影响结果；用"再抽"验顺序（自己先入队）
     a2 = H(21, "A2", 1, "order", eff={"_on_draw": {"draw": 1}})
     b2 = H(22, "B2", 1, "order", eff={})
-    s4 = B.Sim({1: U(1, "local", "back", 2, 2, 2, "infantry")}, {"local": 20, "enemy": 20}, 5.0, {},
-               deck=[21, 22], deck_cards={21: a2, 22: b2}, event_fx={"draw": {21: {"kredit": 2}}})
-    B._res_eff(s4, {"draw": 1})
+    s4 = Sim({1: U(1, ME, "back", 2, 2, 2, "infantry")}, {ME: 20, OPP: 20}, 5.0, {},
+               deck=[21, 22], deck_cards={21: a2, 22: b2}, event_fx={"draw": {21: {"kredit": 2}}}, my_side=ME)
+    _res_eff(s4, {"draw": 1})
     chk("自己的 _on_draw 与旁观者都生效（再抽 1 + 指挥点 +2）",
         len(s4.hand) == 2 and s4.kredits == 7.0, "hand=%d kred=%s" % (len(s4.hand), s4.kredits))
 

@@ -21,7 +21,6 @@ import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import sys
 
-sys.path.insert(0, r"D:\Kards\kards-agent")
 
 
 from kardsmem import matchlog as ML                      # noqa: E402
@@ -219,16 +218,35 @@ def main():
     finally:
         ML.MatchLog = old_ml
 
-    print("== F. _side_name 用本局座位判 local/enemy ==")
+    print("== F. 座位是绝对的 ESide；『我方』= my_side(session)（随 MatchLog 走），读不出抛 ValueError ==")
+    from kardsmem.gamemodel import ESide
     try:
         ML.MatchLog = StubMatchLog
         seat["v"] = 2
         sess = FakeSession()
-        chk("座位 2：side_enum=2 ⇒ local", C._side_name(sess, 2), "local")
-        chk("座位 2：side_enum=1 ⇒ enemy", C._side_name(sess, 1), "enemy")
+        chk("side_enum=2 ⇒ ESide.right（与谁是本地无关）", C._seat_of(2), ESide.right)
+        chk("side_enum=1 ⇒ ESide.left", C._seat_of(1), ESide.left)
+        chk("side_enum=0 ⇒ None", C._seat_of(0), None)
+        chk("座位 2：my_side(session) = ESide.right", C.my_side(sess), ESide.right)
         seat["v"] = 1
         sess2 = FakeSession()
-        chk("座位 1：side_enum=1 ⇒ local", C._side_name(sess2, 1), "local")
+        chk("座位 1：my_side(session) = ESide.left", C.my_side(sess2), ESide.left)
+        seat["v"] = None
+        sess3 = FakeSession()
+        try:
+            C.my_side(sess3)
+            chk("mySide 读不出 ⇒ my_side() 抛 ValueError", "没抛", "抛")
+        except ValueError:
+            chk("mySide 读不出 ⇒ my_side() 抛 ValueError", True, True)
+        try:
+            C.hand(sess3)
+            chk("mySide 读不出 ⇒ hand() 缺省座位抛 ValueError", "没抛", "抛")
+        except ValueError:
+            chk("mySide 读不出 ⇒ hand() 缺省座位抛 ValueError", True, True)
+        chk("命令行 left/right 不需要 mySide", C.parse_side(sess3, "right"), ESide.right)
+        seat["v"] = 2
+        chk("命令行 me/opp 入口处现算", (C.parse_side(FakeSession(), "me"), C.parse_side(FakeSession(), "opp")),
+            (ESide.right, ESide.left))
     finally:
         ML.MatchLog = old_ml
 

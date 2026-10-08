@@ -235,7 +235,7 @@ def selftest() -> int:
     st = _fake_state()
     # 给攻击方再加一张我方场上单位：subject 头就有 2 个候选，loss 才不是恒 0
     st_rich = _fake_state()
-    st_rich["cards"].append(_fake_card("local", "back", 9001, "15th ENGINEERS",
+    st_rich["cards"].append(_fake_card(1, "back", 9001, "15th ENGINEERS",
                                        5, 2, 5, 2))
     atk = encode_sample(_sample(st_rich, label={"type": "attack",
                                                 "subject": 13003,
@@ -302,7 +302,7 @@ def selftest() -> int:
 
     # 输入敏感性（§6：专抓"常数头"）：两个不同局面，输出必须变
     st2 = _fake_state()
-    st2["kredits"]["local"] = 0
+    st2["kredits"][1] = 0           # 座位 1 = 本地玩家（自检约定）
     st2["cards"] = [c for c in st2["cards"] if c.get("card_id") != 13003]
     end2 = encode_sample(_sample(st2, label={"type": "end", "subject": None,
                                              "target": None, "option": None}), table)

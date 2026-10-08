@@ -158,6 +158,23 @@ def read_card_name(m, self_ref: int, diag: Optional[dict] = None) -> Optional[st
 # --------------------------------------------------------------------------
 # 数据模型
 # --------------------------------------------------------------------------
+
+def _side_int(card):
+    """Card.side（ESide）→ int；读不出 None。座位是绝对的 1/2，不是“我方/对方”。"""
+    sd = getattr(card, "side", None)
+    return None if sd is None else int(sd)
+
+
+def _loc_name(card):
+    """Card 的位置 → `ECardLocation` 名字（Hand_Left …）；读不出 None。"""
+    obj = getattr(card, "obj", None)
+    loc = None if obj is None else obj.Location
+    if loc is None:
+        return None
+    from .gamemodel import ECardLocation
+    return ECardLocation(loc).name
+
+
 @dataclass
 class RenderedCard:
     """屏幕上的一张卡（`ABP_BaseCard_C` 家族 actor）。
@@ -193,10 +210,10 @@ class RenderedCard:
                 "index": self.index,
                 "base_card": (None if self.base_card is None else {
                     "uid": getattr(self.base_card, "uid", None),
-                    "card_id": getattr(self.base_card, "card_id", None),
+                    "card_id": self.base_card.obj.CardID,
                     "name": getattr(self.base_card, "name", None),
-                    "side": getattr(self.base_card, "side", None),
-                    "location": getattr(self.base_card, "location", None),
+                    "side": _side_int(self.base_card),
+                    "location": _loc_name(self.base_card),
                     "slot": getattr(self.base_card, "slot", None),
                 }),
                 "notes": dict(self.notes)}
@@ -210,8 +227,8 @@ class RenderedCard:
         else:
             bc = self.base_card
             mt = "匹配(%s) %s/%s slot=%s" % (
-                self.matched_by, getattr(bc, "side", "?"),
-                getattr(bc, "location", "?"), getattr(bc, "slot", "?"))
+                self.matched_by, _side_int(bc) if _side_int(bc) is not None else "?",
+                _loc_name(bc) or "?", getattr(bc, "slot", "?"))
         return ("actor[%s] 0x%X propsize=%s CardID=%-6s %-28s class=%-24s kind=%-20s %s"
                 % (self.index if self.index is not None else "?",
                    self.actor, self.propsize, cid, nm[:28], cn[:24], self.kind, mt))
@@ -357,7 +374,7 @@ def match_to_board(rendered, snapshot) -> None:
     by_id = {}
     by_name = {}
     for c in cards:
-        cid = getattr(c, "card_id", None)
+        cid = c.obj.CardID
         if cid is not None:
             by_id.setdefault(cid, c)
         nm = getattr(c, "name", None)
@@ -406,8 +423,7 @@ def summary(rendered) -> dict:
             have_name += 1
         if r.base_card is not None:
             matched += 1
-            key = "%s/%s" % (getattr(r.base_card, "side", "?"),
-                             getattr(r.base_card, "location", "?"))
+            key = "%s/%s" % (_side_int(r.base_card), _loc_name(r.base_card))
             by_loc[key] = by_loc.get(key, 0) + 1
         else:
             unmatched += 1
@@ -485,11 +501,11 @@ def main(argv=None) -> int:
             on_screen_uid = {getattr(r.base_card, "uid", None) for r in rc if r.base_card}
             miss = [c for c in snap.cards
                     if c.uid not in on_screen_uid
-                    and getattr(c, "location", None) in ("hand", "frontline", "back", "hq")]
+                    and (c.obj.InHand() or c.obj.InFrontline() or c.obj.InSupportLine())]
             print("盘面有/屏幕无（hand+场上） = %d 张" % len(miss))
             for c in miss:
                 print("  uid=%s side=%s loc=%s slot=%s CardID=%s name=%r"
-                      % (c.uid, c.side, c.location, c.slot, c.card_id, c.name))
+                      % (c.uid, _side_int(c), _loc_name(c), c.slot, c.obj.CardID, c.name))
         print("turn=%s our_turn=%s match_finished=%s"
               % (None if snap is None else snap.turn,
                  None if snap is None else snap.our_turn,

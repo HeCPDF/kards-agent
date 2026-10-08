@@ -20,6 +20,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from _cards import ME, OPP                              # noqa: E402
+from kardsmem import gamemodel as GM                            # noqa: E402
 from semantics import triggers as T                                   # noqa: E402
 import kardsmem.objects as _oa                                    # noqa: E402
 
@@ -46,6 +48,13 @@ class FakeCard:
                 self.raw.update(v)
             else:
                 setattr(self, k, v)
+        # 原版对象：semantics 读 `card.obj.side / IsHQ() / IsFieldUnit() / Location`
+        _es = GM.ESide(side)
+        _hq = getattr(self, "location", None) == "hq"
+        self.obj = GM.BaseCardObject(
+            CardID=ptr, side=_es, title=name,
+            Type=GM.EType.location if _hq else GM.EType[getattr(self, "card_type", "infantry")],
+            Location=GM.SUPPORT_OF[_es] if _hq else GM.ECardLocation.Board_Frontline)
 
 
 class FakeStream:
@@ -128,15 +137,15 @@ def names(r):
 
 # ----------------------------------------------------------------------------------------------
 def mk_cards():
-    A = FakeCard("A", 1, "local", ovr=("OnBeforeAttack", "OnAfterAttack", "OnOperationKreditsSpent",
+    A = FakeCard("A", 1, ME, ovr=("OnBeforeAttack", "OnAfterAttack", "OnOperationKreditsSpent",
                                        "OnOtherCardAttacks", "OnAttackStopped", "OnOtherCardAttackSwitchTarget",
                                        "OnReceiveDamage"))
-    D = FakeCard("D", 2, "enemy", ovr=("OnReceiveDamage",))
-    X = FakeCard("X", 3, "local", ovr=("OnAfterOtherCardAttacks", "OnBeforeOtherCardAttacks"))
-    Y = FakeCard("Y", 4, "enemy", ovr=("OnAfterOtherCardAttacks", "OnOtherCardAttacks",
+    D = FakeCard("D", 2, OPP, ovr=("OnReceiveDamage",))
+    X = FakeCard("X", 3, ME, ovr=("OnAfterOtherCardAttacks", "OnBeforeOtherCardAttacks"))
+    Y = FakeCard("Y", 4, OPP, ovr=("OnAfterOtherCardAttacks", "OnOtherCardAttacks",
                                        "OnOtherCardAttackSwitchTarget", "OnOtherCardOperationKreditsSpent",
                                        "OnOtherCardReceiveDamage"))
-    Z = FakeCard("Z", 5, "enemy", ovr=("OnAfterOtherCardAttacks",), suppressed=True)
+    Z = FakeCard("Z", 5, OPP, ovr=("OnAfterOtherCardAttacks",), suppressed=True)
     return A, D, X, Y, Z
 
 
@@ -202,8 +211,8 @@ chk("stop 影响结果：换掉 Y 的出参（不 stop）答案就变回 resolve
         cost=2)["outcome"] == "resolved")
 
 # 3b) 0x1F 不提前 break：两张牌都问了，stop 取"或"
-C1 = FakeCard("C1", 11, "enemy", ovr=("OnOtherCardAttacks",))
-C2 = FakeCard("C2", 12, "enemy", ovr=("OnOtherCardAttacks",))
+C1 = FakeCard("C1", 11, OPP, ovr=("OnOtherCardAttacks",))
+C2 = FakeCard("C2", 12, OPP, ovr=("OnOtherCardAttacks",))
 w = World([A, D, C1, C2], {("OnOtherCardAttacks", 11): {"stopAttack": True}})
 r = run(w, A, D, damage=1, cost=1)
 chk("0x1F 全问一遍（C1 回 stop 之后 C2 仍被问）",
@@ -221,7 +230,7 @@ chk("AttackedAndStopped ⇒ 消耗行动：付费、OnBeforeAttack、0x0D、OnAt
 chk("AttackedAndStopped 之后防守方置空（defender=0）", r["defender"] == 0)
 
 # 5) 换目标：第一张回新防守方的牌生效并 break；之后的钩子都用新防守方
-D2 = FakeCard("D2", 20, "enemy", ovr=())
+D2 = FakeCard("D2", 20, OPP, ovr=())
 w = World([A, D, D2, X, Y], {("OnOtherCardAttackSwitchTarget", 1): {"newDefender": 20},
                              ("OnOtherCardAttackSwitchTarget", 4): {"newDefender": 99}})
 r = run(w, A, D, damage=3, cost=2)
@@ -251,8 +260,8 @@ def with_idx(cs):
     return out
 
 
-P = FakeCard("P", 31, "local", ovr=("OnAfterOtherCardAttacks",))
-Q = FakeCard("Q", 32, "enemy", ovr=("OnAfterOtherCardAttacks",))
+P = FakeCard("P", 31, ME, ovr=("OnAfterOtherCardAttacks",))
+Q = FakeCard("Q", 32, OPP, ovr=("OnAfterOtherCardAttacks",))
 sc = {("OnAfterOtherCardAttacks", 31): draw_eff, ("OnAfterOtherCardAttacks", 32): draw_eff}
 base = [A, D, P, Q]
 r1 = run(World(with_idx(base), sc), A, D, damage=1, cost=1)
@@ -270,13 +279,13 @@ chk("没有 enum_idx ⇒ 保持快照顺序（如实退化）",
     [h["name"] for h in r3["hits"] if h["hook"] == "OnAfterOtherCardAttacks"] == ["Q", "P"])
 
 # 7) 压制：被压制的攻击者不跑自己的 OnBeforeAttack/OnAfterAttack；被压制的受击方没有受击通知
-As = FakeCard("A", 1, "local", ovr=A.ovr, suppressed=True)
+As = FakeCard("A", 1, ME, ovr=A.ovr, suppressed=True)
 r = run(World([As, D, X, Y]), As, D, damage=3, cost=2)
 chk("攻击者被压制 ⇒ 自己的 OnBeforeAttack/OnAfterAttack 不跑；花费通知照跑（字节码不查压制）；别人的 0x04 照跑",
     ("OnBeforeAttack", "A") not in names(r) and ("OnAfterAttack", "A") not in names(r)
     and ("OnOperationKreditsSpent", "A") in names(r)
     and ("OnAfterOtherCardAttacks", "X") in names(r))
-Ds = FakeCard("D", 2, "enemy", ovr=("OnReceiveDamage",), suppressed=True)
+Ds = FakeCard("D", 2, OPP, ovr=("OnReceiveDamage",), suppressed=True)
 r = run(World([A, Ds, X, Y]), A, Ds, damage=3, cost=2)
 chk("受击方被压制 ⇒ 无受击通知（OnReceiveDamage/0x34 对防守方）",
     [n for h, n in names(r) if h == "OnReceiveDamage"] == [] and
@@ -312,60 +321,60 @@ def dmg(world, a, d, **kw):
 
 
 # 1) 基础：3 攻打 2 防 ⇒ 打死；换防守方 5 防 ⇒ 没打死（换数据答案要变）
-A1, D1 = unit("A", 1, "local", atk=3, dfn=4), unit("D", 2, "enemy", atk=2, dfn=2)
+A1, D1 = unit("A", 1, ME, atk=3, dfn=4), unit("D", 2, OPP, atk=2, dfn=2)
 r = dmg(World([A1, D1]), A1, D1)
 chk("基础伤害：3 攻打 2 防 ⇒ 3 点、防守方阵亡；反击 2 点、攻击者(防 4)不死",
     r["damage"] == 3 and r["defender_destroyed"] and r["damage_to_attacker"] == 2 and not r["attacker_destroyed"], r)
-D1b = unit("D", 2, "enemy", atk=2, dfn=5)
+D1b = unit("D", 2, OPP, atk=2, dfn=5)
 r = dmg(World([A1, D1b]), A1, D1b)
 chk("换防守方(防 5) ⇒ 不阵亡（答案跟着变）", r["damage"] == 3 and not r["defender_destroyed"])
 
 # 2) 重甲：防守方重甲 2 ⇒ 3-2=1
-Dar = unit("D", 2, "enemy", atk=2, dfn=5, raw={"total_heavy_armor": 2})
+Dar = unit("D", 2, OPP, atk=2, dfn=5, raw={"total_heavy_armor": 2})
 chk("重甲 2 ⇒ 伤害 1", dmg(World([A1, Dar]), A1, Dar)["damage"] == 1)
 
 # 3) 伏击：防守方伏击、攻击者防 2 ⇒ 防守方的伤害(3) >= 攻击者防(2) ⇒ 攻击者打不出伤害，且被打死
-Aamb = unit("A", 1, "local", atk=3, dfn=2)
-Damb = unit("D", 2, "enemy", atk=3, dfn=5, kw=("ambush",))
+Aamb = unit("A", 1, ME, atk=3, dfn=2)
+Damb = unit("D", 2, OPP, atk=3, dfn=5, kw=("ambush",))
 r = dmg(World([Aamb, Damb]), Aamb, Damb)
 chk("伏击：攻击者伤害被清零且阵亡", r["damage"] == 0 and r["attacker_destroyed"], r)
-Aamb2 = unit("A", 1, "local", atk=3, dfn=4)
+Aamb2 = unit("A", 1, ME, atk=3, dfn=4)
 r = dmg(World([Aamb2, Damb]), Aamb2, Damb)
 chk("伏击：攻击者防 4 > 3 ⇒ 伏击杀不死，正常对打（答案跟着变）", r["damage"] == 3 and not r["attacker_destroyed"], r)
-Dwas = unit("D", 2, "enemy", atk=3, dfn=5, kw=("ambush",), has_been_attacked_this_turn=True)
+Dwas = unit("D", 2, OPP, atk=3, dfn=5, kw=("ambush",), has_been_attacked_this_turn=True)
 r = dmg(World([Aamb, Dwas]), Aamb, Dwas)
 chk("伏击只在'本回合首次被攻击'生效：已被攻击过 ⇒ 不触发", r["damage"] == 3, r)
 
 # 4) 冲击：攻击者带冲击 ⇒ 防守方反击为 0，wasShockAttack=True 传给 OnAfterAttack
-Ash = unit("A", 1, "local", atk=3, dfn=4, kw=("shock",), ovr=("OnAfterAttack",))
-D4 = unit("D", 2, "enemy", atk=2, dfn=5)
+Ash = unit("A", 1, ME, atk=3, dfn=4, kw=("shock",), ovr=("OnAfterAttack",))
+D4 = unit("D", 2, OPP, atk=2, dfn=5)
 w = World([Ash, D4])
 r = dmg(w, Ash, D4)
 oa = [a for h, p, a in w.calls if h == "OnAfterAttack"][0]
 chk("冲击：反击为 0；OnAfterAttack.wasShockAttack=True", r["damage_to_attacker"] == 0 and oa["wasShockAttack"] is True, (r, oa))
 
 # 5) 炮兵攻击不吃反击；轰炸机攻击步兵无反击；轰炸机攻击战斗机有反击
-Art = unit("A", 1, "local", typ="artillery", atk=3, dfn=2)
+Art = unit("A", 1, ME, typ="artillery", atk=3, dfn=2)
 chk("炮兵攻击 ⇒ 无反击", dmg(World([Art, D4]), Art, D4)["damage_to_attacker"] == 0)
-Bmb = unit("B", 3, "local", typ="bomber", atk=2, dfn=2)
+Bmb = unit("B", 3, ME, typ="bomber", atk=2, dfn=2)
 chk("轰炸机攻击步兵 ⇒ 无反击", dmg(World([Bmb, D4]), Bmb, D4)["damage_to_attacker"] == 0)
-Fgt = unit("F", 4, "enemy", typ="fighter", atk=2, dfn=2)
+Fgt = unit("F", 4, OPP, typ="fighter", atk=2, dfn=2)
 chk("轰炸机攻击战斗机 ⇒ 有反击(战斗机例外)", dmg(World([Bmb, Fgt]), Bmb, Fgt)["damage_to_attacker"] == 2)
 
 # 6) lethal：1 点伤害也打死非总部；对总部(location)无效
-Alt = unit("A", 1, "local", atk=1, dfn=3, raw={"received_abilities": [{"ability": "lethal"}]})
-Dbig = unit("D", 2, "enemy", atk=0, dfn=9)
+Alt = unit("A", 1, ME, atk=1, dfn=3, raw={"received_abilities": [{"ability": "lethal"}]})
+Dbig = unit("D", 2, OPP, atk=0, dfn=9)
 chk("lethal：1 点伤害打死 9 防单位", dmg(World([Alt, Dbig]), Alt, Dbig)["defender_destroyed"])
-HQe = FakeCard("HQ", 9, "enemy", card_type="location", attack=0, defense=9, keywords=[], location="hq")
+HQe = FakeCard("HQ", 9, OPP, card_type="location", attack=0, defense=9, keywords=[], location="hq")
 r = dmg(World([Alt, HQe]), Alt, HQe)
 chk("lethal 对总部无效", not r["defender_destroyed"] and r["outcome"] == "resolved", r)
 
 # 7) 钩子改写伤害：ModifyDamageDealt(+2) → 0x25(+1) → 自己 AfterCalc(+1) → 0x26(+1，第二张不再被问)
-Ah = unit("A", 1, "local", atk=3, dfn=9, ovr=("OnCardDealDamage_ModifyDamageDealt", "OnDealDamageAddDamageAfterCalc"))
-Dh = unit("D", 2, "enemy", atk=0, dfn=20)
-X25 = FakeCard("X25", 31, "local", ovr=("OnOtherCardDealDamageAddDamage",), card_type="order")
-Y26 = FakeCard("Y26", 32, "enemy", ovr=("OnOtherCardDealDamageAddDamageAfterCalc",), card_type="order")
-Z26 = FakeCard("Z26", 33, "enemy", ovr=("OnOtherCardDealDamageAddDamageAfterCalc",), card_type="order")
+Ah = unit("A", 1, ME, atk=3, dfn=9, ovr=("OnCardDealDamage_ModifyDamageDealt", "OnDealDamageAddDamageAfterCalc"))
+Dh = unit("D", 2, OPP, atk=0, dfn=20)
+X25 = FakeCard("X25", 31, ME, ovr=("OnOtherCardDealDamageAddDamage",), card_type="order")
+Y26 = FakeCard("Y26", 32, OPP, ovr=("OnOtherCardDealDamageAddDamageAfterCalc",), card_type="order")
+Z26 = FakeCard("Z26", 33, OPP, ovr=("OnOtherCardDealDamageAddDamageAfterCalc",), card_type="order")
 sc = {("OnCardDealDamage_ModifyDamageDealt", 1): lambda a, st_: {"newDamage": a["Damage"] + 2},
       ("OnOtherCardDealDamageAddDamage", 31): {"damageToAdd": 1},
       ("OnDealDamageAddDamageAfterCalc", 1): {"damageToAdd": 1},
@@ -389,9 +398,9 @@ chk("0x26 实参：cardDealingDamage/toCard/Damage/fromAttack/isRedirected",
 # 8) 受击/幸存/造成伤害/摧毁链的顺序与形参
 ALL_OWN = ("OnReceiveDamage", "OnSurvivedCombat", "OnCardDealDamage", "OnDestroyed", "OnBeforeDestroyed",
            "OnLeaveBoardOrOwner", "OnAfterLeaveBoard", "OnAfterDestroyed", "OnCardLocationMoved")
-A8 = unit("A", 1, "local", atk=3, dfn=4, ovr=ALL_OWN)
-D8 = unit("D", 2, "enemy", atk=5, dfn=2, ovr=ALL_OWN)
-Xo = FakeCard("X", 3, "local", ovr=("OnOtherCardDestroyed", "OnOtherCardSurvivedCombat", "OnOtherCardDealDamage",
+A8 = unit("A", 1, ME, atk=3, dfn=4, ovr=ALL_OWN)
+D8 = unit("D", 2, OPP, atk=5, dfn=2, ovr=ALL_OWN)
+Xo = FakeCard("X", 3, ME, ovr=("OnOtherCardDestroyed", "OnOtherCardSurvivedCombat", "OnOtherCardDealDamage",
                                     "OnBeforeOtherCardDestroyed", "OnOtherCardLeaveBoardOrOwner",
                                     "OnAfterOtherCardLeaveBoardOrOwner", "OnOtherCardLocationMoved"), card_type="order")
 w = World([A8, D8, Xo])
@@ -411,7 +420,7 @@ chk("0x27 实参：cardDestroyed/killer/TriggerNotDestroyed/destroyedLocation/se
     od[0] == {"cardDestroyed": 2, "killer": 1, "TriggerNotDestroyed": False, "destroyedLocation": 7,
               "selfIsAlsoGettingDestroyed": False, "destroyedInCombat": True}, od[0])
 # 只有防守方死：攻击者幸存 ⇒ 幸存通知(攻击者)；摧毁链只对防守方
-A8b = unit("A", 1, "local", atk=3, dfn=9, ovr=ALL_OWN)
+A8b = unit("A", 1, ME, atk=3, dfn=9, ovr=ALL_OWN)
 r = dmg(World([A8b, D8, Xo]), A8b, D8)
 hs = [(h, n) for h, n in names(r)]
 chk("只有防守方死：攻击者幸存通知 + 防守方摧毁链；防守方没有幸存通知",
@@ -423,39 +432,39 @@ chk("顺序：受击 → 幸存 → 造成伤害 → 摧毁链",
     < i[("OnBeforeDestroyed", "D")] < i[("OnDestroyed", "D")], hs)
 
 # 9) 总部被打死 ⇒ 对局结束，后面什么都不发生
-HQ9 = FakeCard("HQ", 9, "enemy", card_type="location", attack=0, defense=3, keywords=[], location="hq",
+HQ9 = FakeCard("HQ", 9, OPP, card_type="location", attack=0, defense=3, keywords=[], location="hq",
                ovr=("OnOtherCardDestroyed",))
-A9 = unit("A", 1, "local", atk=3, dfn=4, ovr=("OnAfterAttack", "OnOperationKreditsSpent"))
+A9 = unit("A", 1, ME, atk=3, dfn=4, ovr=("OnAfterAttack", "OnOperationKreditsSpent"))
 r = dmg(World([A9, HQ9, Xo]), A9, HQ9)
 chk("打死总部 ⇒ outcome=match_end、winner=local；无 OnAfterAttack/花费通知/摧毁链",
-    r["outcome"] == "match_end" and r["match_end"] == "local"
+    r["outcome"] == "match_end" and r["match_end"] == ME
     and all(h not in ("OnAfterAttack", "OnOperationKreditsSpent", "OnOtherCardDestroyed") for h, _n in names(r)),
     names(r))
-HQ9b = FakeCard("HQ", 9, "enemy", card_type="location", attack=0, defense=9, keywords=[], location="hq")
+HQ9b = FakeCard("HQ", 9, OPP, card_type="location", attack=0, defense=9, keywords=[], location="hq")
 chk("总部没死 ⇒ 照常 resolved", dmg(World([A9, HQ9b]), A9, HQ9b)["outcome"] == "resolved")
 chk("防守方是总部 ⇒ 没有幸存通知",
     all(h not in ("OnSurvivedCombat", "OnOtherCardSurvivedCombat")
         for h, _n in names(dmg(World([A9, HQ9b, Xo]), A9, HQ9b))))
 
 # 10) excess：溢出伤害打总部
-Aex = unit("A", 1, "local", atk=5, dfn=9, raw={"received_abilities": [{"ability": "excess"}]})
-Dex = unit("D", 2, "enemy", atk=0, dfn=2)
+Aex = unit("A", 1, ME, atk=5, dfn=9, raw={"received_abilities": [{"ability": "excess"}]})
+Dex = unit("D", 2, OPP, atk=0, dfn=2)
 r = dmg(World([Aex, Dex]), Aex, Dex)
 chk("excess：5 打 2 防 ⇒ 对单位 2、溢出 3 打总部", r["damage"] == 2 and r["excess"] == 3 and
     any(h["hook"] == "<excess>" and h["eff"] == {"damage_hq": 3} for h in r["hits"]), r)
 
-Xex = FakeCard("X", 3, "local", ovr=("OnAfterOtherCardAttacks",), card_type="order")
+Xex = FakeCard("X", 3, ME, ovr=("OnAfterOtherCardAttacks",), card_type="order")
 wex = World([Aex, Dex, Xex])
 r = dmg(wex, Aex, Dex)
 c04x = [a for h, p, a in wex.calls if h == "OnAfterOtherCardAttacks"][0]
 chk("0x04 的 damageToDefender 是 excess 夹值之前的最终伤害(5)，而不是夹后的(2)", c04x["damageToDefender"] == 5 and r["damage"] == 2, c04x)
 
 # ==============================================================================================
-# 钩子记录 → boardeval 效果（to_fx / hit_effects）
+# 钩子记录 → sim.engine 效果（to_fx / hit_effects）
 # ==============================================================================================
-HQe2 = FakeCard("HQ", 90, "enemy", card_type="location", defense=20, location="hq", keywords=[])
-HQl2 = FakeCard("HQ", 91, "local", card_type="location", defense=20, location="hq", keywords=[])
-UB = unit("UB", 5, "local", atk=1, dfn=1)
+HQe2 = FakeCard("HQ", 90, OPP, card_type="location", defense=20, location="hq", keywords=[])
+HQl2 = FakeCard("HQ", 91, ME, card_type="location", defense=20, location="hq", keywords=[])
+UB = unit("UB", 5, ME, atk=1, dfn=1)
 st_fx = _St([A1, D1, UB, HQe2, HQl2])
 hit = {"hook": "OnAfterOtherCardAttacks", "bucket": "after", "records": [
     {"verb": "ChangeAttack", "args": [5, 0, 2, 0], "tainted": False},                 # 给 UB(ptr 5) +2 攻
@@ -463,101 +472,105 @@ hit = {"hook": "OnAfterOtherCardAttacks", "bucket": "after", "records": [
     {"verb": "DamageCard", "args": [90, 3, 1, False, False, False], "tainted": False},  # 打敌方总部 3
     {"verb": "ChangeDefense", "args": [91, 0, 3, 0], "tainted": False},                # 己方总部 +3
     {"verb": "PinUnit", "args": [2], "tainted": False}], "chance": []}
-g, per = T.hit_effects(hit, st_fx, my_side=None, hq_own=(91,), hq_enemy=(90,))
+g, per = T.hit_effects(hit, st_fx, my_side=ME, hq_own=(91,), hq_enemy=(90,))
 chk("hit_effects：目标是某张牌 ⇒ 记到那张牌（UB +2 攻、D 被压制）",
     per.get(5, {}).get("buff") == [2, 0] and per.get(2, {}).get("pin") is True, per)
 chk("hit_effects：抽牌/打敌方总部/己方总部回血 ⇒ 全局",
     g.get("draw") == 2 and g.get("damage_hq") == 3 and g.get("heal_hq") == 3, g)
 chk("hit_effects：换目标 ⇒ 效果落在另一张牌上（答案变）",
     T.hit_effects(dict(hit, records=[{"verb": "ChangeAttack", "args": [2, 0, 2, 0], "tainted": False}]),
-                  st_fx)[1].get(2, {}).get("buff") == [2, 0])
+                  st_fx, my_side=ME)[1].get(2, {}).get("buff") == [2, 0])
 fx = T.to_fx({"hits": [dict(hit, hook="OnAfterAttack")], "stop": False, "attacked_and_stopped": False,
               "switched": False, "defender": 2, "paid": 1, "damage": 3, "damage_to_attacker": 2,
               "defender_destroyed": True, "attacker_destroyed": False, "match_end": None},
-             st_fx, hq_own=(91,), hq_enemy=(90,))
+             st_fx, my_side=ME, hq_own=(91,), hq_enemy=(90,))
 chk("to_fx：own_after、dmg/dies 透传、after 桶带全局+逐牌",
     fx["own_after"] and fx["dmg_def"] == 3 and fx["def_dies"] and not fx["att_dies"]
     and fx["buckets"]["after"]["eff"].get("draw") == 2
     and (5, {"buff": [2, 0]}) in fx["buckets"]["after"]["units"], fx)
 fx2 = T.to_fx({"hits": [], "stop": False, "attacked_and_stopped": False, "switched": True, "defender": 5,
                "paid": 1, "damage": 0, "damage_to_attacker": 0, "defender_destroyed": False,
-               "attacker_destroyed": False, "match_end": None}, st_fx)
+               "attacker_destroyed": False, "match_end": None}, st_fx, my_side=ME)
 chk("to_fx：换目标 ⇒ switch_to = 新防守方的 card_id", fx2["switch_to"] == 5)
 chk("to_fx：被吞的标志", T.to_fx({"hits": [], "stop": True, "attacked_and_stopped": False, "switched": False,
-                                "defender": 2}, st_fx)["stop"] is True)
+                                "defender": 2}, st_fx, my_side=ME)["stop"] is True)
 
 # ==============================================================================================
-# boardeval 消费 attack_fx：stop / consumed / switch / 伤害覆盖 / 各时点效果
+# sim.engine 消费 attack_fx：stop / consumed / switch / 伤害覆盖 / 各时点效果
 # ==============================================================================================
-from policy import boardeval as BE                               # noqa: E402
+from engine.adapter import from_cards                            # noqa: E402
+from engine.state import Sim, U                                  # noqa: E402
+from evaluation.value import W, delta, evaluate                  # noqa: E402
+from policy.search import gen_actions                            # noqa: E402
+from sim.engine import _apply_eff, sim_attack                    # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _cards import MY_SIDE, mk_card                              # noqa: E402
 
 
 def mksim(fx=None, kred=5.0):
-    us = {1: BE.U(1, BE.LOCAL, "back", 3, 4, 3, "infantry", opc=1),
-          2: BE.U(2, BE.ENEMY, "frontline", 2, 2, 3, "infantry"),
-          3: BE.U(3, BE.ENEMY, "frontline", 1, 6, 3, "infantry")}
-    return BE.Sim(us, {BE.LOCAL: 20, BE.ENEMY: 20}, kred, attack_fx=fx)
+    us = {1: U(1, ME, "back", 3, 4, 3, "infantry", opc=1),
+          2: U(2, OPP, "frontline", 2, 2, 3, "infantry"),
+          3: U(3, OPP, "frontline", 1, 6, 3, "infantry")}
+    return Sim(us, {ME: 20, OPP: 20}, kred, attack_fx=fx, my_side=ME)
 
 
-s0 = BE.sim_attack(mksim(), 1, 2)
+s0 = sim_attack(mksim(), 1, 2)
 chk("基线(无 fx)：3 攻打 2/2 ⇒ 打死，付 1 点指挥点", 2 not in s0.units and s0.kredits == 4.0)
 sa = mksim({(1, 2): {"stop": True}})
-s1 = BE.sim_attack(sa, 1, 2)
+s1 = sim_attack(sa, 1, 2)
 chk("fx.stop ⇒ 不付费、不耗行动、防守方原样（攻击被吞）",
     s1.kredits == 5.0 and s1.units[1].attacks_left == 1 and 2 in s1.units and s1.units[2].dfn == 2)
 chk("fx.stop ⇒ 搜索里不再生成这一步（别的目标仍在）",
-    not any(a.kind == "attack" and a.src == 1 and a.dst == 2 for a in BE.gen_actions(sa))
-    and any(a.kind == "attack" and a.src == 1 and a.dst == 3 for a in BE.gen_actions(sa)))
+    not any(a.kind == "attack" and a.src == 1 and a.dst == 2 for a in gen_actions(sa))
+    and any(a.kind == "attack" and a.src == 1 and a.dst == 3 for a in gen_actions(sa)))
 chk("fx.stop 改变评估：delta(吞) != delta(不吞)",
-    BE.delta(mksim(), BE.sim_attack(mksim(), 1, 2)) != BE.delta(sa, s1))
+    delta(mksim(), sim_attack(mksim(), 1, 2)) != delta(sa, s1))
 sc_ = mksim({(1, 2): {"consumed": True, "paid": 2, "buckets": {"after": {"eff": {"draw": 1}, "units": []}}}})
-s2 = BE.sim_attack(sc_, 1, 2)
+s2 = sim_attack(sc_, 1, 2)
 chk("fx.consumed ⇒ 付 paid(2)、耗行动、不结算伤害、仍触发 after 桶(抽 1)",
     s2.kredits == 3.0 and s2.units[1].attacks_left == 0 and 2 in s2.units and s2.units[2].dfn == 2
     and s2.draws_done == 1)
 ss = mksim({(1, 2): {"switch_to": 3}})
-s3 = BE.sim_attack(ss, 1, 2)
+s3 = sim_attack(ss, 1, 2)
 chk("fx.switch_to ⇒ 伤害落在新防守方 3（3 防 6 → 3），原目标 2 毫发无损",
     s3.units[2].dfn == 2 and s3.units[3].dfn == 3)
 ssh = mksim({(1, 2): {"switch_to": "hq"}})
 chk("fx.switch_to=hq ⇒ 总部吃伤害",
-    BE.sim_attack(ssh, 1, 2).hq[BE.ENEMY] == 17 and 2 in BE.sim_attack(ssh, 1, 2).units)
+    sim_attack(ssh, 1, 2).hq[OPP] == 17 and 2 in sim_attack(ssh, 1, 2).units)
 sd = mksim({(1, 2): {"dmg_def": 0, "dmg_att": 4, "def_dies": False, "att_dies": True}})
-s4 = BE.sim_attack(sd, 1, 2)
+s4 = sim_attack(sd, 1, 2)
 chk("fx 伤害覆盖：打 0、被反击 4 阵亡 ⇒ 攻击者消失、防守方在", 1 not in s4.units and s4.units[2].dfn == 2)
 sd2 = mksim({(1, 2): {"dmg_def": 9, "dmg_att": 0, "def_dies": True, "att_dies": False}})
 chk("fx 伤害覆盖：dmg_def=9 ⇒ 防守方阵亡、攻击者无损",
-    2 not in BE.sim_attack(sd2, 1, 2).units and BE.sim_attack(sd2, 1, 2).units[1].dfn == 4)
+    2 not in sim_attack(sd2, 1, 2).units and sim_attack(sd2, 1, 2).units[1].dfn == 4)
 bk = {"before": {"eff": {}, "units": [(1, {"buff": [2, 0]})]}, "mid": {"eff": {"damage_hq": 2}, "units": []},
       "def_destroyed": {"eff": {"kredit": 1}, "units": []}, "att_destroyed": {"eff": {"kredit": 5}, "units": []},
       "after": {"eff": {"heal_hq": 3}, "units": [(1, {"pin": True})]}}
 sb = mksim({(1, 2): {"dmg_def": 3, "dmg_att": 0, "def_dies": True, "att_dies": False, "buckets": bk}})
-s5 = BE.sim_attack(sb, 1, 2)
+s5 = sim_attack(sb, 1, 2)
 chk("fx 各时点效果：before(攻击者+2攻)、mid(敌总部-2)、def_destroyed(+1 指挥点)、after(我方总部+3、攻击者被压制)；"
     "att_destroyed 没触发",
-    s5.units[1].atk == 5 and s5.hq[BE.ENEMY] == 18 and s5.kredits == 5.0 - 1 + 1 and s5.hq[BE.LOCAL] == 23
+    s5.units[1].atk == 5 and s5.hq[OPP] == 18 and s5.kredits == 5.0 - 1 + 1 and s5.hq[ME] == 23
     and s5.units[1].pinned and 2 not in s5.units, (s5.units[1].atk, s5.hq, s5.kredits))
 shq = mksim({(1, "hq"): {"dmg_def": 5, "own_after": True,
                          "buckets": {"after": {"eff": {"draw": 1}, "units": []}}}})
 shq.units[1].aa_hq = {"draw": 3}
-s6 = BE.sim_attack(shq, 1, None, hq=True)
+s6 = sim_attack(shq, 1, None, hq=True)
 chk("打总部：dmg_def 覆盖攻击力(5)、own_after 时不再叠 aa_hq(只抽 1 而不是 4)",
-    s6.hq[BE.ENEMY] == 15 and s6.draws_done == 1, (s6.hq, s6.draws_done))
+    s6.hq[OPP] == 15 and s6.draws_done == 1, (s6.hq, s6.draws_done))
 shq2 = mksim({(1, "hq"): {"buckets": {"after": {"eff": {"draw": 1}, "units": []}}}})
 shq2.units[1].aa_hq = {"draw": 3}
-chk("打总部：没 own_after ⇒ aa_hq 照叠(3) + after(1) = 4", BE.sim_attack(shq2, 1, None, hq=True).draws_done == 4)
+chk("打总部：没 own_after ⇒ aa_hq 照叠(3) + after(1) = 4", sim_attack(shq2, 1, None, hq=True).draws_done == 4)
 sk = mksim()
 sk.units[2].kw = frozenset(("ambush", "guard"))
-BE._apply_eff(sk, {"remove_ambush": True, "attack_turn": 2, "opcost": 1}, 2)
+_apply_eff(sk, {"remove_ambush": True, "attack_turn": 2, "opcost": 1}, 2)
 chk("_apply_eff：remove_ambush / attack_turn / opcost",
     sk.units[2].kw == frozenset(("guard",)) and sk.units[2].atk == 4 and sk.units[2].opc == 2)
-BE._apply_eff(sk, {"remove_unit": True}, 2)
+_apply_eff(sk, {"remove_unit": True}, 2)
 chk("_apply_eff：remove_unit ⇒ 单位离场", 2 not in sk.units)
-cs = [FakeCard("L", 1, "local", card_type="infantry", attack=3, defense=4, location="frontline", keywords=[],
-               kredit_cost=2, operation_cost=1, enter_play_on_turn=0),
-      FakeCard("E", 2, "enemy", card_type="infantry", attack=1, defense=1, location="frontline", keywords=[],
-               kredit_cost=2, operation_cost=1, enter_play_on_turn=0)]
-sf = BE.from_cards(cs, lambda c: set(), kredits=3.0, attack_fx={(1, 2): {"stop": True}})
+cs = [mk_card(1, ME, "frontline", "infantry", 3, 4, 2, 1, "L", 0),
+      mk_card(2, OPP, "frontline", "infantry", 1, 1, 2, 1, "E", 0)]
+sf = from_cards(cs, lambda c: set(), kredits=3.0, attack_fx={(1, 2): {"stop": True}}, my_side=MY_SIDE)
 chk("from_cards 把 attack_fx 传给 Sim", sf.attack_fx == {(1, 2): {"stop": True}})
 
 # ==============================================================================================
@@ -603,11 +616,11 @@ chk("新动词已钩：RemoveImmune/GiveImmune/EndMatch/RemoveCardFromBoard/JSON
                                      "JSON_SetBool", "JSON_GetInt", "GotchaTriggered")))
 
 # ==============================================================================================
-# 端到端：钩子链 → to_fx → boardeval（0x04 对总部造成伤害 = 烈日）
+# 端到端：钩子链 → to_fx → sim.engine（0x04 对总部造成伤害 = 烈日）
 # ==============================================================================================
-Aair = unit("A", 1, "local", typ="fighter", atk=4, dfn=3)
-Dhq = FakeCard("HQ", 90, "enemy", card_type="location", defense=20, location="hq", keywords=[])
-Sun = FakeCard("SUN", 50, "local", ovr=("OnAfterOtherCardAttacks",), card_type="order")
+Aair = unit("A", 1, ME, typ="fighter", atk=4, dfn=3)
+Dhq = FakeCard("HQ", 90, OPP, card_type="location", defense=20, location="hq", keywords=[])
+Sun = FakeCard("SUN", 50, ME, ovr=("OnAfterOtherCardAttacks",), card_type="order")
 w = World([Aair, Dhq, Sun], {})
 _orig_ex = w.ex
 
@@ -622,19 +635,19 @@ def _ex_with_records(km, c, hook, args, stream, *a, **k):
 
 w.ex = _ex_with_records
 r = run(w, Aair, Dhq, cost=1)
-fx = T.to_fx(r, _St(w.cards), hq_own=(), hq_enemy=(90,))
+fx = T.to_fx(r, _St(w.cards), my_side=ME, hq_own=(), hq_enemy=(90,))
 chk("端到端：烈日(0x04) 对敌方总部造成'攻击者造成的伤害'(4) ⇒ fx.after.eff.damage_hq == 4",
     fx["buckets"]["after"]["eff"].get("damage_hq") == 4, fx)
-sim_e = BE.Sim({1: BE.U(1, BE.LOCAL, "back", 4, 3, 3, "fighter", opc=1)}, {BE.LOCAL: 20, BE.ENEMY: 20}, 5.0,
-               attack_fx={(1, "hq"): fx})
-s_after = BE.sim_attack(sim_e, 1, None, hq=True)
-chk("端到端：boardeval 里打总部 = 攻击力 4 + 烈日 4 = 8", s_after.hq[BE.ENEMY] == 12, s_after.hq)
+sim_e = Sim({1: U(1, ME, "back", 4, 3, 3, "fighter", opc=1)}, {ME: 20, OPP: 20}, 5.0,
+               attack_fx={(1, "hq"): fx}, my_side=ME)
+s_after = sim_attack(sim_e, 1, None, hq=True)
+chk("端到端：sim.engine 里打总部 = 攻击力 4 + 烈日 4 = 8", s_after.hq[OPP] == 12, s_after.hq)
 chk("端到端：不带 fx 只有 4",
-    BE.sim_attack(BE.Sim(dict(sim_e.units), {BE.LOCAL: 20, BE.ENEMY: 20}, 5.0), 1, None, hq=True).hq[BE.ENEMY] == 16)
+    sim_attack(Sim(dict(sim_e.units), {ME: 20, OPP: 20}, 5.0, my_side=ME), 1, None, hq=True).hq[OPP] == 16)
 
 sr = mksim()
 sr.units[1].attacks_left, sr.units[1].acted = 0, True
-BE._apply_eff(sr, {"reset_ops": True}, 1)
+_apply_eff(sr, {"reset_ops": True}, 1)
 chk("_apply_eff：reset_ops ⇒ 行动次数重置（可以再打一次）", sr.units[1].attacks_left == 1 and not sr.units[1].acted)
 chk("新增动词：ResetUnitOperations/SpawnCardInDeckBySide 已钩", "ResetUnitOperations" in EV.ALL_HOOKED
     and "SpawnCardInDeckBySide" in EV.ALL_HOOKED)
@@ -642,14 +655,14 @@ chk("新增动词：ResetUnitOperations/SpawnCardInDeckBySide 已钩", "ResetUni
 # ==============================================================================================
 # 多目标动词 / 对打 / EndMatch
 # ==============================================================================================
-UC = unit("UC", 6, "enemy", atk=3, dfn=3)
+UC = unit("UC", 6, OPP, atk=3, dfn=3)
 st_m = _St([A1, D1, UB, UC, HQe2, HQl2])
 hit_m = {"hook": "OnDestroyed", "bucket": "def_destroyed", "chance": [], "records": [
     {"verb": "DamageMultipleCards", "args": [[2, 6], 2, 1, None], "tainted": False},
     {"verb": "SuppressMultipleUnits", "args": [[6], 1], "tainted": False},
     {"verb": "MakeCardsFight", "args": [5, 6, 1], "tainted": False},
     {"verb": "DestroyMultipleCards", "args": [[2], 1], "tainted": False}]}
-g, per = T.hit_effects(hit_m, st_m)
+g, per = T.hit_effects(hit_m, st_m, my_side=ME)
 chk("多目标：DamageMultipleCards([2,6],2) ⇒ 两张各 damage 2；SuppressMultipleUnits([6]) ⇒ 6 被压制；"
     "DestroyMultipleCards([2]) ⇒ 2 destroy",
     per[2].get("damage") == 2 and per[6].get("damage") is not None and per[6].get("pin") is True
@@ -658,15 +671,18 @@ chk("MakeCardsFight(UB 1攻, UC 3攻)：UB 吃 UC 的 3、UC 吃 UB 的 1（再�
     per[5].get("damage") == 3 and per[6].get("damage") == 2 + 1, per)
 chk("被随机污染的多目标记录不进效果（不编造）",
     T.hit_effects({"records": [{"verb": "DamageMultipleCards", "args": [[2], 5, 1, None], "tainted": True}]},
-                  st_m)[1] == {})
+                  st_m, my_side=ME)[1] == {})
 r_em = EV.Recorder(0, 0, None)
 r_em.records = [{"verb": "EndMatch", "args": [1, 0.0], "tainted": False}]
-chk("to_effects：EndMatch(winnerSide=我方座位) ⇒ end_match='local'；对方座位 ⇒ 'enemy'",
-    EV.to_effects(r_em, 1).get("end_match") == "local" and EV.to_effects(r_em, 2).get("end_match") == "enemy")
+r_em2 = EV.Recorder(0, 0, None)
+r_em2.records = [{"verb": "EndMatch", "args": [2, 0.0], "tainted": False}]
+chk("to_effects：EndMatch(winnerSide) ⇒ end_match = 真实座位 ESide（与 my_side 无关）",
+    EV.to_effects(r_em, 1).get("end_match") == ME and EV.to_effects(r_em, 2).get("end_match") == ME
+    and EV.to_effects(r_em2, 1).get("end_match") == OPP)
 se = mksim()
-BE._apply_eff(se, {"end_match": "local"}, None)
-chk("boardeval：end_match=local ⇒ 敌方总部归零 ⇒ evaluate = +lethal；enemy ⇒ -lethal",
-    BE.evaluate(se) == BE.W["lethal"] and (BE._apply_eff(sk := mksim(), {"end_match": "enemy"}, None) or BE.evaluate(sk) == -BE.W["lethal"]))
+_apply_eff(se, {"end_match": ME}, None)
+chk("sim.engine：end_match=local ⇒ 敌方总部归零 ⇒ evaluate = +lethal；enemy ⇒ -lethal",
+    evaluate(se) == W["lethal"] and (_apply_eff(sk := mksim(), {"end_match": OPP}, None) or evaluate(sk) == -W["lethal"]))
 chk("新增多目标动词已钩", all(v in EV.ALL_HOOKED for v in ("SuppressMultipleUnits", "MakeCardsFight", "RemoveMultipleCardsFromBoard",
                                                    "MoveMultipleCardsToTopOfOwnersDeck")))
 

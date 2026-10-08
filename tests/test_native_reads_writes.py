@@ -4,6 +4,7 @@
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from kardsmem.cardnatives import CardNatives
 from kardsmem.kismetlib import Unimplemented
 
@@ -152,10 +153,14 @@ def reads():
 
 
 def writes():
+    from _cards import ME, OPP
     from semantics import effectvm as E
-    from policy import boardeval as B
+    from engine.state import H, Sim
+    from evaluation.value import evaluate
+    from policy.search import gen_actions
+    from sim.engine import _apply_eff
     SELF, TGT = 0x2000, 0x1000
-    kr = {"local": 5, "enemy": 3}
+    kr = {ME: 5, OPP: 3}
 
     def run(side_args, verb, kredits=kr, my=1):
         r = E.Recorder(SELF, TGT)
@@ -165,33 +170,37 @@ def writes():
     chk("setKreditBySide(1,→8) 当前5 ⇒ +3", run((1, 8, 0, 0, 0), "setKreditBySide").get("kredit"), 3)
     chk("setKreditBySide(1,→2) 当前5 ⇒ -3", run((1, 2, 0, 0, 0), "setKreditBySide").get("kredit"), -3)
     chk("setKreditBySide(2,→4) 敌方当前3 ⇒ opp +1", run((2, 4, 0, 0, 0), "setKreditBySide").get("opp_kredit"), 1)
-    chk("setKreditBySide 换局面(当前9)", run((1, 8, 0, 0, 0), "setKreditBySide", {"local": 9, "enemy": 3}).get("kredit"), -1)
+    chk("setKreditBySide 换局面(当前9)", run((1, 8, 0, 0, 0), "setKreditBySide", {ME: 9, OPP: 3}).get("kredit"), -1)
     chk("setKreditBySide 不知道当前值 ⇒ 不猜", "kredit" in run((1, 8, 0, 0, 0), "setKreditBySide", None), False)
     chk("ChangeKreditsBySide(1,+2)/(2,-1)", (run((1, 2, 0), "ChangeKreditsBySide").get("kredit"), run((2, -1, 0), "ChangeKreditsBySide").get("opp_kredit")), (2, -1))
-    chk("SetPlayingSide(1)/(2) my=1", (run((1,), "SetPlayingSide").get("playing_side"), run((2,), "SetPlayingSide").get("playing_side")), ("local", "enemy"))
-    chk("SetActiveSide(2) my=2 ⇒ local", run((2,), "SetActiveSide", my=2).get("playing_side"), "local")
+    chk("SetPlayingSide(1)/(2) my=1", (run((1,), "SetPlayingSide").get("playing_side"), run((2,), "SetPlayingSide").get("playing_side")), (ME, OPP))
+    chk("SetActiveSide(2) my=2 ⇒ 座位 2", run((2,), "SetActiveSide", my=2).get("playing_side"), OPP)
+    # ★★ 2026-10-04（P4 第十八刀）**把第十七刀的"更正"撤回**：`DiscardCardFromHand(int cardID, …)`
+    #   签名就是 **card ID**（BP 逐字）⇒ 原来 `append(arg(0))` 本来就是对的。
+    #   我上一轮拿**自己手写**的指针当证据断定"存的是指针"、还加了 `ptr_ids` 映射 ⇒ 会把真 id 映成 `None`
+    #   ⇒ 弃牌被跳过（回归 ✗，已撤回）。
     chk("DiscardCardFromHand 记 id", run((77, 5, False, False, None), "DiscardCardFromHand").get("discard_ids"), [77])
     chk("DrawSpecific side=1 ⇒ draw 1 / side=2 ⇒ opp_draw", (run((5, 9, 1, True), "DrawSpecificCardFromDeckBySide").get("draw"),
                                                                run((5, 9, 2, True), "DrawSpecificCardFromDeckBySide").get("opp_draw")), (1, 1))
     r = E.Recorder(SELF, TGT)
     r.hook("CustomName1Add")(None, None, None, [SELF, "isAlsoTank"], None)
     chk("RECORD_ONLY：记录但不进效果摘要", (len(r.records), E.to_effects(r, 1)), (1, {}))
-    # boardeval 消费
-    LO, EN = B.LOCAL, B.ENEMY
-    h = {50: B.H(50, "X", 1, "order"), 51: B.H(51, "Y", 2, "infantry", 2, 2)}
-    s0 = B.Sim({}, {LO: 20, EN: 20}, 3.0, h)
-    s1 = s0.copy(); B._apply_eff(s1, {"opp_kredit": 2}, None)
-    chk("消费 opp_kredit：对手指挥点+2 ⇒ 评估下降(kred_w>0时)", (s1.opp_kredits, B.evaluate(s1) <= B.evaluate(s0)), (2, True))
-    s2 = s0.copy(); B._apply_eff(s2, {"opp_slot": -1}, None)
-    chk("消费 opp_slot -1 ⇒ 评估上升", (s2.opp_slots, B.evaluate(s2) > B.evaluate(s0)), (-1, True))
-    s3 = s0.copy(); B._apply_eff(s3, {"discard_ids": [50]}, None)
+    # 真家消费（原来走 policy.boardeval 门面）
+    LO, EN = ME, OPP
+    h = {50: H(50, "X", 1, "order"), 51: H(51, "Y", 2, "infantry", 2, 2)}
+    s0 = Sim({}, {LO: 20, EN: 20}, 3.0, h, my_side=ME)
+    s1 = s0.copy(); _apply_eff(s1, {"opp_kredit": 2}, None)
+    chk("消费 opp_kredit：对手指挥点+2 ⇒ 评估下降(kred_w>0时)", (s1.opp_kredits, evaluate(s1) <= evaluate(s0)), (2, True))
+    s2 = s0.copy(); _apply_eff(s2, {"opp_slot": -1}, None)
+    chk("消费 opp_slot -1 ⇒ 评估上升", (s2.opp_slots, evaluate(s2) > evaluate(s0)), (-1, True))
+    s3 = s0.copy(); _apply_eff(s3, {"discard_ids": [50]}, None)
     chk("消费 discard_ids：手牌 50 被移走、51 还在", (sorted(s3.hand), len(s0.hand)), ([51], 2))
-    s4 = s0.copy(); B._apply_eff(s4, {"discard_ids": [999]}, None)
+    s4 = s0.copy(); _apply_eff(s4, {"discard_ids": [999]}, None)
     chk("discard 不在己方手牌的 id 不影响", sorted(s4.hand), [50, 51])
-    s5 = s0.copy(); n0 = len(B.gen_actions(s5)); B._apply_eff(s5, {"playing_side": EN}, None)
-    chk("消费 playing_side=enemy：之后没有我方动作", (n0 > 0, B.gen_actions(s5)), (True, []))
-    s6 = s0.copy(); B._apply_eff(s6, {"playing_side": LO}, None)
-    chk("playing_side=local：动作照旧", len(B.gen_actions(s6)), n0)
+    s5 = s0.copy(); n0 = len(gen_actions(s5)); _apply_eff(s5, {"playing_side": EN}, None)
+    chk("消费 playing_side=enemy：之后没有我方动作", (n0 > 0, gen_actions(s5)), (True, []))
+    s6 = s0.copy(); _apply_eff(s6, {"playing_side": LO}, None)
+    chk("playing_side=local：动作照旧", len(gen_actions(s6)), n0)
     chk("copy 保留新字段", (s5.copy().playing_side, s1.copy().opp_kredits), (EN, 2))
 
 

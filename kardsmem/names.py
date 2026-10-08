@@ -81,8 +81,21 @@ except Exception:                       # pragma: no cover - 极端环境下退�
 # --------------------------------------------------------------------------
 # 常量
 # --------------------------------------------------------------------------
-RVA_FNAME_POOL = B.RVA["FNamePool"]        # 0x0911B9C0
-RVA_GNAMES_DECOY = B.RVA["GNames_decoy"]   # 0x090E2E28（**不是**池，仅作对照）
+# RVA：★ 2026-10-03 P7-S3b —— **不在 import 期烤值**。
+#   以前这里是 `RVA_FNAME_POOL = B.RVA["FNamePool"]`（import 期快照）。RVA 现在走
+#   "用户缓存 → 种子复验 → 运行时扫描"的解析链（`kardsmem/build.py::resolve`），值可能在本进程
+#   运行期间才确定/改变；快照会让本模块一直用旧地址，`build.apply` 还得反向去改模块属性与
+#   `FNamePool.__init__.__defaults__`（脆弱，且改不了第三处引用）。
+#   现在读数一律走**调用期**（PEP 562 模块 __getattr__），补丁随之删除。
+_RVA_ALIASES = {"RVA_FNAME_POOL": "FNamePool", "RVA_GNAMES_DECOY": "GNames_decoy"}
+
+
+def __getattr__(name: str):
+    """模块属性按需解析：`names.RVA_FNAME_POOL` = 当前生效的 `build.RVA["FNamePool"]`。"""
+    key = _RVA_ALIASES.get(name)
+    if key is None:
+        raise AttributeError("module %r has no attribute %r" % (__name__, name))
+    return B.RVA[key]
 
 POOL_LOCK_OFF = 0x00
 POOL_CURBLOCK_OFF = 0x08
@@ -181,7 +194,11 @@ class FNamePool:
     自己按 `Blocks[idx>>16]` 现读块指针 —— 这样小池/合成池也能工作。
     """
 
-    def __init__(self, mem, base: Optional[int] = None, rva: int = RVA_FNAME_POOL):
+    def __init__(self, mem, base: Optional[int] = None, rva: Optional[int] = None):
+        # ★ P7-S3b：默认值必须是 **None 哨兵**，不能写 `rva: int = RVA_FNAME_POOL`
+        #   —— 默认实参在 import 期求值，会把旧 RVA 烤死在函数对象上（resolve 变值后不跟随）。
+        if rva is None:
+            rva = B.RVA["FNamePool"]
         if mem is None:
             raise ValueError("FNamePool 需要 mem（MemRO / board_api._Mem）")
         self.m = mem
@@ -612,8 +629,10 @@ def selftest(mem=None, base=None) -> list:
     rows: list = []
 
     # --- 纯常量 / 头部解码（不需要进程）--------------------------------
-    _rec(rows, "RVA_FNAME_POOL", hex(RVA_FNAME_POOL), "0x911b9c0")
-    _rec(rows, "RVA_GNAMES_decoy(≠池)", hex(RVA_GNAMES_DECOY), "0x90e2e28")
+    # ★ P7-S3b：这两项也要调用期读 —— 模块级已没有同名常量（走 __getattr__），
+    #   直接读 `B.RVA` 比 `names.RVA_FNAME_POOL` 更直白，避免读者误以为是快照。
+    _rec(rows, "RVA_FNAME_POOL", hex(B.RVA["FNamePool"]), "0x911b9c0")
+    _rec(rows, "RVA_GNAMES_decoy(≠池)", hex(B.RVA["GNames_decoy"]), "0x90e2e28")
     _rec(rows, "POOL_BLOCKS_OFF", hex(POOL_BLOCKS_OFF), "0x10")
     _rec(rows, "entry_stride", ENTRY_STRIDE, 2)
 
@@ -697,7 +716,7 @@ def _card_candidates(sess, limit: int = 12) -> list:
         for c in (st.cards or []):
             ptr = (c.raw or {}).get("ptr")
             if ptr:
-                out.append({"ptr": ptr, "ftext": c.name, "card_id": c.card_id,
+                out.append({"ptr": ptr, "ftext": c.name, "card_id": c.obj.CardID,
                             "src": "snapshot"})
     except Exception as e:
         out.append({"ptr": 0, "error": "snapshot 失败: %r" % (e,), "src": "snapshot"})

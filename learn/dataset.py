@@ -29,7 +29,7 @@ from typing import Iterable, Optional
 
 import numpy as np
 
-from .encode import (ENT_NUM_DIM, GLOBAL_DIM, PHASE_NAMES, EncodedSample,
+from .encode import (ENT_NUM_DIM, GLOBAL_DIM, PHASE_NAMES, EncodedSample, LegacySeatError,
                      TYPE_NAMES, encode_sample)
 from .features import FEATURE_DIM, CardTable
 
@@ -94,7 +94,11 @@ def build_encoded(samples: Iterable[dict], table: Optional[CardTable] = None,
     out = []
     skipped = Counter()
     for s in samples:
-        enc = encode_sample(s, table)
+        try:
+            enc = encode_sample(s, table)
+        except LegacySeatError:                # 座位迁移前的旧录制（字符串座位）：显式跳过并计数，不猜座位
+            skipped["legacy_string_seats"] += 1
+            continue
         if enc is None:
             skipped["no_state"] += 1
             continue

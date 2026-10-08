@@ -206,9 +206,10 @@ def explain_exit_code(code: Optional[int], output: str = "") -> str:
 
 def python_probe(py: str, timeout: float = 30.0) -> tuple:
     """真跑一次探针（不是看文件在不在）。→ (ok, 原因)。"""
+    # 冻结的 exe 包里没有 `-c`：解释器就是 exe 自己，探针 = `--probe`（见 tools/gui_main.py，秒退、不开窗口）。
+    argv = [py, "--probe"] if _paths.FROZEN else [py, "-c", "import sys; print(sys.version_info[0])"]
     try:
-        r = subprocess.run([py, "-c", "import sys; print(sys.version_info[0])"], capture_output=True, text=True,
-                           timeout=timeout)
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, creationflags=_NO_WINDOW)
     except Exception as e:                                    # noqa: BLE001
         return False, "%s: %s" % (type(e).__name__, e)
     if r.returncode != 0:
@@ -217,13 +218,20 @@ def python_probe(py: str, timeout: float = 30.0) -> tuple:
 
 
 _PYTHON_DIAG: list = []
+# 窗口子系统的 exe（打包版面板）起控制台子进程会闪黑窗并抢焦点（游戏失焦会降帧）；CREATE_NO_WINDOW 只抑制新控制台，输出照常捕获。
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def engine_python(cands=None, probe=python_probe) -> Optional[str]:
     """起监听器该用哪个解释器：当前解释器优先，其次 PATH 里的；每一档都真跑探针，坏的跳过。
     一个能用的都没有 ⇒ None，原因记在 `_PYTHON_DIAG`（面板把整张表念给使用者听）。"""
     from shutil import which
-    cands = list(cands) if cands is not None else [sys.executable] + [w for w in (which("python"),) if w]
+    if cands is not None:
+        cands = list(cands)
+    elif _paths.FROZEN:
+        cands = [sys.executable]          # 冻结包：只有 exe 自己能起监听器（PATH 里的 python 没有这套代码/依赖）
+    else:
+        cands = [sys.executable] + [w for w in (which("python"),) if w]
     _PYTHON_DIAG.clear()
     seen = set()
     for c in cands:
@@ -241,6 +249,14 @@ def engine_python(cands=None, probe=python_probe) -> Optional[str]:
 
 
 # ---------------------------------------------------------------- 版本
+def listener_cmd(py: str, live_session: str = None) -> list:
+    """起常驻监听器的命令行。开发布局：`[python, tools/live_session.py]`；冻结包：`[kards-agent.exe, --listener]`
+    （同一个 exe 兼任面板与监听器，见 tools/gui_main.py）。`gui.watcher.PS_QUERY` 按这两种命令行找进程。"""
+    if _paths.FROZEN:
+        return [py, "--listener"]
+    return [py, live_session or os.path.join(_paths.AGENT_ROOT, "tools", "live_session.py")]
+
+
 def read_version() -> dict:
     """`config/app_version.json`（给人改的，所以用 utf-8-sig 读：记事本会写 BOM，不吃掉版本号会静默变 0.0.0）；
     没有文件就用 git 提交短哈希。"""
@@ -251,9 +267,12 @@ def read_version() -> dict:
         return d
     except Exception:                                         # noqa: BLE001
         pass
+    if _paths.FROZEN:                                         # 冻结包没有 git 仓库：用包自己的版本号
+        from base.version import __version__
+        return {"version": __version__, "update_url": ""}
     try:
         r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=_paths.AGENT_ROOT, capture_output=True,
-                           text=True, timeout=5)
+                           text=True, timeout=5, creationflags=_NO_WINDOW)
         if r.returncode == 0 and r.stdout.strip():
             return {"version": "git-" + r.stdout.strip(), "update_url": ""}
     except Exception:                                         # noqa: BLE001

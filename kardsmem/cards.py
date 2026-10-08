@@ -27,6 +27,7 @@ import struct
 from typing import Optional
 
 from . import build as B
+from .gamemodel import ECardLocation, ESide
 from .proc import board_api
 from .world import Locator
 
@@ -89,11 +90,10 @@ STRIDE_TMAP_FSTRING_ABILITY = 0x28
 _decrypt = board_api._decrypt
 LOCATION_NAMES = board_api.LOCATION_NAMES
 CARD_TYPES = board_api.CARD_TYPES
-SIDE_ENUM = board_api.SIDE_ENUM
 
 
-def _my_seat(session) -> Optional[int]:
-    """本局我方座位（ESideEnum 1/2）——`Logic.mySide`。
+def _my_seat(session) -> Optional[ESide]:
+    """本局我方座位（`ESide`）——`Logic.mySide`；读不出 → None（**不猜、不默认 1**）。
 
     ★ 2026-10-02 实机（休闲 PvP）：**我们可能是 2 号座位**，而 `SIDE_ENUM` 是静态表
     （座位 1 = local）⇒ 旧代码把整只手牌都判成 `enemy`，`hand_card_actors()` 再把它们
@@ -123,17 +123,38 @@ def _my_seat(session) -> Optional[int]:
         v = ml.my_side()
     except Exception:                                          # noqa: BLE001
         return None
-    return v if v in (1, 2) else None
+    return ESide(v) if v in (1, 2) else None
 
 
-def _side_name(session, seat) -> Optional[str]:
-    """座位号 → `local`/`enemy`。**用本局 `mySide` 判**；读不到才退回静态表。"""
-    if seat is None:
-        return None
-    my = _my_seat(session)
-    if my in (1, 2):
-        return "local" if seat == my else "enemy"
-    return SIDE_ENUM.get(seat)
+def my_side(session) -> ESide:
+    """本局我方座位；读不到抛 `ValueError`（调用方要“按我方取牌”时用，**不兜底、不默认 1**）。
+
+    缓存跟随 `MatchLog`（弯路 #36/#37）：换局自动失效；静态表不再有，座位只来自 `Logic.mySide`。
+    """
+    v = _my_seat(session)
+    if v is None:
+        raise ValueError("本地座位读不出（Logic.mySide 为空）：不能按『我方』取牌")
+    return v
+
+
+def parse_side(session, text: str) -> ESide:
+    """命令行入口的座位文字 → `ESide`：`left/right/1/2` 直接对应；`me`/`opp` 才在这里用本局 mySide 现算
+    （内部不存字符串）。mySide 读不出 → ValueError。"""
+    t = str(text).strip().lower()
+    if t in ("left", "l", "1"):
+        return ESide.left
+    if t in ("right", "r", "2"):
+        return ESide.right
+    if t in ("me", "mine", "my"):
+        return my_side(session)
+    if t in ("opp", "other"):
+        return ESide(3 - int(my_side(session)))
+    raise ValueError("座位应为 left/right/me/opp：%r" % (text,))
+
+
+def _seat_of(seat) -> Optional[ESide]:
+    """原始 side_enum 字节 → `ESide`；0/None/越界 → None。座位是绝对的（1=left / 2=right），不依赖谁是本地。"""
+    return ESide(seat) if seat in (1, 2) else None
 
 # AllCardsInBattle 里混着的两条占位条目（Location/Type 全 0、加密记录无效）
 PLACEHOLDER_KEYS = (30000000, 60000000)
@@ -722,6 +743,9 @@ def target_blockers(session, defender_uid_or_ptr, attacker_type: Optional[str] =
     return out
 
 
+_SCALAR_BLOCK = 0x340      # 覆盖 CARD_U8/CARD_I32 里最大偏移（0x33B / 0x310）+ 额外几个固定偏移（≤0x135）
+
+
 def read_raw(session, ptr: int, map_key: Optional[int] = None,
              with_text: bool = True, with_effects: bool = False,
              light_effects: bool = True) -> dict:
@@ -743,13 +767,25 @@ def read_raw(session, ptr: int, map_key: Optional[int] = None,
     # 额外：faction/rarity/isReserved/isInPermanentPool/EffectType
     # （SDK 偏移 0x7C/0x11C/0x132/0x133/0x135）—— 蓝图判据（IsValidHandTarget / CanPlayFromHand）要用，
     # board_api 的字段表里没有。
-    u8 = {k: m.u8(ptr + o) for k, o in CARD_U8.items()}
-    u8["faction_enum"] = m.u8(ptr + 0x7C)
-    u8["rarity_enum"] = m.u8(ptr + 0x11C)
-    u8["is_reserved"] = m.u8(ptr + 0x132)
-    u8["is_in_permanent_pool"] = m.u8(ptr + 0x133)
-    u8["effect_type"] = m.u8(ptr + 0x135)
-    i32 = {k: m.i32(ptr + o) for k, o in CARD_I32.items()}
+    # 明文标量字段（不是加密记录）一次块读：原来 ~47 次单字段 RPM（每次一个系统调用），一次建 sim 里
+    # 同一批牌要读几十张（2026-10-08：view 未命中 83 张 ≈ 0.35–0.9 s）。块读失败 ⇒ 回到逐字段读（行为不变）。
+    _blk = m.read_exact(ptr, _SCALAR_BLOCK) if hasattr(m, "read_exact") else None
+    if _blk is not None and len(_blk) != _SCALAR_BLOCK:
+        _blk = None
+
+    def _u8(o):
+        return _blk[o] if _blk is not None and o < _SCALAR_BLOCK else m.u8(ptr + o)
+
+    def _i32(o):
+        return (struct.unpack_from("<i", _blk, o)[0] if _blk is not None and o + 4 <= _SCALAR_BLOCK
+                else m.i32(ptr + o))
+    u8 = {k: _u8(o) for k, o in CARD_U8.items()}
+    u8["faction_enum"] = _u8(0x7C)
+    u8["rarity_enum"] = _u8(0x11C)
+    u8["is_reserved"] = _u8(0x132)
+    u8["is_in_permanent_pool"] = _u8(0x133)
+    u8["effect_type"] = _u8(0x135)
+    i32 = {k: _i32(o) for k, o in CARD_I32.items()}
     loc_enum = u8.get("location_enum")
     type_enum = u8.get("type_enum")
     location = LOCATION_NAMES.get(loc_enum) if loc_enum is not None else None
@@ -765,7 +801,7 @@ def read_raw(session, ptr: int, map_key: Optional[int] = None,
         "type_enum": type_enum,
         "card_type": CARD_TYPES.get(type_enum) if type_enum is not None else None,
         "side_enum": u8.get("side_enum"),
-        "side": _side_name(session, u8.get("side_enum")),
+        "side": _seat_of(u8.get("side_enum")),     # ESide（绝对座位）；“我方” = side == my_side(session)
         "location_enum": loc_enum,
         "location": location,
         "location_number": i32.get("location_number"),
@@ -923,6 +959,7 @@ def can_act_now(card, turn: Optional[int], has_blitz: bool = False) -> Optional[
 
 # --------------------------------------------------------------------------
 # 归一化视图（委托 board_api）
+_DECK_LOCS = (ECardLocation.Deck_Left, ECardLocation.Deck_Right, ECardLocation.Deck)
 # --------------------------------------------------------------------------
 def snapshot(session):
     return session.snapshot()
@@ -932,15 +969,21 @@ def cards(session) -> list:
     return snapshot(session).cards
 
 
-def hand(session, side: str = "local") -> list:
+def _resolve_side(session, side: Optional[ESide]) -> ESide:
+    """side 缺省 = 本局 mySide（`MatchLog.my_side()`）；读不到抛 ValueError。"""
+    return my_side(session) if side is None else ESide(side)
+
+
+def hand(session, side: Optional[ESide] = None) -> list:
+    side = _resolve_side(session, side)
     return sorted(snapshot(session).hand(side), key=lambda c: (c.slot if c.slot is not None else 0))
 
 
-def discard(session, side: str = "local") -> list:
-    return snapshot(session).discard(side)
+def discard(session, side: Optional[ESide] = None) -> list:
+    return snapshot(session).discard(_resolve_side(session, side))
 
 
-def deck_cards(session, side: str = "local") -> Optional[list]:
+def deck_cards(session, side: Optional[ESide] = None) -> Optional[list]:
     """**物理牌库**（同名牌保留多份）—— 这是 `AllCardsInBattle` 答不了的问题。
 
     `AllCardsInBattle` 的 key 是运行时 CardID，而同名蓝图的每一张实例有自己的
@@ -948,11 +991,12 @@ def deck_cards(session, side: str = "local") -> Optional[list]:
     `ABP_GameState_Battle_C::DeckCardIDs_Left(0x4A0) / Right(0x490)`：
     实测是 **`TArray<int32>`，元素 = 运行时 CardID**，且每个 id 都能在 map 里找到对应卡。
 
-    返回 `[{"card_id", "name", "side", "location"}]`（保持牌库顺序、允许重复）；
+    返回 `[{"card_id", "name", "side"(ESide), "location"(ECardLocation|None)}]`（保持牌库顺序、允许重复）；
     读不出返回 None。
     本函数用它取代了靠猜元素类型的做法。
     """
     from .gs import GameState
+    side = _resolve_side(session, side)
     g = GameState(session)
     ids = g.deck_ids(side)
     if not ids:
@@ -960,19 +1004,19 @@ def deck_cards(session, side: str = "local") -> Optional[list]:
     st = snapshot(session)
     by_id = {}
     for c in st.cards:
-        by_id.setdefault(c.card_id, c)
+        by_id.setdefault(c.obj.CardID, c)
     out = []
     for i in ids:
         c = by_id.get(i)
         out.append({"card_id": i,
                     "name": (c.name if c else None),
                     "side": (c.side if c else side),
-                    "location": (c.location if c else None),
+                    "location": (c.obj.Location if c else None),
                     "matched": c is not None})
     return out
 
 
-def deck_multiset(session, side: str = "local") -> Optional[dict]:
+def deck_multiset(session, side: Optional[ESide] = None) -> Optional[dict]:
     """牌库按名字计数（物理多份会 >1）。读不出返回 None。"""
     rows = deck_cards(session, side)
     if rows is None:
@@ -984,20 +1028,20 @@ def deck_multiset(session, side: str = "local") -> Optional[dict]:
     return out
 
 def find(session, uid: Optional[str] = None, card_id: Optional[int] = None,
-         name: Optional[str] = None, side: Optional[str] = None,
-         location: Optional[str] = None):
+         name: Optional[str] = None, side: Optional[ESide] = None,
+         location: Optional[ECardLocation] = None):
     """按 uid / card_id / 名字（子串、不分大小写）找一张卡。找不到返回 None。"""
     want_uid = uid if isinstance(uid, str) else ("0x%X" % uid if uid is not None else None)
     for c in snapshot(session).cards:
         if want_uid and c.uid != want_uid:
             continue
-        if card_id is not None and c.card_id != card_id:
+        if card_id is not None and c.obj.CardID != card_id:
             continue
         if name and (not c.name or name.upper() not in c.name.upper()):
             continue
         if side and c.side != side:
             continue
-        if location and c.location != location:
+        if location is not None and c.obj.Location != location:
             continue
         return c
     return None
@@ -1006,15 +1050,17 @@ def find(session, uid: Optional[str] = None, card_id: Optional[int] = None,
 def rows(session) -> dict:
     """纯内存的盘面位置图：每一行从左到右第几张是谁的。
 
-    行 = `location`（back / frontline / hand / deck / discard），
+    行 = `"<side>/<ECardLocation 名>"`（如 `1/Board_Frontline`、`2/Hand_Right`），
     列 = `locationNumber`（实测同排内 mem slot 升序 ↔ 像素 cx 升序）。
     """
     st = snapshot(session)
     out = {}
     for c in st.cards:
-        out.setdefault("%s/%s" % (c.side, c.location), []).append(c)
+        loc = c.obj.Location
+        out.setdefault("%s/%s" % (None if c.side is None else int(c.side),
+                                  None if loc is None else ECardLocation(loc).name), []).append(c)
     for k in out:
-        out[k].sort(key=lambda c: (c.slot if c.slot is not None else 0, c.card_id or 0))
+        out[k].sort(key=lambda c: (c.slot if c.slot is not None else 0, c.obj.CardID or 0))
     return out
 
 
@@ -1036,14 +1082,14 @@ def target_candidates(session, card) -> list:
     for c in st.cards:
         if c.uid == card.uid:
             continue
-        if c.location not in ("frontline", "back", "hq"):
+        if not (c.obj.InFrontline() or c.obj.InSupportLine()):     # 支援线含 HQ
             continue
         if c.side == my_side:
             continue
-        entry = {"uid": c.uid, "name": c.name, "side": c.side, "location": c.location,
-                 "slot": c.slot, "card_id": c.card_id,
-                 "suppressed": c.is_suppressed,
-                 "tax": c.kredits_tax_as_enemy_target,
+        entry = {"uid": c.uid, "name": c.name, "side": c.side, "location": c.obj.Location,
+                 "slot": c.slot, "card_id": c.obj.CardID,
+                 "suppressed": c.obj.isSuppressed,
+                 "tax": c.obj.KreditsTax_AsEnemyTarget,
                  "passes_suppressed_rule": True}
         out.append(entry)
     return out
@@ -1052,29 +1098,40 @@ def target_candidates(session, card) -> list:
 # --------------------------------------------------------------------------
 # 打印
 # --------------------------------------------------------------------------
+def _seat_label(st, side) -> str:
+    """面向人的渲染：座位号 + “我方/对方”（由 side == st.my_side 现算，不存、不参与比较）。"""
+    if side is None:
+        return "?"
+    tag = "" if st.my_side is None else ("(我方)" if side == st.my_side else "(对方)")
+    return "%d%s" % (int(side), tag)
+
+
 def format_table(st, show_cards: bool = True) -> str:
-    lines = ["turn=%s our_turn=%s our_side=%s complete=%s"
-             % (st.turn, st.our_turn, st.our_side, st.complete),
-             "kredits local=%-4s enemy=%-4s slots local=%-4s enemy=%-4s"
-             % (st.kredits.get("local"), st.kredits.get("enemy"),
-                st.slots.get("local"), st.slots.get("enemy")),
+    lines = ["turn=%s our_turn=%s my_side=%s complete=%s"
+             % (st.turn, st.our_turn, st.my_side_raw, st.complete),
+             "kredits L=%-4s R=%-4s slots L=%-4s R=%-4s"
+             % (st.kredits.get(ESide.left), st.kredits.get(ESide.right),
+                st.slots.get(ESide.left), st.slots.get(ESide.right)),
              "match_finished=%s frontline_owner=%s" % (st.match_finished, st.frontline_owner)]
-    for side in ("local", "enemy"):
+    for side in (ESide.left, ESide.right):
         hq = st.hq.get(side)
-        lines.append("%-5s HQ=%-4s def=%-4s | hand=%-2d front=%-2d support=%-2d discard=%-2d deck=%d"
-                     % (side, (hq.card_id if hq else "?"), (hq.defense if hq else "?"),
+        lines.append("%-8s HQ=%-4s def=%-4s | hand=%-2d front=%-2d support=%-2d discard=%-2d deck=%d"
+                     % (_seat_label(st, side), (hq.obj.CardID if hq else "?"), (hq.defense if hq else "?"),
                         len(st.hand(side)), len(st.board(side)), len(st.support(side)),
                         len(st.discard(side)), len([c for c in st.cards
-                                                    if c.side == side and c.location == "deck"])))
+                                                    if c.side == side and c.obj.Location in _DECK_LOCS])))
     if not show_cards:
         return "\n".join(lines)
-    lines.append("%-26s %-6s %-10s %-11s %-6s %-4s %s" % ("name", "side", "loc", "type", "a/d", "cost", "kw"))
+    lines.append("%-26s %-8s %-15s %-11s %-6s %-4s %s" % ("name", "side", "loc", "type", "a/d", "cost", "kw"))
     for c in st.cards:
-        lines.append("%-26s %-6s %-10s %-11s %-6s %-4s %s%s"
-                     % ((c.name or "?")[:26], c.side, c.location, c.card_type or "?",
-                        "%s/%s" % (c.attack, c.defense), c.kredit_cost,
+        lines.append("%-26s %-8s %-15s %-11s %-6s %-4s %s%s"
+                     % ((c.name or "?")[:26], _seat_label(st, c.side),
+                        (ECardLocation(c.obj.Location).name if c.obj.Location is not None else "?"), c.card_type or "?",
+                        "%s/%s" % (c.attack, c.defense), c.obj.getTotalKredits(),
                         " ".join(c.keywords),
-                        ("  ->%s" % c.target_uid) if c.target_uid else ""))
+                        # S3'：原来读 `Card.target_uid`（`"0x%X" % obj.CurrentTarget` 的格式化别名）；
+                        # 内联成原版字段读法，格式与原别名一字不差（falsy ⇒ 不显示）。
+                        ("  ->0x%X" % c.obj.CurrentTarget) if c.obj.CurrentTarget else ""))
     return "\n".join(lines)
 
 
@@ -1087,22 +1144,23 @@ def main(argv=None) -> int:
                     help="摊开原始字段；给 * 摊开全部")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--rows", action="store_true", help="按行/列打印位置图")
-    ap.add_argument("--deck", nargs="?", const="local", metavar="SIDE",
-                    help="物理牌库（含同名多份）")
+    ap.add_argument("--deck", nargs="?", const="me", metavar="SIDE",
+                    help="物理牌库（含同名多份）。SIDE = left / right / me（我方，现算 mySide）")
     a = ap.parse_args(argv)
     s = attach()
     if a.deck:
-        deckrows = deck_cards(s, a.deck)
-        if rows is None:
+        dside = parse_side(s, a.deck)
+        deckrows = deck_cards(s, dside)
+        if deckrows is None:
             print("牌库读不出（DeckCardIDs 为空 / 不在对局）")
             s.close()
             return 2
-        for r in rows:
+        for r in deckrows:
             print("  id=%-6s %-28s matched=%s" % (r["card_id"], r["name"], r["matched"]))
-        ms = deck_multiset(s, a.deck)
+        ms = deck_multiset(s, dside)
         dups = {k: v for k, v in (ms or {}).items() if v > 1}
         print("== %s 牌库 %d 张，%d 个名字，其中多份的: %s"
-              % (a.deck, len(rows), len(ms or {}), dups))
+              % (_seat_label(s.snapshot(), dside), len(deckrows), len(ms or {}), dups))
         s.close()
         return 0
     if a.rows:

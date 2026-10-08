@@ -12,9 +12,11 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _cards import ME, OPP                                      # noqa: E402
 from semantics import choosespawn as CS                            # noqa: E402
-from policy.boardeval import A, H                               # noqa: E402
+from engine.state import H, Sim                                 # noqa: E402
+from sim.engine import A, apply, prompt_of, run                 # noqa: E402
 from sim.prompt import Done, Suspended, leaves, resolve        # noqa: E402
 
 fails = 0
@@ -47,26 +49,26 @@ def main():
              {"name": "card_unit_b", "atk": 1, "dfn": 1, "cost": 1, "typ": "infantry"},
              {"name": "card_unit_c", "atk": 5, "dfn": 4, "cost": 5, "typ": "tank"}]
     hand = {7: H(7, "SOUL", 2, "order", 0, 0, (), {"choose_spawn": True})}
-    st = B.Sim({}, {"local": 20, "enemy": 20}, 5.0, hand, 5.0, spawn_pick={7: cands})
+    st = Sim({}, {ME: 20, OPP: 20}, 5.0, hand, 5.0, spawn_pick={7: cands}, my_side=ME)
     a = A("order", 7, None, 2, "SOUL")
-    pr = B.prompt_of(st, a)
+    pr = prompt_of(st, a)
     chk("提示：select_card_to_draw 单层、三个候选", pr is not None and pr.kind == "select_card_to_draw"
         and [o.key for o in pr.options] == ["card_unit_a", "card_unit_b", "card_unit_c"] and pr.meta.get("spawn"))
-    run = B.run(st, a)
-    chk("run 挂起", isinstance(run, Suspended))
-    lv = leaves(run)
+    susp = run(st, a)
+    chk("run 挂起", isinstance(susp, Suspended))
+    lv = leaves(susp)
     chk("三条叶路径", len(lv) == 3 and [p for p, _d in lv] == [("card_unit_a",), ("card_unit_b",), ("card_unit_c",)])
-    d = resolve(run, ["card_unit_c"])
+    d = resolve(susp, ["card_unit_c"])
     chk("选中的牌立刻进手牌（5/4 坦克），发起牌已打出",
         isinstance(d, Done) and 7 not in d.state.hand
         and any(h.name == "card_unit_c" and (h.atk, h.dfn, h.cost) == (5, 4, 5) for h in d.state.hand.values()))
     chk("原状态不被改（resume 不修改原状态）", 7 in st.hand and len(st.hand) == 1)
-    ap = B.apply(st, A("order", 7, None, 2, "SOUL", path=("card_unit_b",)))
+    ap = apply(st, A("order", 7, None, 2, "SOUL", path=("card_unit_b",)))
     chk("apply 带路径", any(h.name == "card_unit_b" for h in ap.hand.values()))
 
-    st2 = B.Sim({}, {"local": 20, "enemy": 20}, 5.0, {7: H(7, "SOUL", 2, "order", 0, 0, (), {"choose_spawn": True})}, 5.0)
-    chk("没有候选表 ⇒ 无提示", B.prompt_of(st2, a) is None)
-    ap2 = B.apply(st2, a)
+    st2 = Sim({}, {ME: 20, OPP: 20}, 5.0, {7: H(7, "SOUL", 2, "order", 0, 0, (), {"choose_spawn": True})}, 5.0, my_side=ME)
+    chk("没有候选表 ⇒ 无提示", prompt_of(st2, a) is None)
+    ap2 = apply(st2, a)
     chk("没有候选表 ⇒ 如实记缺口，不编候选", any("choose_spawn" in g for g in ap2.gaps) and len(ap2.hand) == 0)
 
     from policy import answer as PA

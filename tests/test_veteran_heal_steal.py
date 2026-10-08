@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""老兵 / 治疗 / 偷牌 的钩子段（2026-10-03，BP_CardFunctions 逐行读过）：顺序、形参、否决/压制语义 + boardeval 消费。
+"""老兵 / 治疗 / 偷牌 的钩子段（2026-10-03，BP_CardFunctions 逐行读过）：顺序、形参、否决/压制语义 + sim.engine 消费。
 
 * MakeVeteran@7127：未压制才 `OnBecomingVeteran()`；0x20 逐张 `OnOtherCardBecomingVeteran(card)`；
 * FullyHealCard@701：0xC `OnBeforeFullyRepaired(card,&stop)`（真 ⇒ 中止）→ 0x2C `OnOtherCardFullyRepaired(card,amount)`
@@ -13,9 +13,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
 import semantics.triggers as TR                                    # noqa: E402
-from policy.boardeval import U                                  # noqa: E402
+from engine.state import Sim, U                                    # noqa: E402
+from sim.engine import _apply_eff                                  # noqa: E402
 
 fails = 0
 
@@ -163,24 +164,24 @@ def main():
         fr["to_b"] > 3 and fr["to_a"] > 2 and all(a.get("fromFight", True) for h, _n, a in calls2 if "Modify" in h),
         str((fr["to_b"], fr["to_a"], [h for h, _n, _a in calls2][:4])))
     stf = mk_fight = None
-    # ---- boardeval 消费 ----
+    # ---- sim.engine 消费 ----
     def mk(units, **kw):
-        return B.Sim({u.id: u for u in units}, {"local": 20, "enemy": 20}, 5.0, {}, **kw)
+        return Sim({u.id: u for u in units}, {ME: 20, OPP: 20}, 5.0, {}, **kw, my_side=ME)
 
-    st = mk([U(1, "enemy", "frontline", 3, 3, 3, "infantry", mdef=5), U(2, "local", "back", 1, 1, 1, "infantry")],
+    st = mk([U(1, OPP, "frontline", 3, 3, 3, "infantry", mdef=5), U(2, ME, "back", 1, 1, 1, "infantry")],
             event_fx={"steal": {1: {"damage_own_hq": 2}}})
-    B._apply_eff(st, {"steal": True}, 1)
-    chk("偷牌：event_fx['steal'] 后果被结算（己方 HQ -2）", st.hq["local"] == 18, str(st.hq))
-    st2 = mk([U(1, "enemy", "frontline", 3, 3, 3, "infantry", mdef=5)], event_fx={"heal": {1: {"heal_vetoed": True}}})
-    B._apply_eff(st2, {"heal": True}, 1)
+    _apply_eff(st, {"steal": True}, 1)
+    chk("偷牌：event_fx['steal'] 后果被结算（己方 HQ -2）", st.hq[ME] == 18, str(st.hq))
+    st2 = mk([U(1, OPP, "frontline", 3, 3, 3, "infantry", mdef=5)], event_fx={"heal": {1: {"heal_vetoed": True}}})
+    _apply_eff(st2, {"heal": True}, 1)
     chk("治疗：event_fx['heal'].heal_vetoed ⇒ 治疗不生效", st2.units[1].dfn == 3.0, str(st2.units[1].dfn))
-    st3 = mk([U(1, "enemy", "frontline", 3, 3, 3, "infantry", mdef=5)], event_fx={"heal": {1: {"damage_own_hq": 1}}})
-    B._apply_eff(st3, {"heal": True}, 1)
-    chk("治疗：没被否决 ⇒ 满血并结算 0x2C/自己的后果", st3.units[1].dfn == 5.0 and st3.hq["local"] == 19,
+    st3 = mk([U(1, OPP, "frontline", 3, 3, 3, "infantry", mdef=5)], event_fx={"heal": {1: {"damage_own_hq": 1}}})
+    _apply_eff(st3, {"heal": True}, 1)
+    chk("治疗：没被否决 ⇒ 满血并结算 0x2C/自己的后果", st3.units[1].dfn == 5.0 and st3.hq[ME] == 19,
         str((st3.units[1].dfn, st3.hq)))
-    sf = B.Sim({1: U(1, "local", "frontline", 3, 5, 3, "infantry"), 2: U(2, "enemy", "frontline", 2, 5, 2, "infantry")},
-               {"local": 20, "enemy": 20}, 5.0, {})
-    B._apply_eff(sf, {"fight": [1, 2], "fight_dmg": (4, 1)}, None)
+    sf = Sim({1: U(1, ME, "frontline", 3, 5, 3, "infantry"), 2: U(2, OPP, "frontline", 2, 5, 2, "infantry")},
+               {ME: 20, OPP: 20}, 5.0, {}, my_side=ME)
+    _apply_eff(sf, {"fight": [1, 2], "fight_dmg": (4, 1)}, None)
     chk("战斗：fight_dmg 优先于裸 atk（1 号受 1、2 号受 4）", sf.units[1].dfn == 4 and sf.units[2].dfn == 1,
         str((sf.units[1].dfn, sf.units[2].dfn)))
     print("失败 %d 项" % fails)

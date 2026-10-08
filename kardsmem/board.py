@@ -8,7 +8,7 @@ kardsmem/board.py —— 盘面快照：把游戏进程内存里的盘面读成�
     from kardsmem.board import open_source
     src = open_source()
     st  = src.snapshot()
-    st.kredits["local"], st.our_turn, len(st.board("local"))
+    st.kredits[st.my_side], st.our_turn, len(st.board())
 
 只读：`PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` + `ReadProcessMemory`。不依赖 reverse-data，
 字段偏移走 UE 反射链现算（`kardsmem/props.py`），全局 RVA 见 `kardsmem/build.py`。
@@ -16,8 +16,8 @@ kardsmem/board.py —— 盘面快照：把游戏进程内存里的盘面读成�
 约定
 ====
 - 坐标一律是游戏窗口 **客户区** 坐标（本仓库惯用 1280x720）。
-- 阵营统一归一化成 `"local"` / `"enemy"`；原始 `ESideEnum`（1=left, 2=right）
-  放在 `Card.raw["side_enum"]`。实测 **left(1) = 本地**。
+- 座位用游戏自己的 `ESide`（1=left 先手 / 2=right 后手）；**没有 local / enemy**。本地是哪一边由 `mySide` 决定
+  （`BoardState.my_side`，每局读一次），“我方”= `side == my_side`。
 - 任何读不出来的字段一律 `None`，并把原因记进 `BoardState.unknown`；
   **不猜**。`complete` 为 False 表示至少有一个关键字段是 None。
 
@@ -41,7 +41,7 @@ import time
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-from .gamemodel import (BaseCardObject, ECardLocation, EFaction, ERarity, ESide, EType, GameState, enum_or_none)
+from .gamemodel import (other_side, BaseCardObject, ECardLocation, EFaction, ERarity, ESide, EType, GameState, enum_or_none)
 
 # --------------------------------------------------------------------------
 # 零、仓库根（只用于定位 config 之类的随包文件；不再向 sys.path 注入任何东西）
@@ -53,7 +53,6 @@ AGENT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # �
 # 一、归一化的盘面模型（调用方只认这些）
 # --------------------------------------------------------------------------
 
-LOCAL, ENEMY = "local", "enemy"
 
 # ECardLocationEnum。★ 实测修正：5/6 (Board_HQLeft/Right) 不是"只有 HQ"，
 # 而是**我方/敌方的整个后排** —— HQ 与支援线单位都在里面，靠 locationNumber 分槽。
@@ -116,82 +115,179 @@ def read_my_side(m, gamestate):
     return to_move if lt else _other(to_move)
 
 
-def side_maps(my_side):
-    """→ (by_enum, by_lr)：{1/2 → local/enemy} 与 {'left'/'right' → local/enemy}。
-
-    my_side 读不出时退回"1=本地"这个历史默认，并由调用方记进 unknown。
-    """
-    if my_side == SIDE_RIGHT:
-        return ({0: None, SIDE_LEFT: ENEMY, SIDE_RIGHT: LOCAL},
-                {"left": ENEMY, "right": LOCAL})
-    return ({0: None, SIDE_LEFT: LOCAL, SIDE_RIGHT: ENEMY},
-            {"left": LOCAL, "right": ENEMY})
-
-
-# 历史默认（my_side 读不出时用）。**不要**直接拿它当映射表 —— 用 side_maps()。
-SIDE_ENUM = {0: None, SIDE_LEFT: LOCAL, SIDE_RIGHT: ENEMY}
-
-
-@dataclass
 class Card:
-    """一张牌的归一化状态。任何字段都可能是 None（读不出就是读不出）。"""
-    uid: str                     # 本次快照内稳定；mem 后端就是对象地址
-    side: Optional[str] = None
-    location: Optional[str] = None       # deck/hand/frontline/hq/discard
-    slot: Optional[int] = None           # locationNumber，阵线上的列号
-    card_id: Optional[int] = None
-    name: Optional[str] = None
-    card_type: Optional[str] = None
-    attack: Optional[int] = None
-    attack_buff: Optional[int] = None
-    defense: Optional[int] = None
-    max_attack: Optional[int] = None
-    max_defense: Optional[int] = None
-    kredit_cost: Optional[int] = None
-    operation_cost: Optional[int] = None
-    kredits_tax_as_enemy_target: Optional[int] = None   # 被敌方指向时额外加费
-    gotcha_activated: Optional[int] = None   # 反制(gotcha)已激活的次序编号；0/None = 没激活
-    is_suppressed: Optional[bool] = None
-    is_revealed: Optional[bool] = None
-    # ★ 被守护：**游戏自己维护的字段**（`isBeingGuarded@0x288`），不是按相邻关系推算的。
-    #   守护可以被某张卡临时赋予/移除（`GiveGuard/RemoveGuard` 带 instigatorID），
-    #   所以推算值会和游戏分叉。见 §6.4。
-    is_being_guarded: Optional[bool] = None
-    under_enemy_control: Optional[bool] = None   # 归属 != 控制方（心控），§11.1 F3b
-    can_act: Optional[bool] = None
-    target_uid: Optional[str] = None
-    needs_hand_target: Optional[bool] = None   # selectTargetOnPlayedFromHand
-    enter_play_on_turn: Optional[int] = None   # 这张牌进场的回合号（和 BoardState.turn 比较）
-    # ★ 2026-09-27 补（用户要的 board/inspect 字段）：**运行时**枚举原值 + 行动费修正
-    faction_enum: Optional[int] = None         # EFactionEnum @0x7C（中文名由 view 映射）
-    rarity_enum: Optional[int] = None          # ERarityEnum  @0x11C
-    card_set_enum: Optional[int] = None        # ECardSetEnum @0x130
-    operation_cost_buff: Optional[int] = None  # @0xB4 —— `operation_cost` 是**基础值**
-    # ★ 2026-10-02：`UBaseCardObject::cipher @0x25C` = **情报值**（0..9，`AddIntelToCard` 写它）。
-    #   打出 cipher>0 的卡会触发 `SetCardsSeenByCipher` ⇒ `OnIntelTriggered`（trigger 0x1C）。
-    cipher: Optional[int] = None
-    has_been_attacked_this_turn: Optional[bool] = None   # @0x280 **被动**：本回合被攻击过
-                                                         #   （≠ `has_attacked_this_turn@0x281` 主动！）
-    fname: Optional[str] = None                # 内部资产名（FName@0x50）；由 kardsmem/agent 层补
-    keywords: list = field(default_factory=list)
-    raw: dict = field(default_factory=dict)
-    # 游戏原版结构（字段名 / 枚举与 UBaseCardObject 一致，见 kardsmem/gamemodel.py）。上面那些归一化字段是它的**派生视图**。
-    obj: Optional[BaseCardObject] = None
+    """一张牌：原版 `UBaseCardObject`（`.obj`）+ 少量我们加的元数据。
 
+    原来的归一化字段（`side="local"`、`location="hand"` …）已删：座位用游戏自己的 `ESide`（`.side`），
+    位置看 `.obj.Location`（`ECardLocation`）或 `.obj.InHand()` 一类谓词，**没有 local / enemy**。
+    下面的只读属性是 `obj` 的同名别名（读不出为 None），给没迁完的调用点过渡用。
+    """
+    __slots__ = ("uid", "obj", "fname", "raw")
+
+    def __init__(self, uid: str, obj: BaseCardObject, fname: Optional[str] = None, raw: Optional[dict] = None):
+        self.uid, self.obj, self.fname, self.raw = uid, obj, fname, (raw if raw is not None else {})
+
+    @property
+    def location(self):
+        # 故意抛 RuntimeError（不是 AttributeError）：`getattr(c, "location", None)` 不会把它吞成 None。
+        raise RuntimeError("Card.location 已删：用 card.obj.Location（ECardLocation）或 obj.InHand()/InFrontline()/IsHQ()… 谓词")
+
+    # ---- 原版字段的别名 ----
+    @property
+    def side(self) -> Optional[ESide]:
+        return self.obj.side
+
+    @property
+    def slot(self): return self.obj.locationNumber
+
+    @property
+    def card_id(self): return self.obj.CardID
+
+    @property
+    def name(self): return self.obj.title
+
+    @property
+    def card_type(self) -> Optional[str]:
+        return None if self.obj.Type is None else self.obj.Type.name
+
+    @property
+    def attack(self): return self.obj.attack
+
+    @property
+    def attack_buff(self): return self.obj.attackBuff
+
+    @property
+    def defense(self): return self.obj.defense
+
+    @property
+    def max_attack(self): return self.obj.maxAttack
+
+    @property
+    def max_defense(self): return self.obj.maxDefense
+
+    @property
+    def kredit_cost(self): return self.obj.getTotalKredits()
+
+    @property
+    def operation_cost(self): return self.obj.operationCost
+
+    @property
+    def operation_cost_buff(self): return self.obj.operationCostBuff
+
+    @property
+    def kredits_tax_as_enemy_target(self): return self.obj.KreditsTax_AsEnemyTarget
+
+    @property
+    def gotcha_activated(self): return self.obj.gotchaActivated
+
+    @property
+    def is_suppressed(self): return self.obj.isSuppressed
+
+    @property
+    def is_revealed(self): return self.obj.isRevealed
+
+    @property
+    def is_being_guarded(self): return self.obj.isBeingGuarded
+
+    @property
+    def under_enemy_control(self): return self.obj.underEnemyControl
+
+    @property
+    def needs_hand_target(self): return self.obj.selectTargetOnPlayedFromHand
+
+    @property
+    def enter_play_on_turn(self): return self.obj.enterPlayOnTurn
+
+    @property
+    def cipher(self): return self.obj.cipher
+
+    @property
+    def has_been_attacked_this_turn(self): return self.obj.hasBeenAttackedThisTurn
+
+    @property
+    def faction_enum(self): return None if self.obj.faction is None else int(self.obj.faction)
+
+    @property
+    def rarity_enum(self): return None if self.obj.rarity is None else int(self.obj.rarity)
+
+    @property
+    def card_set_enum(self): return self.obj.cardSet
+
+    @property
+    def target_uid(self) -> Optional[str]:
+        t = self.obj.CurrentTarget
+        return ("0x%X" % t) if t else None
+
+    @property
+    def can_act(self) -> Optional[bool]:
+        """本回合还能不能行动：`attackLeft>0 且 本回合没攻击过`（**主动**旗标 `hasAttackedThisTurn@0x281`，
+        别用被动的 `hasBeenAttackedThisTurn@0x280`）。"""
+        o = self.obj
+        if o.attackLeft is None or o.hasAttackedThisTurn is None:
+            return None
+        return bool(o.attackLeft > 0 and not o.hasAttackedThisTurn)
+
+    @property
+    def keywords(self) -> list:
+        o = self.obj
+        kw = [name for flag, name in _KEYWORD_FLAGS if getattr(o, flag)]
+        if o.heavyArmor:
+            kw.append("heavyarmor%d" % o.heavyArmor)
+        return kw
+
+    # ★ P3（2026-10-03）：这两个原来写成了**方法**，而 `engine.effectvm` 用
+    #   `getattr(c, "total_attack")` 读"当前总量"喂 `cur_stats`（SetValue 折算要用）——
+    #   拿到的是**绑定方法**，随即被 `isinstance(v, (int, float))` 过滤掉 ⇒
+    #   `cur_stats` 里**从来没有** `attack` / `opcost` ⇒ 那两个 SetValue 分支一直在记
+    #   "读不到目标当前值"的缺口、**效果被整个丢掉**（活死代码，离线测试喂假 cur_stats 所以没暴露）。
+    #   改成 `@property`（原版取值就是 `getTotalAttack()` / `getTotalOperationCost()`）。
+    @property
     def total_attack(self) -> Optional[int]:
-        if self.attack is None:
-            return None
-        return self.attack + (self.attack_buff or 0)
+        return self.obj.getTotalAttack()
 
+    @property
     def total_operation_cost(self) -> Optional[int]:
-        """行动费 = 基础 + buff（**进程外求和**）。
+        """行动费 = 基础 + buff（进程外求和）；要权威值用 `ops.inject.card_totals(card_id)`。"""
+        return self.obj.getTotalOperationCost()
 
-        ★ 与 UI 的 `getTotalOperationCost()` 可能仍有差（它可能有别的修正）
-          ⇒ 要权威值用 `ops_inject.card_totals(card_id)`（注入式只读调用游戏本体）。
+    @property
+    def heavy_armor(self) -> Optional[int]:
+        return self.obj.heavyArmor
+
+    @property
+    def heavy_armor_buff(self) -> Optional[int]:
+        return self.obj.heavyArmorBuff
+
+    @property
+    def total_heavy_armor(self) -> Optional[int]:
+        """原版 `getTotalHeavyArmor()` = `clamp(0, 3, heavyArmor + heavyArmorBuff)`。
+
+        ★ 2026-10-04：**以前没有这两个 property**，而 `engine.effectvm._fill_cur_stats`
+        读的正是 `getattr(card, "total_heavy_armor")` / `("armor_buff", "heavy_armor_buff")`
+        —— `Card` 上取不到、快照 `raw` 里也没有（raw 只带 `heavy_armor` 一个）⇒
+        `cur_stats` 里**从来没有** `armor`/`armor_buff` ⇒ **重甲 SetValue 在实机路径上记
+        "读不到目标当前值"的缺口、效果被整个丢掉**。R12 的测试之所以是绿的，是因为它
+        往 `raw` 里**自己塞了那两个键**（fixture 与实机形状不符）—— 与 2026-10-03 那次
+        `total_attack` 写成方法、离线测试喂假 `cur_stats` 是**同一类**错误（弯路 #11/#12）。
+        夹取口径：IDA `getTotalHeavyArmor` 与 `kardsmem/cards.py:815` 都是 `[0,3]`。
         """
-        if self.operation_cost is None:
+        a = self.obj.heavyArmor
+        if a is None:
             return None
-        return self.operation_cost + (self.operation_cost_buff or 0)
+        v = int(a) + int(self.obj.heavyArmorBuff or 0)
+        return 0 if v < 0 else (3 if v > 3 else v)
+
+    def __repr__(self) -> str:
+        o = self.obj
+        return "Card(%s id=%s %s side=%s loc=%s)" % (self.uid, o.CardID, o.title, o.side, o.Location)
+
+
+# 关键词旗标 → 名字（`BaseCardObject.has*` 字段名）
+_KEYWORD_FLAGS = [("hasGuard", "guard"), ("hasShock", "shock"), ("hasCovert", "covert"), ("hasBlitz", "blitz"),
+                  ("hasAmbush", "ambush"), ("hasSmokescreen", "smokescreen"), ("hasMobilize", "mobilize"),
+                  ("hasAlpine", "alpine"), ("hasFury", "fury"), ("hasDeployment", "deployment"),
+                  ("hasDestruction", "destruction"), ("hasScrying", "scrying"), ("hasPincer", "pincer"),
+                  ("hasSalvage", "salvage")]
 
 
 @dataclass
@@ -204,13 +300,13 @@ class BoardState:
 
     turn: Optional[int] = None
     our_turn: Optional[bool] = None
-    our_side: Optional[str] = None
-    my_side_raw: Optional[int] = None   # ABP_Board_C::mySide（1/2）；None = 读不出
-    kredits: dict = field(default_factory=lambda: {LOCAL: None, ENEMY: None})
-    slots: dict = field(default_factory=lambda: {LOCAL: None, ENEMY: None})
-    slots_lost: dict = field(default_factory=lambda: {LOCAL: None, ENEMY: None})
-    fatigue: dict = field(default_factory=lambda: {LOCAL: None, ENEMY: None})
-    frontline_owner: Optional[str] = None
+    action_process: Optional[bool] = None      # ABP_GameState_Battle_C@0x531：动作（含 StartTurnBySide）处理中
+    my_side: Optional[ESide] = None     # 本地玩家的座位（游戏的 mySide，1=left / 2=right）；None = 读不出
+    kredits: dict = field(default_factory=lambda: {ESide.left: None, ESide.right: None})   # 键 = ESide
+    slots: dict = field(default_factory=lambda: {ESide.left: None, ESide.right: None})   # 键 = ESide
+    slots_lost: dict = field(default_factory=lambda: {ESide.left: None, ESide.right: None})   # 键 = ESide
+    fatigue: dict = field(default_factory=lambda: {ESide.left: None, ESide.right: None})   # 键 = ESide
+    frontline_owner: Optional[ESide] = None
     weather_played_this_turn: Optional[bool] = None
     operation_kredits_spent: Optional[int] = None
     max_possible_kredits: Optional[int] = None   # int32@GS+0x338（getMaxPossibleKredits 的真值）
@@ -220,30 +316,49 @@ class BoardState:
     registry: Optional[dict] = None
     frontline_limiters: Optional[list] = None   # GS+0x3A8 `TSet<int32> FrontlineLimiters`；非空 ⇒ `IsFrontlineLimited()`（前线只容 2 张）
     match_finished: Optional[bool] = None
-    hq: dict = field(default_factory=lambda: {LOCAL: None, ENEMY: None})
+    hq: dict = field(default_factory=lambda: {ESide.left: None, ESide.right: None})   # 键 = ESide
     cards: list = field(default_factory=list)
     # 游戏原版结构（ABP_GameState_Battle_C，字段名 / 键类型照 SDK；见 kardsmem/gamemodel.py）。上面那些是它的派生视图。
     game: Optional[GameState] = None
 
-    # ---- 便捷视图 --------------------------------------------------------
-    def hand(self, side: str = LOCAL) -> list:
-        return [c for c in self.cards if c.side == side and c.location == "hand"]
+    # ---- 便捷视图（座位用 ESide；不传 = 我方）----
+    @property
+    def my_side_raw(self) -> Optional[int]:
+        """兼容别名：`my_side` 的 int 值（1/2）。新代码直接用 `my_side`（`ESide` 是 IntEnum，二者可互换比较）。"""
+        return None if self.my_side is None else int(self.my_side)
 
-    def board(self, side: str = LOCAL) -> list:
-        """前线（`Board_Frontline=7`）上的单位。"""
-        return [c for c in self.cards if c.side == side and c.location == "frontline"]
+    @property
+    def other_side(self) -> Optional[ESide]:
+        return None if self.my_side is None else other_side(self.my_side)
 
-    def support(self, side: str = LOCAL) -> list:
-        """后排（`Board_HQLeft/Right=5/6`）里除 HQ 以外的单位。"""
-        return [c for c in self.cards if c.side == side and c.location == "back"]
+    def seat(self, side: Optional[ESide] = None) -> ESide:
+        side = self.my_side if side is None else side
+        if side is None:
+            raise ValueError("本地座位读不出（mySide 为空）：不能按『我方』取牌")
+        return side
 
-    def field_units(self, side: str = LOCAL) -> list:
-        """真正在场的单位：前线 + 后排（不含 HQ），排除弃牌堆/牌库。"""
-        return [c for c in self.cards
-                if c.side == side and c.location in ("frontline", "back")]
+    def hand(self, side: Optional[ESide] = None) -> list:
+        side = self.seat(side)
+        return [c for c in self.cards if c.obj.side == side and c.obj.InHand()]
 
-    def discard(self, side: str = LOCAL) -> list:
-        return [c for c in self.cards if c.side == side and c.location == "discard"]
+    def board(self, side: Optional[ESide] = None) -> list:
+        """前线（`Board_Frontline=7`）上的单位（双方共用一条前线，按 side 过滤）。"""
+        side = self.seat(side)
+        return [c for c in self.cards if c.obj.side == side and c.obj.InFrontline()]
+
+    def support(self, side: Optional[ESide] = None) -> list:
+        """支援线（`Board_HQLeft/Right`）里除 HQ 以外的单位。"""
+        side = self.seat(side)
+        return [c for c in self.cards if c.obj.side == side and c.obj.InSupportLine() and not c.obj.IsHQ()]
+
+    def field_units(self, side: Optional[ESide] = None) -> list:
+        """真正在场的单位：前线 + 支援线（不含 HQ），排除弃牌堆/牌库。"""
+        side = self.seat(side)
+        return [c for c in self.cards if c.obj.side == side and c.obj.IsFieldUnit()]
+
+    def discard(self, side: Optional[ESide] = None) -> list:
+        side = self.seat(side)
+        return [c for c in self.cards if c.obj.side == side and c.obj.InDiscard()]
 
     def by_uid(self, uid: str) -> Optional[Card]:
         for c in self.cards:
@@ -252,8 +367,10 @@ class BoardState:
         return None
 
     def as_dict(self) -> dict:
-        d = asdict(self)
-        d["taken_at"] = self.taken_at
+        d = {k: v for k, v in self.__dict__.items() if k not in ("cards", "game", "hq")}
+        d["cards"] = [{"uid": c.uid, **{k: (int(v) if isinstance(v, ESide) else v)
+                                         for k, v in c.obj.__dict__.items() if k != "raw"}} for c in self.cards]
+        d["hq"] = {int(k): (v.uid if v is not None else None) for k, v in self.hq.items()}
         return d
 
 
@@ -282,104 +399,34 @@ class BoardSource:
 # 三、mem 后端：只读进程内存
 # --------------------------------------------------------------------------
 #
-# 构建指纹：磁盘上有**多份同名** `kards-Win64-Shipping.exe`，只有一份与 idmap/dump 对应，
-# 换构建必须重新核对偏移（判定方法见 reverse-data/reports/ledger/EXE-IDENTITY.md）。
-#
-# ★ 2026-09-25：本机现在**两个渠道都可能跑**，所以这里是按构建分的一张表，
-#   用环境变量选：`KARDS_BUILD=launcher_default python …`（不设 = Steam，行为不变）。
-#   ⚠ **偏移值优先从 `kardsmem/build_tables.json` 读**（由 `kardsmem/buildsrc.py`
-#     从 SDK dump + exe 提取，别手抄）；这张表只负责两件事：
-#       ① 身份（image_size / exe_size / md5）—— 人工登记，`build.py` 同样登记一份；
-#       ② JSON 缺失/损坏时的兜底偏移。
-#     board_api 之所以不直接 import kardsmem：`kardsmem.proc` 反过来 import 本模块的
-#     `_find_pid`，顶层 import 会成环。两边的**一致性由 `python -m kardsmem selftest`
-#     §B 检查**（两个构建都查），别让它们漂。
-_BUILD_TABLE = {
-    "current": {                       # 1.58 / 1.60 Steam（0x9CC8000）
-        "image_size": 0x9CC8000,       # toolhelp 的 modBaseSize，不是文件大小
-        "exe_size": 160489984,
-        "md5": "395e470f06837f6e60ce5c53c6df2a22",
-        "gworld": 0x08F625B0,
-        "gobjects": 0x091FF4E0,
-        "gnames": 0x090E2E28,
-    },
-    "launcher_default": {              # 1.58 + 1.60 launcher（0x9CC4000，同一个 exe）
-        "image_size": 0x9CC4000,
-        "exe_size": 160476160,
-        "md5": "7c6a83c7d002d57d3581b87296eda98b",
-        "gworld": 0x08F5F5B0,          # dump 里 GWorld=0，这份是实机扫 .data 得到的
-        "gobjects": 0x091FC460,
-        "gnames": 0x090DFDA8,
-    },
-}
+# 构建指纹/RVA：★ 2026-10-03 P7 起**不在这里维护**。唯一入口是 `kardsmem.build`
+# （数据 = `build_tables.json` 种子表；选择 = 用户缓存 → 种子复验 → 运行时扫描，见 `build.resolve`）。
+# 本模块只取用：`MEM_BUILD`（身份，信息性）与 `RVA_*`（★ P7-S3b：调用期读，仅供自检合成目标和旧工具）；
+# 运行时读 GWorld 一律走 `_build.RVA[...]`（共享单例，解析成功后原地更新）。
+# import 方向：`board → build`（build 不在顶层 import board/proc，所以没有环；
+# build 需要的进程枚举在叶子模块 `version.py`）。`_find_pid`/`_module_of` 仍在本模块，`proc` 引用它们。
+from . import build as _build
 
-
-def _load_offsets_json():
-    """`kardsmem/build_tables.json` → {key: {"GWorld":…, "GObjects":…, "GNames_decoy":…}}。
-
-    读不到就返回 {}（用表里的兜底偏移）。**只读文件，不 import kardsmem**。
-    """
-    import json as _json
-    from pathlib import Path as _Path
-    p = _Path(__file__).with_name("build_tables.json")
-    if not p.exists():
-        return {}
-    try:
-        j = _json.loads(p.read_text(encoding="utf-8"))
-    except Exception:                                          # noqa: BLE001
-        return {}
-    out = {}
-    for k, t in (j.get("builds") or {}).items():
-        rva = t.get("rva") or {}
-        if not rva:
-            continue
-        out[k] = rva
-        tbl = _BUILD_TABLE.setdefault(k, {})
-        for src_key, dst_key in (("GWorld", "gworld"), ("GObjects", "gobjects"),
-                                 ("GNames_decoy", "gnames")):
-            if src_key in rva:
-                tbl[dst_key] = int(rva[src_key])
-        for k2 in ("image_size", "exe_size", "md5"):
-            if t.get(k2):
-                tbl.setdefault(k2, t[k2])
-    return out
-
-
-OFFSET_TABLES = _load_offsets_json()      # 生成的数据（为空 = 用兜底）
-
-def _select_build_key() -> str:
-    """`KARDS_BUILD` > 运行中游戏的版本（`kardsmem/version.py`，按文件路径载入以免包 import 成环）> `current`。
-    与 `kardsmem.build.CURRENT` 用同一个选择函数，两张表不会各选各的。"""
-    k = os.environ.get("KARDS_BUILD")
-    if k:
-        return k
-    try:
-        import importlib.util
-        vp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "version.py")
-        spec = importlib.util.spec_from_file_location("_kards_version_for_board_api", vp)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod.select_build()[0]
-    except Exception:                                         # noqa: BLE001
-        return "current"
-
-
-_BUILD_KEY = _select_build_key()
-if _BUILD_KEY not in _BUILD_TABLE:
-    raise SystemExit("KARDS_BUILD=%r 不在 board_api 的构建表里（可选：%s）"
-                     % (_BUILD_KEY, ", ".join(_BUILD_TABLE)))
-_B = _BUILD_TABLE[_BUILD_KEY]
-
+_REF = _build.BUILDS.get(_build.CURRENT) or {}
 MEM_BUILD = {
     "module": "kards-Win64-Shipping.exe",
-    "image_size": _B["image_size"],
-    "exe_size": _B["exe_size"],
-    "md5": _B["md5"],
+    "image_size": _build.RVA_IMAGE_SIZE or _REF.get("image_size"),
+    "exe_size": _REF.get("exe_size"),
+    "md5": _REF.get("md5"),
 }
 
-RVA_GWORLD = _B["gworld"]
-RVA_GOBJECTS = _B["gobjects"]
-RVA_GNAMES = _B["gnames"]
+# ★ P7-S3b：这里原来是 import 期快照（`RVA_GWORLD = _build.RVA[...]`）。RVA 走解析链后
+#   可能本进程运行期间才确定 ⇒ 改成模块 __getattr__ 调用期读（同 `names.py`；PEP 562）。
+#   模块内部想用值时**直接写 `_build.RVA[...]`** —— 裸全局名查找不会走 __getattr__。
+_BOARD_RVA_ALIASES = {"RVA_GWORLD": "GWorld", "RVA_GOBJECTS": "GObjects", "RVA_GNAMES": "GNames_decoy"}
+
+
+def __getattr__(name: str):
+    """供自检/旧工具的只读别名：`board.RVA_GWORLD` = 当前生效的 `build.RVA["GWorld"]`。"""
+    key = _BOARD_RVA_ALIASES.get(name)
+    if key is None:
+        raise AttributeError("module %r has no attribute %r" % (__name__, name))
+    return _build.RVA[key]
 
 OFF_UOBJECT_FLAGS = 0x08
 OFF_UOBJECT_CLASS = 0x10
@@ -457,6 +504,10 @@ CARD_U8 = {
     #   顺手把 UBaseCardObject 的 bool 全扫了一遍，把在用的都收进来。
     "is_being_guarded": 0x288,          # ★ 被守护（GiveGuard/RemoveGuard 带 instigatorID
                                         #   ⇒ 是带来源的状态，**不能按相邻关系推算**）
+    # ★ 2026-10-04（P3 ⑦）：`isImmune @0x289`（SDK `kards_classes.hpp:2514`，正好接在 0x288 后面）。
+    #   原版伏击的**必要条件**之一：`CalculateDamageDealt` `:14877-14887` 里
+    #   `dealer.getHasImmune()` 为真 ⇒ **不走伏击**（免疫的伤害方打伏击单位时照常打出伤害）。
+    "is_immune": 0x289,
     "under_enemy_control": 0x2A0,       # 归属 != 控制方（心控），见 §11.1 F3b
     "has_been_attacked_this_turn": 0x280,
     "has_destruction": 0x1D9, "has_scrying": 0x200,
@@ -470,7 +521,14 @@ CARD_U8 = {
 }
 CARD_I32 = {
     "card_id": 0x264, "attack_plain": 0x6C, "attack_buff_plain": 0x70,
-    "defense_plain": 0x74, "kredits_plain": 0x80, "kredits_buff_plain": 0x84,
+    "defense_plain": 0x74,
+    # ★ 2026-10-04（P3 ⑥）：`range @0x78` —— SDK `kards_classes.hpp:2439`
+    #   （`int32 range; // 0x0078`，UBaseCardObject 属性块，正好接在 `defense @0x74` 后面）。
+    #   原版 `cardsCheckFunctions::CanAttack`（`:185-204`）用它判 `not_enough_range`：
+    #   **攻击者不在前线 ∧ 目标不在前线 ∧ range < 2 ⇒ 打不了**。
+    #   我们以前没读这个字段，sim 里用"兵种百科"（步兵/坦克只能打前线、空军/炮兵哪都能打）近似
+    #   —— 那只在"兵种默认 range"下碰巧等价（实机上 range 才是权威）。
+    "range": 0x78, "kredits_plain": 0x80, "kredits_buff_plain": 0x84,
     "kredits_tax": 0x88,          # KreditsTax_AsEnemyTarget：被敌方指向时额外加费
     "operation_cost": 0xB0, "heavy_armor": 0x1DC, "heavy_armor_buff": 0x1E0,
     # ★ 2026-09-27 补：`operationCostBuff @0xB4`。**以前漏了它** —— 被减行动费的卡
@@ -482,6 +540,13 @@ CARD_I32 = {
     #   「单位无法在部署的回合中移动或攻击。」），而 attack_left/movement_left
     #   对刚部署的单位仍然读到 1 —— 所以真正的判据是 enterPlayOnTurn 和当前回合数比较。
     "enter_play_turn": 0x270,
+    # ★ 2026-10-04 补：**压制（pin）** —— `IsPinned = pinnedTurns > 0`（IDA 0x144AFCD30；
+    #   同一字段在 `kardsmem/cards.py:892` 早就在读，只是**没进快照**）。
+    #   为什么必须进快照：`ops/play.py:792` 的移动动词用**只读** `is_pinned` 挡住被压制的单位
+    #   （实机 2026-10-04 一局里 2 次 `move_up` 被拒："6 被压制（pin），不能移动"），
+    #   而规则侧**生成候选时不查它** ⇒ 白提一个注定被拒的动作。
+    #   §7.6f「判据负责挑、游戏负责判」：这里补的是"挑"，不改变"最终由游戏裁决"。
+    "pinned_turns": 0x27C,
     "max_attack": 0x2A4, "max_defense": 0x2A8, "choose_one_index": 0x310,
     # ★ 2026-10-02：情报值（0..9）。导出文件里字段名被压缩显示成 `ln`，SDK 里是 `cipher`。
     "cipher": 0x25C,
@@ -750,7 +815,6 @@ class MemoryBoardSource(BoardSource):
         self._m = None
         self.info = {}
         # side 映射的默认值；每次 snapshot() 会按 ABP_Board_C::mySide 重建
-        self._by_enum = dict(SIDE_ENUM)
         self._ml = None          # 懒建的 kardsmem MatchLog（Logic.mySide 兜底用）
         self._ml_tried = False
 
@@ -810,10 +874,11 @@ class MemoryBoardSource(BoardSource):
             # 照样有效。这条策略跟 kardsmem/proc.py::Session.attach() 早就是这么定的
             # （见 kardsmem/build.py::validate() 的同一句话），board_api 这份 _attach()
             # 一直没跟上，之前会在私服补丁版上误报"不是同一份构建"而拒绝读数。
-            if size != MEM_BUILD["image_size"]:
+            want_size = _build.RVA_IMAGE_SIZE or MEM_BUILD["image_size"]     # 当前生效的 RVA 是为哪个镜像大小解出来的
+            if want_size and size != want_size:
                 raise SourceUnavailable(
                     "模块 SizeOfImage 0x%X != 期望 0x%X —— 这份不是偏移对应的构建，"
-                    "拒绝读数（偏移会用错）" % (size, MEM_BUILD["image_size"]))
+                    "拒绝读数（偏移会用错）" % (size, want_size))
             if path and os.path.exists(path):
                 h = hashlib.md5()
                 with open(path, "rb") as f:
@@ -844,7 +909,7 @@ class MemoryBoardSource(BoardSource):
     def _locate(self, m: _Mem):
         """GWorld -> UWorld -> GameState。返回 (world, gamestate, in_battle, notes)。"""
         notes = []
-        world = m.ptr(self.base + RVA_GWORLD)
+        world = m.ptr(self.base + _build.RVA["GWorld"])
         if not world:
             return None, None, None, ["GWorld 为空（世界还没建出来）"]
         uclass = m.ptr(world + OFF_UOBJECT_CLASS)
@@ -859,6 +924,39 @@ class MemoryBoardSource(BoardSource):
         if size is None:
             notes.append("GameState 类尺寸既不是 912 也不是 1960（可能是别的界面）")
         return world, gs, size == SIZE_BP_GAMESTATE_BATTLE, notes
+
+    # -- 轻量读（回合首步等指挥点用；毫秒级，不建整张快照） ------------------------
+    def peek_turn_state(self, my_side=None) -> dict:
+        """只读 **GameState 里的几个标量**：回合号 / `ActionProcess` / 两侧指挥点与槽数（一次原子块读 + 解密）。
+
+        为什么有它（2026-10-08）：回合首步要轮询"指挥点定了没"，而完整 `snapshot()` 要读全盘卡
+        （实机 0.29–0.8 s/次）；这里只做 GWorld→UWorld→GameState 定位（3 次指针读）+ 原子块 + 2 个标量，毫秒级。
+        返回 `{"ok", "turn", "action_process", "kredits":{ESide:int|None}, "slots":{…}, "mine_k", "mine_slots"}`；
+        `my_side` 给了才填 `mine_*`（座位由调用方用整张快照的 `st.my_side` 传入，这里不再另推）。
+        任何一步读不出 ⇒ `ok=False`（不猜）。"""
+        out = {"ok": False, "turn": None, "action_process": None,
+               "kredits": {}, "slots": {}, "mine_k": None, "mine_slots": None}
+        self._attach()
+        m = self._m
+        _w, gs, in_battle, _n = self._locate(m)
+        if not gs or not in_battle:
+            return out
+        blk = m.blob(gs + GS_SIDE_BLOCK_OFF, GS_SIDE_BLOCK_LEN)
+        if not blk or len(blk) < GS_SIDE_BLOCK_LEN:
+            return out
+        key = struct.unpack_from("<i", blk, OFF_AGS_KEY - GS_SIDE_BLOCK_OFF)[0]
+        for (kind, lr), off in AGS_SIDES.items():
+            X, Y, _Z, enc, _rnd = struct.unpack_from("<5i", blk, off - GS_SIDE_BLOCK_OFF)
+            seat = ESide.left if lr == "left" else ESide.right
+            (out["kredits"] if kind == "kredit" else out["slots"])[seat] = _decrypt(key, X, Y, enc)
+        ap = m.u8(gs + BGS_U8["action_process"])
+        out["action_process"] = None if ap is None else bool(ap)
+        out["turn"] = m.i32(gs + BGS_I32["current_turn"])
+        if my_side is not None:
+            out["mine_k"] = out["kredits"].get(my_side)
+            out["mine_slots"] = out["slots"].get(my_side)
+        out["ok"] = True
+        return out
 
     # -- 快照 ------------------------------------------------------------
     def snapshot(self) -> BoardState:
@@ -881,14 +979,12 @@ class MemoryBoardSource(BoardSource):
                 v = ml.my_side()
                 if v is not None:
                     my_side, my_side_src = v, "logic_myside_fallback"
-        by_enum, by_lr = side_maps(my_side)
-        self._by_enum = by_enum
-        st.my_side_raw = my_side
-        g = GameState(mySide=enum_or_none(ESide, my_side))        # 游戏原版结构（派生视图 st.* 与它同源）
+        st.my_side = enum_or_none(ESide, my_side)
+        g = GameState(mySide=st.my_side)                          # 游戏原版结构
         st.game = g
         if my_side is None:
             st.unknown.append("本地是哪一侧推不出（turn/startingSide/isLocalClientTurn 不全，"
-                              "kardsmem 兜底也没读到）⇒ 暂按 side=1 是本地，两侧可能互换")
+                              "kardsmem 兜底也没读到）⇒ mySide=None，不能按『我方』取牌")
         elif my_side_src == "logic_myside_fallback":
             st.unknown.append("my_side_raw 来自 kardsmem Logic.mySide 兜底"
                               "（GameState 回合奇偶反推当时读不出，通常发生在换牌阶段）")
@@ -903,8 +999,9 @@ class MemoryBoardSource(BoardSource):
             for (kind, lr), off in AGS_SIDES.items():
                 X, Y, _Z, enc, _rnd = struct.unpack_from("<5i", blk, off - GS_SIDE_BLOCK_OFF)
                 v = _decrypt(key, X, Y, enc)
-                (st.kredits if kind == "kredit" else st.slots)[by_lr[lr]] = v
-                (g.kredits if kind == "kredit" else g.kreditSlots)[ESide.left if lr == "left" else ESide.right] = v
+                seat = ESide.left if lr == "left" else ESide.right
+                (st.kredits if kind == "kredit" else st.slots)[seat] = v
+                (g.kredits if kind == "kredit" else g.kreditSlots)[seat] = v
         else:
             st.unknown.append("读不到 kredits/slots 那一块")
 
@@ -917,6 +1014,7 @@ class MemoryBoardSource(BoardSource):
         i = {k: m.i32(gs + o) for k, o in BGS_I32.items()}
         st.turn = i["current_turn"]
         st.our_turn = None if b["is_local_client_turn"] is None else bool(b["is_local_client_turn"])
+        st.action_process = None if b["action_process"] is None else bool(b["action_process"])
         st.match_finished = None if b["match_finished"] is None else bool(b["match_finished"])
         st.weather_played_this_turn = (None if b["weather_played_this_turn"] is None
                                        else bool(b["weather_played_this_turn"]))
@@ -939,17 +1037,13 @@ class MemoryBoardSource(BoardSource):
         except Exception as _exc:                                 # noqa: BLE001
             st.frontline_limiters = None
             st.unknown.append("FrontlineLimiters 读不出：%s" % type(_exc).__name__)
-        st.slots_lost = {by_lr["left"]: i["slots_lost_left"],
-                         by_lr["right"]: i["slots_lost_right"]}
-        st.fatigue = {by_lr["left"]: i["fatigue_left"],
-                      by_lr["right"]: i["fatigue_right"]}
+        st.slots_lost = {ESide.left: i["slots_lost_left"], ESide.right: i["slots_lost_right"]}
+        st.fatigue = {ESide.left: i["fatigue_left"], ESide.right: i["fatigue_right"]}
         g.FrontlineLimiters, g.CardFunctionTriggers = st.frontline_limiters, st.registry
         g.slotsLost = {ESide.left: i["slots_lost_left"], ESide.right: i["slots_lost_right"]}
         g.fatigue = {ESide.left: i["fatigue_left"], ESide.right: i["fatigue_right"]}
         g.hqCardID = {ESide.left: i["hq_card_id_left"], ESide.right: i["hq_card_id_right"]}
-        fo = b["frontline_owner"]
-        st.frontline_owner = by_enum.get(fo) if fo is not None else None
-        st.our_side = LOCAL
+        st.frontline_owner = g.FrontlineOwner
 
         # HQ 卡对象：权威句柄，单独拿
         hq_ptrs = {"hq_left": m.ptr(gs + BGS_PTR["hq_left"]),
@@ -957,16 +1051,16 @@ class MemoryBoardSource(BoardSource):
 
         cards = {}
         for _ei, (ptr, mkey) in enumerate(self._enumerate_cards(m, gs)):
-            c = self._read_card(m, ptr)
+            c = self._read_card(m, ptr, st.unknown)
             if c:
                 c.raw["map_key"] = mkey
-                # 枚举下标 = 触发表顺序 = 创建顺序（semantics/triggers.py::_registry_order 用它排；
+                # 枚举下标 = 触发表顺序 = 创建顺序（engine/triggers.py::_registry_order 用它排；
                 # 共用一条 RNG 流时"谁先抽"取决于它）
                 c.raw["enum_idx"] = _ei
                 cards[ptr] = c
         for raw_side, p in (("hq_left", hq_ptrs["hq_left"]), ("hq_right", hq_ptrs["hq_right"])):
             if p and p not in cards:
-                c = self._read_card(m, p)
+                c = self._read_card(m, p, st.unknown)
                 if c:
                     c.raw["enum_idx"] = 10 ** 9      # 不在 AllCardsInBattle 里的兜底 HQ：排最后
                     cards[p] = c
@@ -980,12 +1074,12 @@ class MemoryBoardSource(BoardSource):
         for c in st.cards:                       # AllCardsInBattle：保持游戏里的枚举顺序（= 创建顺序），键 = 地图键
             g.AllCardsInBattle[c.raw.get("map_key", c.obj.CardID if c.obj else None)] = c.obj
         for c in st.cards:
-            if c.location == "hq" and c.defense is not None:
-                st.hq[c.side] = c
+            if c.obj.IsHQ() and c.defense is not None:
+                st.hq[c.obj.side] = c
 
         if not st.cards:
             st.unknown.append("一张卡都没枚举到")
-        if st.hq[LOCAL] is None or st.hq[ENEMY] is None:
+        if st.hq[ESide.left] is None or st.hq[ESide.right] is None:
             st.unknown.append("HQ 没读全")
         st.complete = not st.unknown
         return st
@@ -1020,7 +1114,7 @@ class MemoryBoardSource(BoardSource):
                 out.append((p, key))
         return out
 
-    def _read_card(self, m: _Mem, p: int) -> Optional[Card]:
+    def _read_card(self, m: _Mem, p: int, notes: Optional[list] = None) -> Optional[Card]:
         key = m.i32(p + CARD_KEY_OFF)
         rec = m.blob(p + CARD_REC_LO, CARD_REC_HI - CARD_REC_LO)
         if rec is None or key is None:
@@ -1039,22 +1133,8 @@ class MemoryBoardSource(BoardSource):
         if u8["location_enum"] == 0 and u8["type_enum"] == 0:
             return None
 
-        side = (self._by_enum.get(u8["side_enum"])
-                if u8["side_enum"] is not None else None)
-        loc = LOCATION_NAMES.get(u8["location_enum"]) if u8["location_enum"] is not None else None
-        # 后排里 ETypeEnum::location(1) 的那张才是 HQ，其余是支援线单位
-        if loc == "back" and u8["type_enum"] == 1:
-            loc = "hq"
-        atk = vals["attack"]
-        can_act = None
-        # ★ 用**主动**旗标 `hasAttackedThisTurn@0x281`（这张单位本回合攻击过 ⇒ 不能再攻击）。
-        #   ⚠ 别拿 `hasBeenAttackedThisTurn@0x280`（被动：本回合**被**攻击过）—— 语义相反。
-        if i32["attack_left"] is not None and u8["has_attacked_this_turn"] is not None:
-            can_act = bool(i32["attack_left"] > 0 and not u8["has_attacked_this_turn"])
-
-        kw = [name for flag, name in _KEYWORDS if u8.get(flag)]
-        if i32.get("heavy_armor"):
-            kw.append("heavyarmor%d" % i32["heavy_armor"])
+        # AllCardsInBattle 里的 HQ 卡：Location 是 Board_HQLeft/Right 且 Type=location（`obj.IsHQ()`）。
+        kw_dbg = {k: u8[k] for k, _ in _KEYWORDS}
 
         def _b(v):
             return None if v is None else bool(v)
@@ -1065,6 +1145,7 @@ class MemoryBoardSource(BoardSource):
             locationNumber=i32["location_number"], faction=enum_or_none(EFaction, u8["faction_enum"]),
             rarity=enum_or_none(ERarity, u8["rarity_enum"]), cardSet=u8["card_set_enum"],
             attack=vals["attack"], attackBuff=vals["attackBuff"], defense=vals["defense"],
+            range=i32["range"],
             maxAttack=i32["max_attack"], maxDefense=i32["max_defense"],
             kredits=vals["kredit"], kreditsBuff=vals["kreditBuff"], KreditsTax_AsEnemyTarget=i32["kredits_tax"],
             operationCost=i32["operation_cost"], operationCostBuff=i32["operation_cost_buff"],
@@ -1073,6 +1154,7 @@ class MemoryBoardSource(BoardSource):
             hasEverAttacked=_b(u8["has_ever_attacked"]), hasAttackedThisTurn=_b(u8["has_attacked_this_turn"]),
             hasBeenAttackedThisTurn=_b(u8["has_been_attacked_this_turn"]), gotchaActivated=i32["gotcha_activated"],
             isBeingGuarded=_b(u8["is_being_guarded"]), underEnemyControl=_b(u8["under_enemy_control"]),
+            isImmune=_b(u8["is_immune"]),
             isSuppressed=_b(u8["is_suppressed"]), isRevealed=_b(u8["is_revealed"]), isGoldCard=_b(u8["is_gold_card"]),
             isSalvaged=_b(u8["is_salvaged"]), cardSeen=_b(u8["card_seen"]),
             selectTargetOnPlayedFromHand=_b(u8["needs_hand_target"]),
@@ -1083,51 +1165,47 @@ class MemoryBoardSource(BoardSource):
             hasPincer=_b(u8["has_pincer"]), hasSalvage=_b(u8["has_salvage"]),
             ptr=p, title=_read_card_name(m, p), CurrentTarget=tgt or None)
 
+        # ★ 2026-10-04（P3 ③ `excess`）：**运行时自定义能力** —— `receivedAbilitiesFromCards`@0x208
+        #   （`CustomAbilityAdd/Remove` 写、`cards.read_received_abilities` 读）。
+        #   原版 `ExecuteAttackCard`（`:17218`，只读反汇编定案）用 `HasCustomAbility("excess")`
+        #   决定"超过目标总防的伤害是否转打敌方总部" ⇒ sim 需要它。
+        #   **只对场上的牌读**（location 5/6/7）：攻击者/防守方只可能是场上的牌，而每张牌一次
+        #   TMap 读 —— 80 张全读会拖慢每次快照。读失败**记进 notes**（不静默；弯路 #20）。
+        _abils = None
+        if u8["location_enum"] in (5, 6, 7):
+            try:
+                from . import cards as _cards
+
+                class _S:                       # `read_received_abilities` 只用 `session.m`
+                    pass
+
+                _s = _S()
+                _s.m = m
+                _abils = [r.get("ability") for r in _cards.read_received_abilities(_s, p)
+                          if r.get("ability")]
+            except Exception as exc:                                # noqa: BLE001
+                if notes is not None:
+                    notes.append("received_abilities 读不出（cardID=%s ptr=%#x: %s）"
+                                 % (i32["card_id"], p, exc))
+
         return Card(
-            obj=obj,
-            uid="0x%X" % p,
-            side=side, location=loc, slot=i32["location_number"],
-            card_id=i32["card_id"], name=_read_card_name(m, p),
-            card_type=CARD_TYPES.get(u8["type_enum"]) if u8["type_enum"] is not None else None,
-            attack=atk, attack_buff=vals["attackBuff"], defense=vals["defense"],
-            max_attack=i32["max_attack"], max_defense=i32["max_defense"],
-            kredit_cost=(None if vals["kredit"] is None and vals["kreditBuff"] is None
-                         else (vals["kredit"] or 0) + (vals["kreditBuff"] or 0)),
-            operation_cost=i32["operation_cost"],
-            operation_cost_buff=i32["operation_cost_buff"],
-            cipher=i32["cipher"],
-            faction_enum=u8["faction_enum"], rarity_enum=u8["rarity_enum"],
-            card_set_enum=u8["card_set_enum"],
-            has_been_attacked_this_turn=(None if u8["has_been_attacked_this_turn"] is None
-                                         else bool(u8["has_been_attacked_this_turn"])),
-            kredits_tax_as_enemy_target=i32["kredits_tax"],
-            gotcha_activated=i32["gotcha_activated"],
-            is_suppressed=None if u8["is_suppressed"] is None else bool(u8["is_suppressed"]),
-            is_being_guarded=(None if u8["is_being_guarded"] is None
-                              else bool(u8["is_being_guarded"])),
-            under_enemy_control=(None if u8["under_enemy_control"] is None
-                                 else bool(u8["under_enemy_control"])),
-            is_revealed=None if u8["is_revealed"] is None else bool(u8["is_revealed"]),
-            can_act=can_act,
-            target_uid=("0x%X" % tgt) if tgt else None,
-            needs_hand_target=(None if u8["needs_hand_target"] is None
-                               else bool(u8["needs_hand_target"])),
-            enter_play_on_turn=i32["enter_play_turn"],
-            keywords=kw,
+            uid="0x%X" % p, obj=obj,
             raw={"ptr": p, "side_enum": u8["side_enum"], "location_enum": u8["location_enum"],
+                 "received_abilities": _abils,
                  "type_enum": u8["type_enum"], "attack_plain": i32["attack_plain"],
-                 "defense_plain": i32["defense_plain"], "kredits_plain": i32["kredits_plain"],
+                 "defense_plain": i32["defense_plain"], "range": i32["range"], "kredits_plain": i32["kredits_plain"],
                  "choose_one_index": i32["choose_one_index"],
                  "move_left": i32["movement_left"], "attack_left": i32["attack_left"],
                  "enter_play_turn": i32["enter_play_turn"],
+                 "pinned_turns": i32["pinned_turns"],
                  "heavy_armor": i32["heavy_armor"],
                  "is_being_guarded": u8["is_being_guarded"],
+                 "is_immune": u8["is_immune"],
                  "under_enemy_control": u8["under_enemy_control"],
                  "has_been_attacked_this_turn": u8["has_been_attacked_this_turn"],
                  "is_gold_card": u8["is_gold_card"], "is_salvaged": u8["is_salvaged"],
                  "card_seen": u8["card_seen"],
-                 "all_keyword_flags": {k: u8[k] for k, _ in _KEYWORDS}},
-        )
+                 "all_keyword_flags": kw_dbg})
 
 
 # --------------------------------------------------------------------------
@@ -1218,8 +1296,9 @@ def _run_selftest() -> int:
         # ★ 2026-09-25：合成目标里那句 `RVA_GWORLD = 0x08F625B0` 是**按当前选中的构建**
         #   替换掉的 —— 以前写死 Steam 的值，换 launcher 档时父子两边差 0x3000，
         #   selftest 就全读成 None（看起来像"偏移表错了"，其实是合成目标没跟上）。
+        # ★ P7-S3b：这里必须直接读 `_build.RVA`（裸 `RVA_GWORLD` 不会走模块 __getattr__）。
         f.write(_SELFTEST_TARGET.replace("RVA_GWORLD = 0x08F625B0",
-                                         "RVA_GWORLD = 0x%X" % RVA_GWORLD))
+                                         "RVA_GWORLD = 0x%X" % _build.RVA["GWorld"]))
     proc = subprocess.Popen([sys.executable, path], stdout=subprocess.PIPE, text=True)
     try:
         try:
@@ -1249,23 +1328,20 @@ def _run_selftest() -> int:
     chk("turn", st.turn, 23)
     chk("our_turn", st.our_turn, True)
     chk("match_finished", st.match_finished, False)
-    chk("frontline_owner", st.frontline_owner, "local")
-    chk("kredits.local", st.kredits[LOCAL], 12)
-    chk("kredits.enemy", st.kredits[ENEMY], 10)
-    chk("slots.local", st.slots[LOCAL], 12)
-    chk("slots.enemy", st.slots[ENEMY], 11)
-    chk("slots_lost.local", st.slots_lost[LOCAL], 1)
-    chk("fatigue.enemy", st.fatigue[ENEMY], 3)
-    chk("hq.local.defense", st.hq[LOCAL].defense if st.hq[LOCAL] else None, 12)
-    chk("hq.enemy.defense", st.hq[ENEMY].defense if st.hq[ENEMY] else None, 2)
+    chk("frontline_owner", st.frontline_owner, ESide.left)
+    chk("kredits.left", st.kredits[ESide.left], 12)
+    chk("kredits.right", st.kredits[ESide.right], 10)
+    chk("slots.left", st.slots[ESide.left], 12)
+    chk("slots.right", st.slots[ESide.right], 11)
+    chk("slots_lost.left", st.slots_lost[ESide.left], 1)
+    chk("fatigue.right", st.fatigue[ESide.right], 3)
+    chk("hq.left.defense", st.hq[ESide.left].defense if st.hq[ESide.left] else None, 12)
+    chk("hq.right.defense", st.hq[ESide.right].defense if st.hq[ESide.right] else None, 2)
     chk("cards（空闲槽已跳过 + 重复指针已去重）", len(st.cards), 3)
     # 游戏原版结构（st.game / card.obj）与派生视图同源
     g = st.game
     chk("game.currentTurn / startingSide 为原版枚举", (g.currentTurn, type(g.startingSide).__name__), (23, "ESide"))
-    chk("game.kredits 以 ESide 为键，值与视图一致",
-        sorted(g.kredits.items(), key=lambda kv: int(kv[0])),
-        sorted([(ESide.left if (st.my_side_raw or 1) == 1 else ESide.right, st.kredits[LOCAL]),
-                (ESide.right if (st.my_side_raw or 1) == 1 else ESide.left, st.kredits[ENEMY])], key=lambda kv: int(kv[0])))
+    chk("game.kredits 以 ESide 为键，值与 st.kredits 同源", dict(g.kredits), dict(st.kredits))
     chk("game.AllCardsInBattle 张数 == 视图张数", len(g.AllCardsInBattle), len(st.cards))
     chk("card.obj.Location / side 是原版枚举", {(type(c.obj.Location).__name__, type(c.obj.side).__name__) for c in st.cards},
         {("ECardLocation", "ESide")})
@@ -1274,11 +1350,11 @@ def _run_selftest() -> int:
     for c in unit:
         chk("attack", c.attack, 3)
         chk("attack_buff", c.attack_buff, 1)
-        chk("total_attack()", c.total_attack(), 4)
+        chk("total_attack", c.total_attack, 4)
         chk("defense", c.defense, 4)
         chk("kredit_cost", c.kredit_cost, 2)
-        chk("location", c.location, "frontline")
-        chk("side", c.side, "local")
+        chk("Location", c.obj.Location, ECardLocation.Board_Frontline)
+        chk("side", c.side, ESide.left)
         chk("slot", c.slot, 2)
         chk("card_type", c.card_type, "infantry")
         chk("can_act", c.can_act, True)
@@ -1356,19 +1432,19 @@ def _render(st: BoardState, show_cards: bool) -> None:
     def n(v):
         return "?" if v is None else v
     print("=" * 76)
-    print("turn=%s  our_turn=%s  our_side=%s  complete=%s" % (
-        n(st.turn), n(st.our_turn), n(st.our_side), st.complete))
-    print("kredits  local=%-4s enemy=%-4s   slots local=%-4s enemy=%-4s" % (
-        n(st.kredits[LOCAL]), n(st.kredits[ENEMY]), n(st.slots[LOCAL]), n(st.slots[ENEMY])))
-    print("slots_lost local=%-3s enemy=%-3s  fatigue local=%-3s enemy=%-3s" % (
-        n(st.slots_lost[LOCAL]), n(st.slots_lost[ENEMY]),
-        n(st.fatigue[LOCAL]), n(st.fatigue[ENEMY])))
+    L, R = ESide.left, ESide.right
+    print("turn=%s  our_turn=%s  mySide=%s  complete=%s" % (
+        n(st.turn), n(st.our_turn), n(st.my_side), st.complete))
+    print("kredits  left=%-4s right=%-4s   slots left=%-4s right=%-4s" % (
+        n(st.kredits[L]), n(st.kredits[R]), n(st.slots[L]), n(st.slots[R])))
+    print("slots_lost left=%-3s right=%-3s  fatigue left=%-3s right=%-3s" % (
+        n(st.slots_lost[L]), n(st.slots_lost[R]), n(st.fatigue[L]), n(st.fatigue[R])))
     print("frontline_owner=%s  match_finished=%s  op_spent=%s" % (
         n(st.frontline_owner), n(st.match_finished), n(st.operation_kredits_spent)))
-    for s in (LOCAL, ENEMY):
+    for s in (L, R):
         hq = st.hq[s]
         print("%-5s HQ id=%-5s def=%-4s | hand=%-2d front=%-2d support=%-2d discard=%-2d" % (
-            s, n(hq.card_id if hq else None), n(hq.defense if hq else None),
+            s.name + ('*' if s == st.my_side else ''), n(hq.card_id if hq else None), n(hq.defense if hq else None),
             len(st.hand(s)), len(st.board(s)), len(st.support(s)), len(st.discard(s))))
     if st.unknown:
         print("unknown: %s" % "; ".join(st.unknown))
@@ -1380,7 +1456,7 @@ def _render(st: BoardState, show_cards: bool) -> None:
             "name", "side", "loc", "type", "a/d", "cost", "kw/target"))
         for c in st.cards:
             print("%-26s %-6s %-9s %-10s %-5s %-4s %s%s" % (
-                (c.name or "-")[:26], c.side, c.location, c.card_type,
+                (c.name or "-")[:26], c.side.name if c.side else None, c.obj.Location.name if c.obj.Location else None, c.card_type,
                 "%s/%s" % (c.attack, c.defense), c.kredit_cost,
                 ",".join(c.keywords),
                 (" -> " + c.target_uid) if c.target_uid else ""))

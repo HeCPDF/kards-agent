@@ -14,9 +14,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
 import semantics.triggers as TR                                    # noqa: E402
-from policy.boardeval import U                                  # noqa: E402
+from engine.state import EVENT_FX_KINDS, Sim, U                    # noqa: E402
+from sim.engine import _apply_eff                                  # noqa: E402
 
 fails = 0
 
@@ -124,17 +125,17 @@ def main():
         TR.REVEAL_HOOK_SPECS["OnOtherCardRevealed"]["params"] == ("cardBeingRevealed",))
 
     # ---------------- 评估侧：去 covert + 结算 0x37 后果 ----------------
-    u1 = U(1, "enemy", "frontline", 2, 2, 2, "infantry", kw=("covert",))
-    s1 = B.Sim({1: u1}, {"local": 20, "enemy": 20}, 5.0, {}, event_fx={"reveal": {1: {"kredit": 2}}})
-    B._apply_eff(s1, {"reveal": True}, 1)
+    u1 = U(1, OPP, "frontline", 2, 2, 2, "infantry", kw=("covert",))
+    s1 = Sim({1: u1}, {ME: 20, OPP: 20}, 5.0, {}, event_fx={"reveal": {1: {"kredit": 2}}}, my_side=ME)
+    _apply_eff(s1, {"reveal": True}, 1)
     chk("揭示：covert 去掉 + 0x37 后果结算（+2 指挥点）",
         "covert" not in s1.units[1].kw and s1.kredits == 7.0, "kred=%s" % s1.kredits)
-    s2 = B.Sim({1: U(1, "enemy", "frontline", 2, 2, 2, "infantry", kw=("covert",))},
-               {"local": 20, "enemy": 20}, 5.0)
-    B._apply_eff(s2, {"reveal": True}, 1)
+    s2 = Sim({1: U(1, OPP, "frontline", 2, 2, 2, "infantry", kw=("covert",))},
+               {ME: 20, OPP: 20}, 5.0, my_side=ME)
+    _apply_eff(s2, {"reveal": True}, 1)
     chk("没有 reveal 后果表 ⇒ 行为与旧版一致（只去 covert）",
         "covert" not in s2.units[1].kw and s2.kredits == 5.0)
-    chk("event_fx 登记了 reveal 种类", "reveal" in B.EVENT_FX_KINDS, str(B.EVENT_FX_KINDS))
+    chk("event_fx 登记了 reveal 种类", "reveal" in EVENT_FX_KINDS, str(EVENT_FX_KINDS))
 
     print("\n结论：%s（%d 项失败）" % ("PASS" if not fails else "FAIL", fails))
     return 0 if not fails else 1

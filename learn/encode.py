@@ -30,7 +30,12 @@ from .features import FEATURE_DIM, CardTable
 # ---------------------------------------------------------------------------
 # 常量（冻结）
 # ---------------------------------------------------------------------------
-SIDE_NAMES = ("local", "enemy", "unknown")
+# ★ 座位迁移：实体的 side 特征槽是 ML 视角的**相对编码**（相对 `viewer` 这个座位）：
+#   0 = 与 viewer 同座位（"自己"）、1 = 对面、2 = 座位读不出。样本里的座位是 1/2 整数（ESide 数值），
+#   槽位在构造时用 `side == viewer` 判；没有字符串座位。live/自对局样本 viewer==本地座位，所以槽 0 就是『我方』。
+#   （对面视角的 peek 样本：旧版槽位是绝对的『本地/对方』，现在跟着 viewer 走，和 kredits_*/hand_* 的全局特征一致。）
+SLOT_NAMES = ("self", "other", "unknown")
+SLOT_SELF, SLOT_OTHER, SLOT_UNKNOWN = 0, 1, 2
 ZONE_NAMES = ("pad", "hq", "frontline", "back", "hand", "discard", "deck",
               "option")
 #                  0     1      2          3      4      5         6      7
@@ -79,8 +84,8 @@ class EncodedSample:
 
     game: str
     phase: str
-    seat: str
-    viewer: str
+    seat: int                  # 此样本的行动座位（1/2）
+    viewer: int                # 投影视角座位（1/2）
     t: float
     state_hash: str
     n_entities: int
@@ -127,11 +132,34 @@ def _zone_of(card: dict) -> str:
     return z if z in ZONE_ID else "pad"
 
 
-def _side_id(side: Optional[str]) -> int:
-    return SIDE_NAMES.index(side) if side in SIDE_NAMES else 2
+class LegacySeatError(ValueError):
+    """样本里的座位不是整数 1/2（座位迁移之前录的旧样本：字符串座位）。"""
 
 
-def _visible(card: dict, viewer: str) -> tuple:
+def _seat(v, what: str) -> int:
+    """样本里的座位字段 -> 整数 1/2；字符串（旧录制）/ 其它 -> LegacySeatError（不猜旧座位名是几号）。"""
+    if isinstance(v, bool) or not isinstance(v, int) or v not in (1, 2):
+        raise LegacySeatError("样本 %s 不是座位整数 1/2：%r（旧录制需要先迁移）" % (what, v))
+    return int(v)
+
+
+def _by_seat(d, seat: int):
+    """按座位取值：内存里的键是整数，经 JSON 往返后是 "1"/"2" 字符串，两种都认。"""
+    if not d:
+        return None
+    if seat in d:
+        return d[seat]
+    return d.get(str(seat))
+
+
+def _slot_of(side, viewer: int) -> int:
+    """卡的座位 -> side 特征槽（相对 viewer）。座位读不出 -> 未知槽（显式，不当对面）。"""
+    if side not in (1, 2):
+        return SLOT_UNKNOWN
+    return SLOT_SELF if side == viewer else SLOT_OTHER
+
+
+def _visible(card: dict, viewer: int) -> tuple:
     """这张卡能不能变成实体 token。返回 (keep, reason)。
 
     只信投影结果自带的结构：`hidden=True` 的牌库/敌手牌不生成实体。
@@ -139,19 +167,19 @@ def _visible(card: dict, viewer: str) -> tuple:
     loc = _zone_of(card)
     if loc == "deck":
         return False, "P2_deck_remaining"
-    if card.get("hidden") and loc == "hand" and card.get("side") != viewer:
+    if card.get("hidden") and loc == "hand" and _slot_of(card.get("side"), viewer) != SLOT_SELF:
         return False, "P1_enemy_hand"
     return True, str(card.get("reason") or "")
 
 
-def _sort_key(card: dict) -> tuple:
+def _sort_key(card: dict, viewer: int) -> tuple:
     prio = {"hq": 0, "frontline": 1, "back": 2, "hand": 3, "discard": 4}
-    return (prio.get(_zone_of(card), 9), _side_id(card.get("side")),
+    return (prio.get(_zone_of(card), 9), _slot_of(card.get("side"), viewer),
             int(card.get("slot") or 0), int(card.get("card_id") or 0))
 
 
 class _EntityBuilder:
-    def __init__(self, table: CardTable, viewer: str):
+    def __init__(self, table: CardTable, viewer: int):
         self.table = table
         self.viewer = viewer
         self.fname: list = []
@@ -170,7 +198,8 @@ class _EntityBuilder:
         side = card.get("side")
         self.fname.append(self.table.id_of(resolved))
         self.feat.append(vec)
-        self.side.append(_side_id(side))
+        slot = _slot_of(side, self.viewer)
+        self.side.append(slot)
         self.zone.append(ZONE_ID[loc])
         self.num.append([
             min(float(card.get("attack") or 0) / 10.0, 1.0),
@@ -180,7 +209,7 @@ class _EntityBuilder:
             1.0 if card.get("hidden") else 0.0,
             1.0 if card.get("is_revealed") else 0.0,
             1.0 if resolved else 0.0,
-            1.0 if side == self.viewer else 0.0,
+            1.0 if slot == SLOT_SELF else 0.0,
         ])
         self.meta.append({"card_id": card.get("card_id"), "reason": reason,
                           "title": title, "fname": resolved})
@@ -192,7 +221,7 @@ class _EntityBuilder:
         vec = self.table.vector(name, name)
         self.fname.append(self.table.id_of(resolved))
         self.feat.append(vec)
-        self.side.append(SIDE_NAMES.index(self.viewer))
+        self.side.append(SLOT_SELF)
         self.zone.append(ZONE_ID["option"])
         self.num.append([0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                          1.0 if resolved else 0.0, 1.0])
@@ -214,13 +243,14 @@ class _EntityBuilder:
 # ---------------------------------------------------------------------------
 # 候选集
 # ---------------------------------------------------------------------------
-def _pick_entities(builder: _EntityBuilder, viewer: str,
-                   zones, side: Optional[str] = None,
+def _pick_entities(builder: _EntityBuilder, viewer: int,
+                   zones, side: Optional[int] = None,
                    exclude_zone=(), only_identity=False) -> list:
+    """`side` 是 side 特征槽（SLOT_SELF / SLOT_OTHER），不是座位。"""
     out = []
     for i, m in enumerate(builder.meta):
         z = ZONE_NAMES[builder.zone[i]]
-        s = SIDE_NAMES[builder.side[i]]
+        s = int(builder.side[i])
         if z not in zones or (exclude_zone and z in exclude_zone):
             continue
         if side is not None and s != side:
@@ -264,8 +294,9 @@ def encode_sample(sample: dict, table: CardTable,
     state = sample.get("state")
     if not isinstance(state, dict):
         return None
-    viewer = state.get("viewer") or sample.get("seat") or "local"
-    seat = sample.get("seat") or viewer
+    # 座位必须是整数 1/2（落盘格式）；不猜：state.viewer 缺了才退到 sample.seat（行动座位），都没有就报错
+    viewer = _seat(state.get("viewer") if state.get("viewer") is not None else sample.get("seat"), "viewer")
+    seat = _seat(sample.get("seat") if sample.get("seat") is not None else viewer, "seat")
     phase = sample.get("phase") or "main"
     if phase not in PHASE_ID:
         phase = "main"
@@ -275,7 +306,7 @@ def encode_sample(sample: dict, table: CardTable,
     debug["state_before_src"] = (sample.get("receipt") or {}).get("state_before_src")
 
     builder = _EntityBuilder(table, viewer)
-    for card in sorted((state.get("cards") or []), key=_sort_key):
+    for card in sorted((state.get("cards") or []), key=lambda c: _sort_key(c, viewer)):
         keep, reason = _visible(card, viewer)
         if not keep:
             debug[reason] = debug.get(reason, 0) + 1
@@ -283,14 +314,11 @@ def encode_sample(sample: dict, table: CardTable,
         builder.add_card(card, reason)
 
     # ---- 候选池（实体下标）
-    my_hand = _pick_entities(builder, viewer, ("hand",), side=viewer)
-    enemy_hand = _pick_entities(builder, viewer, ("hand",),
-                                side="enemy" if viewer == "local" else "local")
-    my_board = _pick_entities(builder, viewer, ("frontline", "back"), side=viewer)
-    enemy_board = _pick_entities(builder, viewer, ("frontline", "back"),
-                                 side="enemy" if viewer == "local" else "local")
-    enemy_hq = _pick_entities(builder, viewer, ("hq",),
-                              side="enemy" if viewer == "local" else "local")
+    my_hand = _pick_entities(builder, viewer, ("hand",), side=SLOT_SELF)
+    enemy_hand = _pick_entities(builder, viewer, ("hand",), side=SLOT_OTHER)
+    my_board = _pick_entities(builder, viewer, ("frontline", "back"), side=SLOT_SELF)
+    enemy_board = _pick_entities(builder, viewer, ("frontline", "back"), side=SLOT_OTHER)
+    enemy_hq = _pick_entities(builder, viewer, ("hq",), side=SLOT_OTHER)
 
     label = sample.get("label") or {}
     ltype = label.get("type")
@@ -320,7 +348,7 @@ def encode_sample(sample: dict, table: CardTable,
             # ★ move 的候选只有**后排**单位：移动是单向的（上线），前线单位不能当
             #   move 的主体（2026-09-29 实机："26 已经在前线（移动是单向的）"）。
             pool = board_subj if ltype == "attack" else _pick_entities(
-                builder, viewer, ("back",), side=viewer)
+                builder, viewer, ("back",), side=SLOT_SELF)
             subj, subj_k, subj_l = _cand_arrays(builder, pool, verdict)
             opt, opt_k, opt_l = _cand_arrays(builder, [], verdict)
             if ltype == "attack":
@@ -471,7 +499,7 @@ def _resolve_option(builder: _EntityBuilder, name, cand, debug: dict) -> int:
 
 
 def _global_vector(state: dict, builder: _EntityBuilder, phase: str,
-                   viewer: str, seat: str) -> np.ndarray:
+                   viewer: int, seat: int) -> np.ndarray:
     g = np.zeros(GLOBAL_DIM, dtype=np.float32)
     idx = {name: i for i, (name, _) in enumerate(GLOBAL_LAYOUT)}
     scale = {name: s for name, s in GLOBAL_LAYOUT}
@@ -482,46 +510,47 @@ def _global_vector(state: dict, builder: _EntityBuilder, phase: str,
     kredits = state.get("kredits") or {}
     hands = state.get("hand_count") or {}
     decks = state.get("deck_count") or {}
-    other = "enemy" if viewer == "local" else "local"
+    other = 2 if viewer == 1 else 1
+    # 全局特征名里的 *_local / *_enemy 是冻结的特征槽名（checkpoint 兼容）：local=viewer 自己，enemy=对面
     put("turn", state.get("turn") or 0)
-    put("kredits_local", kredits.get(viewer) or 0)
-    put("kredits_enemy", kredits.get(other) or 0)
-    put("hand_local", hands.get(viewer) or 0)
-    put("hand_enemy", hands.get(other) or 0)
-    put("deck_local", decks.get(viewer) or 0)
-    put("deck_enemy", decks.get(other) or 0)
-    disc = {viewer: 0, other: 0}
+    put("kredits_local", _by_seat(kredits, viewer) or 0)
+    put("kredits_enemy", _by_seat(kredits, other) or 0)
+    put("hand_local", _by_seat(hands, viewer) or 0)
+    put("hand_enemy", _by_seat(hands, other) or 0)
+    put("deck_local", _by_seat(decks, viewer) or 0)
+    put("deck_enemy", _by_seat(decks, other) or 0)
+    disc = {SLOT_SELF: 0, SLOT_OTHER: 0}
     hq_def = {}
     for i, m in enumerate(builder.meta):
         z = ZONE_NAMES[builder.zone[i]]
-        s = SIDE_NAMES[builder.side[i]]
+        s = int(builder.side[i])
         if z == "discard" and s in disc:
             disc[s] += 1
         if z == "hq" and s in disc:
             hq_def[s] = max(hq_def.get(s, 0.0),
                             float(builder.num[i][1]) * 10.0)
-    put("discard_local", disc.get(viewer, 0))
-    put("discard_enemy", disc.get(other, 0))
-    if viewer in hq_def:
-        put("hq_def_local", hq_def[viewer])
+    put("discard_local", disc[SLOT_SELF])
+    put("discard_enemy", disc[SLOT_OTHER])
+    if SLOT_SELF in hq_def:
+        put("hq_def_local", hq_def[SLOT_SELF])
         g[idx["hq_known_local"]] = 1.0
-    if other in hq_def:
-        put("hq_def_enemy", hq_def[other])
+    if SLOT_OTHER in hq_def:
+        put("hq_def_enemy", hq_def[SLOT_OTHER])
         g[idx["hq_known_enemy"]] = 1.0
     g[idx["actor_is_viewer"]] = 1.0 if seat == viewer else 0.0
     put("phase_id", PHASE_ID.get(phase, 0))
     put("n_entities", len(builder.meta))
-    put("enemy_hand_hidden", max(0, int(hands.get(other) or 0)
-                                 - _count_visible_hand(builder, other)))
+    put("enemy_hand_hidden", max(0, int(_by_seat(hands, other) or 0)
+                                 - _count_visible_hand(builder, SLOT_OTHER)))
     known = sum(1 for m in builder.meta if m["fname"])
     g[idx["identity_known_ratio"]] = known / max(1, len(builder.meta))
     return g
 
 
-def _count_visible_hand(builder: _EntityBuilder, side: str) -> int:
+def _count_visible_hand(builder: _EntityBuilder, slot: int) -> int:
     n = 0
     for i, m in enumerate(builder.meta):
-        if ZONE_NAMES[builder.zone[i]] == "hand" and SIDE_NAMES[builder.side[i]] == side:
+        if ZONE_NAMES[builder.zone[i]] == "hand" and int(builder.side[i]) == slot:
             n += 1
     return n
 
@@ -537,10 +566,10 @@ def assert_no_leak(enc: EncodedSample) -> None:
     """
     for i in range(enc.n_entities):
         zone = ZONE_NAMES[enc.ent_zone[i]]
-        side = SIDE_NAMES[enc.ent_side[i]]
+        slot = int(enc.ent_side[i])
         if zone == "deck":
             raise AssertionError("牌库实体泄漏（P2/P3）：entity#%d" % i)
-        if zone == "hand" and side != enc.viewer:
+        if zone == "hand" and slot != SLOT_SELF:
             reason = enc.debug.get("_reasons", {}).get(i, "")
             if reason != "P4b_intel_seen":
                 raise AssertionError("敌方手牌实体泄漏（P1）：entity#%d" % i)
@@ -559,31 +588,35 @@ def _fake_card(side, loc, cid=None, name=None, atk=0, dfn=0, cost=0, slot=0,
     return d
 
 
+# 自检用座位（样本落盘格式：整数 1/2）。本地玩家 = 1，对面 = 2。
+_ME, _OPP = 1, 2
+
+
 def _fake_state():
     return {
-        "viewer": "local", "turn": 7,
-        "hand_count": {"local": 2, "enemy": 3}, "deck_count": {"local": 20, "enemy": 19},
-        "kredits": {"local": 5, "enemy": 3},
+        "viewer": _ME, "my_side": _ME, "turn": 7,
+        "hand_count": {_ME: 2, _OPP: 3}, "deck_count": {_ME: 20, _OPP: 19},
+        "kredits": {_ME: 5, _OPP: 3},
         "cards": [
-            _fake_card("local", "hq", 1, "CHERBOURG", 0, 14, 0, 0),
-            _fake_card("enemy", "hq", 41, "ALEXANDRIA", 0, 19, 0, 0),
-            _fake_card("local", "hand", 22, "NAVAL BATTLE", 0, 0, 7, 0),
-            _fake_card("local", "hand", 37, "OVERCAST", 0, 0, 2, 1),
-            _fake_card("local", "frontline", 13003, "BREWSTER F2A", 5, 2, 1, 1),
-            _fake_card("enemy", "back", 59, "FRONTIER FORCE", 2, 6, 3, 1),
-            _fake_card("enemy", "back", None, None, 0, 0, 0, 2,
+            _fake_card(_ME, "hq", 1, "CHERBOURG", 0, 14, 0, 0),
+            _fake_card(_OPP, "hq", 41, "ALEXANDRIA", 0, 19, 0, 0),
+            _fake_card(_ME, "hand", 22, "NAVAL BATTLE", 0, 0, 7, 0),
+            _fake_card(_ME, "hand", 37, "OVERCAST", 0, 0, 2, 1),
+            _fake_card(_ME, "frontline", 13003, "BREWSTER F2A", 5, 2, 1, 1),
+            _fake_card(_OPP, "back", 59, "FRONTIER FORCE", 2, 6, 3, 1),
+            _fake_card(_OPP, "back", None, None, 0, 0, 0, 2,
                        hidden=True, reason="P4_covert"),
-            _fake_card("enemy", "hand", None, None, hidden=True, reason="P1_enemy_hand"),
-            _fake_card("enemy", "hand", 45, "104th INFANTRY REGIMENT", 1, 3, 2, 1,
+            _fake_card(_OPP, "hand", None, None, hidden=True, reason="P1_enemy_hand"),
+            _fake_card(_OPP, "hand", 45, "104th INFANTRY REGIMENT", 1, 3, 2, 1,
                        reason="P4b_intel_seen"),
-            _fake_card("enemy", "deck", None, None, hidden=True, reason="P2_deck_remaining"),
-            _fake_card("enemy", "deck", None, None, hidden=True, reason="P2_deck_remaining"),
+            _fake_card(_OPP, "deck", None, None, hidden=True, reason="P2_deck_remaining"),
+            _fake_card(_OPP, "deck", None, None, hidden=True, reason="P2_deck_remaining"),
         ],
     }
 
 
 def _sample(state, **kw):
-    s = {"game": "g1", "patch": None, "seat": "local", "turn": 7, "t": 1.0,
+    s = {"game": "g1", "patch": None, "seat": _ME, "turn": 7, "t": 1.0,
          "phase": "main", "state": state,
          "candidates": {"subject": [], "target": [], "option": []},
          "verdict": {}, "label": {"type": "end", "subject": None, "target": None,
@@ -612,10 +645,10 @@ def selftest() -> int:
     chk("敌手牌只留 intel 那张（名字=104th）",
         sum(1 for i in range(enc.n_entities)
             if ZONE_NAMES[enc.ent_zone[i]] == "hand"
-            and SIDE_NAMES[enc.ent_side[i]] == "enemy") == 1)
+            and int(enc.ent_side[i]) == SLOT_OTHER) == 1)
     chk("隐蔽单位匿名（unknown 词表 id=0）",
         any(enc.ent_fname[i] == 0 and ZONE_NAMES[enc.ent_zone[i]] == "back"
-            and SIDE_NAMES[enc.ent_side[i]] == "enemy" for i in range(enc.n_entities)))
+            and int(enc.ent_side[i]) == SLOT_OTHER for i in range(enc.n_entities)))
     try:
         assert_no_leak(enc)
         chk("干净样本过防泄漏断言", True)
@@ -624,7 +657,7 @@ def selftest() -> int:
 
     # 2) 反例（能失败）：把敌手牌伪装成可见（hidden=False）塞进去 -> 必须被抓
     dirty = _fake_state()
-    dirty["cards"].append(_fake_card("enemy", "hand", 99, "LEAK", 5, 5, 3, 3))
+    dirty["cards"].append(_fake_card(_OPP, "hand", 99, "LEAK", 5, 5, 3, 3))
     enc_dirty = encode_sample(_sample(dirty), table)
     try:
         assert_no_leak(enc_dirty)
@@ -682,7 +715,7 @@ def selftest() -> int:
     chk("全局：HQ 已知位", float(enc.glob[gi["hq_known_local"]]) == 1.0)
 
     # 8) 对面座位样本（actor_is_viewer=0）
-    other = _sample(st, seat="enemy",
+    other = _sample(st, seat=_OPP,
                     label={"type": "end", "subject": None, "target": None,
                            "option": None})
     eo = encode_sample(other, table)

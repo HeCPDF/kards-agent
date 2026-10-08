@@ -14,8 +14,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
-from policy.boardeval import A, H, U                            # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
+from engine.state import H, Sim, U                              # noqa: E402
+from sim.engine import A, _apply_eff                            # noqa: E402
 from policy.search import _gen_actions                         # noqa: E402
 
 fails = 0
@@ -32,12 +33,12 @@ LEGION = {"atk": 2, "dfn": 2, "cost": 2, "typ": "infantry", "kw": ()}
 
 
 def board(n_back, hand=None, **kw):
-    units = {i: U(i, "local", "back", 1, 1, 1, "infantry") for i in range(1, n_back + 1)}
-    return B.Sim(units, {"local": 20, "enemy": 20}, 6.0, hand or {}, 6.0, **kw)
+    units = {i: U(i, ME, "back", 1, 1, 1, "infantry") for i in range(1, n_back + 1)}
+    return Sim(units, {ME: 20, OPP: 20}, 6.0, hand or {}, 6.0, **kw, my_side=ME)
 
 
 def spawn(s, n=2, row="back", mine=True):
-    B._apply_eff(s, {"spawn": n, "spawn_cards": [{"name": "card_unit_legion_pol", "row": row, "mine": mine}] * n}, None)
+    _apply_eff(s, {"spawn": n, "spawn_cards": [{"name": "card_unit_legion_pol", "row": row, "mine": mine}] * n}, None)
     return s
 
 
@@ -54,27 +55,27 @@ def main():
     s = spawn(board(0))
     chk("读不到面板 ⇒ 不编、记缺口", len(s.units) == 0 and any("面板读不到" in g for g in s.gaps))
 
-    f = B.Sim({i: U(i, "local", "frontline", 1, 1, 1, "infantry") for i in range(1, 6)}, {"local": 20, "enemy": 20}, 6.0, {}, 6.0,
-              spawn_stats=stats)
+    f = Sim({i: U(i, ME, "frontline", 1, 1, 1, "infantry") for i in range(1, 6)}, {ME: 20, OPP: 20}, 6.0, {}, 6.0,
+              spawn_stats=stats, my_side=ME)
     spawn(f, 1, "frontline")
     chk("前线满 5 ⇒ 不生成", len(f.units) == 5)
-    f2 = B.Sim({1: U(1, "local", "frontline", 1, 1, 1, "infantry")}, {"local": 20, "enemy": 20}, 6.0, {}, 6.0,
-               spawn_stats=stats, front_limited=True)
+    f2 = Sim({1: U(1, ME, "frontline", 1, 1, 1, "infantry")}, {ME: 20, OPP: 20}, 6.0, {}, 6.0,
+               spawn_stats=stats, front_limited=True, my_side=ME)
     spawn(f2, 2, "frontline")
     chk("前线受限（IsFrontlineLimited）容 2 ⇒ 只再生成 1 张", len(f2.units) == 2)
-    f3 = B.Sim({1: U(1, "enemy", "frontline", 1, 1, 1, "infantry")}, {"local": 20, "enemy": 20}, 6.0, {}, 6.0,
-               front_owner="enemy", spawn_stats=stats)
+    f3 = Sim({1: U(1, OPP, "frontline", 1, 1, 1, "infantry")}, {ME: 20, OPP: 20}, 6.0, {}, 6.0,
+               front_owner=OPP, spawn_stats=stats, my_side=ME)
     spawn(f3, 1, "frontline")
     chk("前线被对方占 ⇒ 拒绝生成", len(f3.units) == 1)
 
-    e = B.Sim({i: U(-i, "enemy", "back", 1, 1, 1, "infantry") for i in range(1, 5)}, {"local": 20, "enemy": 20}, 6.0, {}, 6.0,
-              spawn_stats=stats)
+    e = Sim({i: U(-i, OPP, "back", 1, 1, 1, "infantry") for i in range(1, 5)}, {ME: 20, OPP: 20}, 6.0, {}, 6.0,
+              spawn_stats=stats, my_side=ME)
     spawn(e, 1, "back", mine=False)
     chk("对方支援线满 ⇒ 对方也生成不了", len(e.units) == 4)
 
     g = board(3)
-    B._apply_eff(g, {"spawn": 3}, None)
-    chk("旧摘要（没有卡名）仍受容量限制：3 个 + 3 个只能到 4", sum(1 for u in g.units.values() if u.side == "local") == 4)
+    _apply_eff(g, {"spawn": 3}, None)
+    chk("旧摘要（没有卡名）仍受容量限制：3 个 + 3 个只能到 4", sum(1 for u in g.units.values() if u.side == ME) == 4)
 
     hand = {10: H(10, "INF", 2, "infantry", 2, 2, (), {}), 11: H(11, "ORDER", 2, "order", 0, 0, (), {})}
     full = board(4, hand)

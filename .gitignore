@@ -5,8 +5,14 @@ __pycache__/
 /data/
 /kards-data/
 /nn/venv/
+/.venv/
+/venv/
 /dist/
 *.log
 *.dmp
 *.DMP
 scratch_*
+*.bak
+.pytest_cache/
+*.egg-info/
+Thumbs.db

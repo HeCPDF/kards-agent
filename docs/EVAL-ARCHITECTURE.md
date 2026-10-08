@@ -32,6 +32,36 @@
 1. **评估部分和模拟部分分开。**
 2. **模拟部分按 KARDS 原版来**（规则、顺序、随机消耗与原版一致）。
 3. **架构上要可维护。**
+4. **2026-10-04：怎么评估"下回合才会进手牌"的候选牌**（预报第一层三选一那类）。用户原话精神：
+   > "把下回合发生的事情以现在为起点进行评估的思路没错。但是要**切实地根据那时发生什么**来看。
+   > 我们也不该**假定它就是进入友方手牌**。不过此处，预报后确实是进入友方手牌。
+   > 所以或许还是不该用 static 来 eval？不过如果非要对 static card 进行 eval，确实要**覆写所有者之类**才行，这没错。"
+
+   落地口径（本文只定标准，实现见 `player/rule.py`）：
+   * **末态/稳态与跨回合口径以 `ARCHITECTURE.md` 为准，本文不复述、不另立定义**：
+     稳态 = 事件队列空 ∧ autoplay 待打出队列已冲刷 ∧ 没有悬挂的提示（`ARCHITECTURE.md:18`）；
+     一个决策的模拟止于稳态、**不跨对手回合**，跨回合的后果（预报选中的牌下回合开始才 spawn 进手牌、
+     `kredit_next`、`OnStartOfTurn` 效果）记入 `State.pending`、**由评估估值**（约定口径写在 `evaluation/`，
+     默认按"下回合开始、盘面不变"折算并在 meta 标明）—— 见 `ARCHITECTURE.md:61`；`pending_cards`
+     （跨回合待进手牌的牌）已实现，见 `ARCHITECTURE.md:62`。
+   * 评估"下回合会发生的事"时，**必须按那时的条件**推演（那回合的指挥点/槽），不能拿"现在"的资源顶替。
+     ★ 现状已对：`score_candidates` 用"下回合的指挥点"（槽位 +1，夹到 `getMaxPossibleKredits`），
+     见 `rule.py:1025-1030`。
+   * **不得默认"进入友方手牌"**：谁拿到这张牌由**具体机制**决定 —— 预报/三选一 ⇒ 我方手牌（所以此处
+     按我方算是对的）；若某个机制把牌交给对手，就必须按对手算。**override 的依据是机制，不是"一律当我方"。**
+   * 对 **static card** 做 eval 是可以的，但那时**必须显式覆写所有者/座位一类字段**（`field_overrides`
+     就是干这个的）—— 用户明确认可"必要性"，否定的只是"不覆写就当实例用"。
+   * **已定案（2026-10-04 实机 + 诊断字段）**：天气族 7 变体 + IJN SHINANO 停在 `GetOppositeSide` 的
+     **真因不是座位没喂**：诊断显示**被问的 ptr=None**，而 BP 原文是 `this->GetOppositeSide()`
+     （`card_event_storm2_thunderstorm.cpp:28`）⇒ 字节码问的就是 **`self`**，是我们的空跑 VM 把 `self`
+     求成了 `None`（`vm.call` 的 hook 拿到的是 `[eval(kid) for kid in e.kids]`，self pin 走了影子帧变量读；
+     `effectvm.py:1085` 明明传了 `self_obj=card_ptr`）。⇒ **`field_overrides` 这类"喂座位"在这条路上
+     永远匹配不上**；正确方向是**把实例当作 `self` 交进空跑**（与 CLAUDE.md 弯路 #44 同族）。
+     ★ **已修（2026-10-04，`0ae86d9`）**：真因是 `hk_seat` 把 **receiver 丢掉、只看了 `args[0]`（出参）** ——
+     只读反汇编显示 `FinalFunction(GetOppositeSide)` 的唯一 kid 就是出参 `LocalVariable(...)`，卡是 receiver
+     （`vm.py:571` 只在 native 那条路回退 `f.self_obj`，hook 这条路没有）。修法：`hk_seat` 取 receiver、
+     None 时回退 `frame.self_obj`；`_opposite` 优先 receiver、退回 `args[0]`。已用**独立只读探针**
+     （`_nn_scratch/probe_opposite_eval.py`）直接对静态卡空跑验证：两张卡都 `stopped=None`（不再停）。
 
 ## 3. 架构标准
 

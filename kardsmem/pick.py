@@ -436,12 +436,17 @@ OFF_HC_SHOULDDISCARD_HINT = 0x980
 
 
 def hand_card_actors(session) -> list:
-    """本方手牌的 `BP_HandCard_C` actor → [{actor, card_ptr, card_id, name, slot}]。
+    """本方手牌的 `BP_HandCard_C` actor → [{actor, card_ptr, card_id, name, slot, side(ESide|None)}]。
+
+    ★ 座位迁移（2026-10-03）：按本局 `mySide`（`cards.my_side(session)`，随 MatchLog 失效）过滤；
+      mySide 读不出 ⇒ 抛 `ValueError`（不再退回静态表）。卡的 side 读不出（None）的记录照旧保留，由调用方自己判。
 
     它本身是可用的（换牌标记的搜索范围就是它），只是标记字段未知。
     ⚠ 对方手牌也有 `BP_HandCard_C` 且同样持有卡对象（背面不代表读不到），
       所以默认按 side 过滤到本方。
     """
+    from . import cards as _C
+    mine = _C.my_side(session)
     loc = Locator(session.m, session.base)
     m = session.m
     out = []
@@ -463,7 +468,7 @@ def hand_card_actors(session) -> list:
                 rec["side"] = c.get("side")
         except Exception:                                    # noqa: BLE001
             pass
-        if rec.get("side") == "enemy":
+        if rec.get("side") is not None and rec["side"] != mine:
             continue
         out.append(rec)
     out.sort(key=lambda r: (r.get("slot") is None, r.get("slot")))
@@ -511,14 +516,18 @@ OFF_DECK_FOR_ENEMY_HINT = 0x478     # 同上
 
 
 def deck_actors(session) -> list:
-    """两个 `BP_Deck_C` 实例（本方/敌方）→ [{actor, deck_for_enemy, side}]。
+    """两个 `BP_Deck_C` 实例（本方/敌方）→ [{actor, deck_for_enemy, side}]，`side` 是 `ESide`。
 
-    `deckForEnemy` 是唯一权威 side 判据（反射链现算）；读不出就是 `side=None`，
-    **不猜**（None ≠ False，别把"读不出"当成"本方"）。
+    `deckForEnemy`（相对本地玩家的布尔）是唯一权威判据（反射链现算），再用本局 `mySide` 翻成绝对座位：
+    `deckForEnemy=False` ⇒ `side=mySide`，True ⇒ `other_side(mySide)`。deckForEnemy 或 mySide 读不出就是
+    `side=None`，**不猜**（None ≠ False，别把"读不出"当成"本方"）。
     """
     from .objects import ObjectArray
     from .props import find_prop, read_bool
 
+    from . import cards as _C
+    from .gamemodel import other_side
+    mine = _C._my_seat(session)          # ESide|None —— 读不出时下面 side=None，不抛（本函数是诊断读法）
     loc = Locator(session.m, session.base)
     oa = ObjectArray(session)
     out = []
@@ -526,12 +535,12 @@ def deck_actors(session) -> list:
         uclass = loc.uclass_of(a)
         prop = find_prop(session, uclass, "deckForEnemy") if uclass else None
         is_enemy = read_bool(session.m, a, prop) if prop else None
-        side = None if is_enemy is None else ("enemy" if is_enemy else "local")
+        side = None if (is_enemy is None or mine is None) else (other_side(mine) if is_enemy else mine)
         out.append({"actor": a, "deck_for_enemy": is_enemy, "side": side})
     return out
 
 
-def hand_card_actors_v2(session, side: str = "local") -> list:
+def hand_card_actors_v2(session, side=None) -> list:
     """手牌 actor 的权威读法：直接读 `BP_Deck_C::CardsPulledFromDeckBeforeBeingPutIntoHand`。
 
     返回格式跟 `hand_card_actors()` 对齐（同一批 key），方便直接互相比对/替换：
@@ -545,7 +554,9 @@ def hand_card_actors_v2(session, side: str = "local") -> list:
     很可能就是没有这个 actor 或数组为空，属于正常状态，见函数上方注释）。
     """
     from .props import find_prop
+    from . import cards as _C
 
+    side = _C._resolve_side(session, side)       # 缺省 = 本局 mySide；读不出抛 ValueError
     m = session.m
     loc = Locator(m, session.base)
 

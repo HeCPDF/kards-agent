@@ -561,6 +561,52 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
    TEMP/TMP 指到 `D:\Kards\_frida_tmp`（`KARDS_FRIDA_TMP` 可改）；② `sweep_frida_tmp()` 在 attach 前、`close()` 里 detach 后清**没被占用**的旧目录
    （agent dll 能以追加方式打开 ⇒ 没人在用；占用中的跳过）；③ 注入类脚本一律走常驻监听器，别为了"问一下"另起进程；④ 做任何会反复起进程的东西前先算"每次留下什么"。
 
+45. **"复现"不必等实机跑到那个状态**（2026-10-04，用户点破："你就必须等 rule 跑到对应卡吗？"）。
+   天气族 7 张牌的**假缺口**（`GetOppositeSide` 报"座位读不出"），我先开训练局"等它抽到那张牌"——
+   赌一整局才复现。其实有三条更快、而且**只读**的路：
+   ① **诊断字段**：先让缺口文本带上"被问的 ptr"，一局就看清实参是 `None`（弯路 #44 同一课：诊断字段比"没触发"重要）；
+   ② **只读反汇编**（`_nn_scratch/probe_self_pin.py`，`kismet.dump` 打 ubergraph）：直接看到
+      `FinalFunction(fn=GetOppositeSide)` 的**唯一 kid 是出参** `LocalVariable(CallFunc_..._oppositeSide)`、
+      **卡本身是 receiver**（BP 原文 `this->GetOppositeSide()`）⇒ 定案"读错了参数位"——**根本不需要对局**；
+   ③ **只读直评**（`_nn_scratch/probe_opposite_eval.py`：`record_effects` 对静态卡空跑一次）验证修复（`stopped=None`）。
+   三者都在**外部只读进程**里跑（弯路 #34：零干扰、不占监听器）。
+   ⇒ 遇到"要等某个状态才能复现"时，先问：**能不能直接构造输入 / 直接对目标函数空跑 / 直接反汇编？**
+   探针边界也要说清：VM 读字段读的是**真内存**，stub 盘面只能答"停不停"，答不了"效果内容对不对"。
+
+46. **一个字段有多个读点，只看到一个就把语义定小了 —— `isImmune` 不是「伏击门条件」，是「不吃伤害」**
+   （2026-10-04，用户一句「**免疫单位不吃伤害。**」当场纠正）。
+   我在 `CalculateDamageDealt`（`BP_CardFunctions.cpp:14809+`）里读到 `:14877 _damageDealerCard->getHasImmune()`
+   （伏击分支的一个条件），就把 `isImmune @0x289` 实现成"伏击门条件"收工，还在工单里写了"已接"。
+   用户点破后**全文 grep** 一遍：**三处**讲的是同一件更基本的事 ——
+   `:14823`（函数**开头**就查**接收方** `getHasImmune()` ⇒ `damage=0; doesDamageRecieverDie=false;
+   wasShockAttack=false; return`）、`ExecuteOnDealDamageAddDamageAfterCalc :14568`（⇒ `finalDamage=0`）、
+   群体伤害 `:15698`（干脆**跳过**免疫目标，连 0x26 触发都不走）⇒ **免疫单位吃 0 伤害、也不会死**（战斗与效果伤害都是）。
+   ⇒ 纪律：**给一个字段下语义之前，先 grep 它在整个导出里的全部出现**；尤其"它只在某分支被读"这种结论，
+   必须能解释**其它调用点为什么不读它**。（#9/#12/#25 是同一族：断言"没有/只有"之前先查全；这次栽在
+   "看到一个用法就当成全部语义"，而且**差一点就以"已完成"的样子留在工单里**。）
+
+47. **★ 我自己的测试夹具是最弱的证据 —— 用夹具"发现"的 bug，先对 BP 签名/真实调用点核实再动手**
+   （2026-10-04，P4 里连栽两次、而且**两次都把正确实现改成了回归**）。
+   经过：做 P4 直跑时，我手写 `SuppressMultipleUnits([0x500, 0x501], …)` 跑 `to_effects`，看到
+   `suppress_aoe_ids == [1280, 1281]`、而消费端 `s.units.get(cid)`（按 **card_id**）⇒ 断定"**指针**当 id 用、
+   群体效果从来没生效"，于是加了 `ptr_ids` 映射；第十七刀对 `salvage_ids`/`discard_ids` 又来一次。
+   **第十八刀查签名才发现全错了**：这些签名本来就是 **ID** 数组/参数 ——
+   `SuppressMultipleUnits(const TArray<int>*& cardsToSuppress,…)`、`DestroyMultipleCards(const TArray<int>*& …)`、
+   `DamageMultipleCards(TArray<int>& receiverIDs,…)`、`SalvageMultipleUnits(const TArray<int>*& …)`、
+   `DiscardCardFromHand(int cardID,…)`、`AddDefenseToMultipleCards(const TArray<int>*& receiverIDs,…)`；
+   真实调用点更直接：`SuppressUnit(int cardID,…)` 的实现就是
+   `MakeArray_Array = [ cardID ]; SuppressMultipleUnits(MakeArray_Array, instigatorID, …)`（`:7446-7450`）。
+   ⇒ 我加的映射把**真 id** 映成 `None` ⇒ 记缺口、**跳过效果**：那不是修 bug，是**造回归**（已全部撤回）。
+   同一次还发现**另一个方向**的同类错误：`PinUnit(int cardID,…)`/`SuppressUnit(int cardID,…)`/
+   `RemoveCardFromBoard(int cardID,…)`/`ResetUnitOperations(int cardID,…)`/`ChangedPinnedTurns(int cardID,…)`
+   收的是 **ID**，而我的 sink 按**指针**解析 ⇒ 新增 `DirectCtx.unit_arg`（**id 优先、再按指针**）并换掉 7 处
+   —— 两向解析不是"猜"，而是因为**首参语义逐动词不同**（`unit_arg` 的 docstring 里列了那张签名表）。
+   **为什么夹具会骗人**：我既能"喂指针"也能"喂 id"，而**断言是我自己写的** ⇒ 夹具 + 断言可以自洽地证明
+   错误结论（第一轮我还顺手"更正"了两个旧测试，把它们的**正确断言**改成了错的 ✗）。
+   ⇒ 纪律三条：① **要断言某个实参的语义，先看它的签名与真实调用点**（一条 grep 的事：#1/#2 的老教训）；
+   ② 夹具必须按**真实形状**喂（指针就喂指针、id 就喂 id），否则测试会替 bug 背书；
+   ③ 用夹具得到的"bug 结论"必须**降级为待核实**，核实前不许写进文档/工单，更不许改实现。
+
 ## 当前状态（2026-10-03 更新；细节看 `PLAN.md` §0 与 `TODO.md`）
 
 - **规则 bot**：`player/rule.py`(RuleV2) + `policy/boardeval.py`(搜索) + `semantics/effectvm.py` + `kardsmem/vm.py`（外部 Kismet VM，
@@ -569,8 +615,15 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
 - **盘外评估/模拟分层**：`sim/`（模拟：状态/事件队列/规则）与 `evaluation/`（评估：纯估值）分开，依赖方向由 `test_arch_rules.py` 把关；
   `boardeval.py` 是过渡层。标准见 `EVAL-ARCHITECTURE.md`；OPS 侧标准见 `OPS-ARCHITECTURE.md`。
 - **控制面板**：`gui/`（`run_gui.bat`）——自动对局编排、决策历史、监听器启停、版本识别；面板只写控制文件，不碰游戏。
-- **版本与 RVA**：运行中游戏的 `版本号.分支` 直接读进程内存（`kardsmem/version.py`）；**目标架构**是运行时扫描 RVA + 缓存 + 随包种子表、
-  去掉手工版本表（`ARCH-RELEASE-VCS.md`，S1 的 `kardsmem/rvascan.py` 已做，S2 需游戏）。
+- **版本与 RVA**（P7，2026-10-03 已落地离线部分）：运行中游戏的 `版本号.分支` 直接读进程内存（`kardsmem/version.py`），**只当身份**
+  （缓存键/日志/面板显示），**不是放行条件**。RVA 只有一个入口 `kardsmem/build.py::resolve`，查找顺序
+  **用户缓存（`rvascan.CACHE_DIR`）→ 随包种子表 `kardsmem/build_tables.json` 复验（镜像大小相同的条目，对进程 `quick_verify` 过了才用）
+  → 运行时扫描（`rvascan.resolve`，约十几秒，写回缓存）**，全部只读；全失败才报错并说明哪一步没成。未登记的版本照样能起来。
+  结果带 `source: cache|seed|scan`（`precheck.status()["rva_source"]`、`kardsmem verify`）。`KARDS_BUILD=<种子键>` **仅作调试覆盖**
+  （跳过复验）。已删：`VERSION_TO_BUILD`、`board._BUILD_TABLE`、`build.RVA_FALLBACK`（数据只剩 `build_tables.json` 一份）。
+  import 期只做“起始选择”（缓存/种子/占位，好让 `names`/`ops.inject` 取到常量），解析出的值与烤进 `ops.inject` 的不同 ⇒ 报“重启本进程一次”。
+  S2（对各版本真进程实测）仍需游戏，见 `docs/ARCH-RELEASE-VCS.md` §5。下面“代码约定”里“偏移表必须可换”那一段中
+  关于 `VERSION_TO_BUILD`/两张表/“新版本要先登记”的描述**已被本条取代**。
 - **总原则（2026-10-03）**：行动 = 动作 + 其后全部选择；机制按**能力**探测分支（旧版本无该机制就走旧规则），新版本靠**语义指纹**降级为缺口；
   种子/随机流机制自最旧版本传下来、改动极保守，视为稳定底座（`ARCH-RELEASE-VCS.md` §7）。
 - **已知的版本相关机制**：洗牌钩子（海战起）、Bond 协力整套（国土阵线起）、更早只有"无牌可抽才疲劳伤害"。
@@ -604,9 +657,19 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
   → `handTargetSelected` 移动队列 → 源卡 `OnHandTargetSelected`。判据是同源的
   `源卡.IsValidHandTarget(候选手牌)`。落地在 `hand_target_pending/hand_target_legal/
   select_hand_target`（会话命令 `htgt`/`htlegal`/`hsel`）。
-- **Bond**（Homefront）：`ability.bond`；**手中带 Bond 的牌在回合开始对你的总部造成疲劳伤害**
-  （`ApplyFatigueDamage(fromBond=True)`，提示"Your card with Bond deals {damage} Morale damage
-  to your HQ."）⇒ 要么打出去、要么用 RATIONING（"Remove Bond from cards in your hand"）之类清掉。
+  ★ **幽灵提示**（2026-10-07，静态 BP 证据，详见 TODO.md 同日条）：`isSelectingHandTarget`+`chooseOneActive` 在 `AddSubActionSelectHandTargetPending`
+  （`BP_OnlineMatch.cpp:15596`，打出源卡时**无条件**置位）和 widget `Construct`（`ConfirmHandTargetButton_Widget.cpp:199`）置位，
+  只有 widget `Destruct`（`:247`）复位 ⇒ widget 没走到 Destruct 就悬挂（`pick_pending` 是同一对旗标）。无合法目标时 Construct 自己跳过（`:216-226`，`doNext` 先置 `pendingKill=true`）。
+  读侧：`ghost_reason`（`pendingKill`/销毁标志）或候选全不合法 ⇒ `hand_target.pending=False`、同源 `pick_pending` 一并摘掉；`IsInViewport` 仅诊断，**未实机验证**。
+- **Bond**（Homefront）：`ability.bond`；**检查发生在「打出时」，不是回合开始**（2026-10-06 逐行读 BP 更正；旧说法"手中带 Bond 的牌在回合开始扣总部"**不成立**）：
+  `BP_CardFunctions::CardPlayedFromHand`（1.60 `:18682-18700`）里 `HasBond(card) ∧ ¬activeBondFactions.Contains(card.faction)` ⇒
+  `ApplyFatigueDamage(side, fromBond=true)`（当前疲劳计数的伤害、计数 +1，与空库抽牌共用；全导出 `fromBond=true` 只此一处调用点）；
+  总部打爆 ⇒ 牌的效果不再执行。`activeBondFactions` 由 `SetActiveBondsAtStartOfTurn(side)`（`BP_GameState_Battle.cpp:2529`，
+  `BP_Logic::StartTurnBySide :10001` 调）在**回合开始**重算 = 行动方场上（非未揭示隐蔽的）单位的国家集合，回合中不更新。
+  提示"Your card with Bond deals {damage} Morale damage to your HQ."。⇒ 要么先有同国单位在场、要么用 RATIONING
+  （"Choose one — Remove Bond from all cards in your hand / HQ +4 defense"）之类清掉：`RemoveBond` 写自定义能力 `bond_removed`。
+  已移植：`engine/natives/bond.py`（`has_bond`/`active_bond_factions`/`bond_check_on_play`/`give_bond`/`remove_bond`），
+  `sim` 的 deploy/order 路径原生走检查（旧效果键 `bond_fatigue` 已删），测试 `tests/test_bond_native.py`。
 
 ## 证据标准
 
@@ -639,15 +702,15 @@ FModel 的 uasset + 反编译、UE 5.6 引擎源码、`.usmap`、`.idmap`、运�
   ★ **2026-10-03 起按"运行中游戏自报的版本号.分支"选表**（已知版本 ↔ RVA 表一一对应）：
   `kardsmem/version.py` 只读扫游戏进程内存里的 `ProjectVersion`（`Kards 1.60.27292.launcher`，
   IDA 证实它来自 `GConfig` 的 `GeneralProjectSettings.ProjectVersion`，≥2 处且唯一值才采信，约 3 s，
-  按 (pid, 进程创建时间) 缓存），再按 `VERSION_TO_BUILD` 得到表键。选择优先级：
+  按 (pid, 进程创建时间) 缓存），再按 `build_tables.json` 里的版本键得到表键（`VERSION_TO_BUILD` 已删，见上文 623 行那条）。选择优先级：
   **`KARDS_BUILD` 显式覆盖 > 运行中游戏的版本 > 兜底 `current`**，`build.py`（`CURRENT/BUILD_SOURCE`）
   与 `kardsmem/board.py`（`_BUILD_KEY`）用**同一个**选择函数。`SizeOfImage`/md5 不再是放行条件，只作信息。
-  新版本要先在 `VERSION_TO_BUILD` 登记它的表，否则 attach 报"版本未登记"（不猜）。
+  （已被取代）新版本不再『先登记』：种子表 → `quick_verify` → `rvascan` 现算，查找链见 docs/ARCH-RELEASE-VCS.md §5。
   `--check` 验一致性；`python -m kardsmem selftest` 两个构建都要过。
   ★ **选表只在进程启动 import 时做一次，运行中不切**：`build.py` 和 `kardsmem/board.py` 各有一张表，
   运行中改会让两边混用偏移（读数静默错位）。对不上就报错并提示重启
   （`agent/precheck.py::build_check`、`proc.Session.attach` 都按版本判）。
-  静态读各安装树版本：`tools/pakread.py::install_version`（pak 主 key 硬编码为默认 `DEFAULT_MAIN_KEY`，
+  静态读各安装树版本：`tools/pakread.py::install_version`（pak 主 key 硬编码为默认 `DEFAULT_MAIN_KEY`（用户 2026-10-08 确认可以硬编码、随仓库发布），
   不对再试 FModel 的值与 AESDumpster 候选）；`reverse-data/tools/usmaps/kards-<日期>-*.usmap` 里的日期是
   版本发布时间，其中旧日期那几份对应 1.54/1.55，**忽略**。
 - 每次改完代码跑 `cd kards-agent && python -m kardsmem selftest`

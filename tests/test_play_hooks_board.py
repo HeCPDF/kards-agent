@@ -19,6 +19,8 @@ from types import SimpleNamespace
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _cards import ME, OPP, mk_card                               # noqa: E402
 import semantics.effectvm as EV                                   # noqa: E402
 import player.rule as R                                        # noqa: E402
 import semantics.triggers as T                                    # noqa: E402
@@ -34,14 +36,8 @@ def chk(name, ok, extra=""):
         fails += 1
 
 
-class _Card:
-    """与 `board_api.Card` 同款：dataclass(eq=True) ⇒ **不可哈希**。"""
-    __hash__ = None
-
-    def __init__(self, name, ptr, cid):
-        self.name, self.card_id = name, cid
-        self.raw = {"ptr": ptr}
-        self.location, self.side = "frontline", "local"
+def _Card(name, ptr, cid):
+    return mk_card(cid, ME, "frontline", "infantry", 1, 1, 1, 1, name, ptr=ptr)
 
 
 class _Cache:
@@ -59,7 +55,7 @@ class _Km:
 
 def main():
     played, other = _Card("PLAYED", 0x11, 1), _Card("OTHER", 0x22, 2)
-    st = SimpleNamespace(cards=[played, other], my_side_raw=1)
+    st = SimpleNamespace(cards=[played, other], my_side=ME, other_side=OPP, my_side_raw=1)
     km = _Km()
     O.ObjectArray.class_of = lambda self, p: 0xAA00
     calls = []
@@ -103,7 +99,7 @@ def main():
     def fake_run(km_, st_, played_, **kw):
         seen.update(kw)
         return {"hits": [{"hook": "OnCounterMeasureTriggered", "name": "OTHER", "ptr": 0x22,
-                          "side": "local", "eff": {"buff": [1, 1]}, "stopped": None}]}
+                          "side": ME, "eff": {"buff": [1, 1]}, "stopped": None}]}
 
     T.run_play_hooks = fake_run
     try:

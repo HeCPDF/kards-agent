@@ -8,9 +8,24 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from evaluation.value import W, evaluate
+from evaluation.value import W, evaluate, unit_value
 from sim.engine import (A, _fx_stopped, _restricted, apply, can_hit_hq, can_hit_unit, prompt_of, row_full, run, sim_order)
-from sim.state import ENEMY, GROUND, LOCAL, UNIT_TYPES, H, Sim, U
+from sim.state import GROUND, UNIT_TYPES, H, Sim, U
+
+
+def wire_sim() -> None:
+    """把**估值侧**的两个东西接到 `sim` 上（L4 是唯一同时认识 L2/L3 的层 ✓）：
+
+      * `sim.engine.set_estimation_params(draw_v=W["draw_v"])` —— 匿名牌持有价值（**估值参数**，
+        不是规则常量；规则常量手牌上限已走 `HAND_CAP` ✓）；
+      * `sim.engine.set_unit_valuer(unit_value)` —— 选目标启发式（"打最值钱的敌人"）要一张牌的价值。
+
+    **幂等** ✓。之前这段写在 `policy/boardeval.py` 门面里（门面一被 import 就生效）；现在收成一个
+    显式入口 ⇒ 门面只是转调它，将来门面删掉时，新入口只要调 `wire_sim()` 就行（P5 的接缝 ✓）。
+    """
+    from sim import engine as _en
+    _en.set_estimation_params(draw_v=W["draw_v"])
+    _en.set_unit_valuer(unit_value)
 
 
 
@@ -49,10 +64,10 @@ def gen_actions(sim: Sim, w: dict = W, order_targets_max: int = 4) -> list:
 
 def _gen_actions(sim: Sim, w: dict = W, order_targets_max: int = 4) -> list:
     out = []
-    if sim.playing_side == ENEMY:                  # 行动权已交给对方：我方这一回合没有后续动作
+    if sim.playing_side == sim.opp:                  # 行动权已交给对方：我方这一回合没有后续动作
         return out
-    mine = [u for u in sim.units.values() if u.side == LOCAL]
-    foes = [u for u in sim.units.values() if u.side == ENEMY]
+    mine = [u for u in sim.units.values() if u.side == sim.me]
+    foes = [u for u in sim.units.values() if u.side == sim.opp]
     ground_restricted = _restricted(sim, 4)        # cannotAttackWithGroundUnits
     for a in mine:
         if not a.can_act() or a.opc > sim.kredits or (a.atk <= 0 and not a.aa_hq):
@@ -65,10 +80,10 @@ def _gen_actions(sim: Sim, w: dict = W, order_targets_max: int = 4) -> list:
                 out.append(A("attack", a.id, t.id, a.opc, "%s>%s" % (a.id, t.id)))
         if sim.hq_known and can_hit_hq(sim, a) and not _fx_stopped(sim, a.id, "hq"):
             out.append(A("attack", a.id, "hq", a.opc, "%s>hq" % a.id))
-    if sim.front_owner != ENEMY:
+    if sim.front_owner != sim.opp:
         for u in mine:
             if (u.row == "back" and u.typ in GROUND and u.can_act() and not u.moved
-                    and u.opc <= sim.kredits and not row_full(sim, LOCAL, "frontline")):
+                    and u.opc <= sim.kredits and not row_full(sim, sim.me, "frontline")):
                 out.append(A("move", u.id, None, u.opc, "move %s" % u.id))
     for c in sim.hand.values():
         if c.cost > sim.kredits or c.id is None or c.id < 0 and c.name == "?":
@@ -77,7 +92,7 @@ def _gen_actions(sim: Sim, w: dict = W, order_targets_max: int = 4) -> list:
         _kind = "deploy" if c.is_unit() else "order"
         if (_kind == "order" and _restricted(sim, 2)) or (_kind == "deploy" and _restricted(sim, 3)):
             continue
-        if c.is_unit() and row_full(sim, LOCAL, "back"):
+        if c.is_unit() and row_full(sim, sim.me, "back"):
             continue                                 # 原版 `CanMoveCardToLocation`：IsLocationFull && 不是指令 ⇒ 部署不了
         lt = sim.legal.get(c.id)
         if lt is not None:

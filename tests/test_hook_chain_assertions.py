@@ -9,6 +9,8 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 from types import SimpleNamespace as NS
 
 
+from _cards import ME, OPP                              # noqa: E402
+from kardsmem import gamemodel as GM                            # noqa: E402
 from semantics import triggers as TR
 
 fails = 0
@@ -20,16 +22,21 @@ def chk(name, ok, extra=""):
     fails += 0 if ok else 1
 
 
+def _obj(side, loc=GM.ECardLocation.Board_Frontline):
+    """语义层读 `card.obj.side / Location / IsHQ()…`：假卡也带原版对象。"""
+    return GM.BaseCardObject(side=side, Location=loc, Type=GM.EType.infantry)
+
+
 def new_chain():
     return object.__new__(TR._Chain)
 
 
 # ---- 反制先手（GetActiveGotchasOrdered 先收 OnOtherCardDealDamage）----
 gotcha = NS(card_id=11, card_type="gotcha", gotcha_activated=1, fname="card_event_interception",
-            name="INTERCEPTION", raw={"ptr": 101}, side="enemy")
+            name="INTERCEPTION", raw={"ptr": 101}, side=OPP, obj=_obj(OPP))
 dealer = NS(card_id=7, card_type="infantry", gotcha_activated=0, fname="card_unit_x",
-            name="X", raw={"ptr": 102}, side="local")
-to_card = NS(card_id=5, card_type="infantry", raw={"ptr": 103}, side="enemy")
+            name="X", raw={"ptr": 102}, side=ME, obj=_obj(ME))
+to_card = NS(card_id=5, card_type="infantry", raw={"ptr": 103}, side=OPP, obj=_obj(OPP))
 chain = new_chain()
 chain.st = NS(cards=[gotcha, dealer])
 chain.include_own = False
@@ -43,8 +50,8 @@ chk("反制先手：先给已激活的反制发 OnOtherCardDealDamage",
 
 # ---- 0x18 摧毁效果倍增（TriggerMultiple=1 ⇒ OnDestroyed 重放一次）----
 victim = NS(card_id=21, name="V", card_type="infantry", raw={"ptr": 201}, location="frontline",
-            is_suppressed=False, side="enemy")
-killer = NS(card_id=22, name="K", card_type="infantry", raw={"ptr": 202}, side="local")
+            is_suppressed=False, side=OPP, obj=_obj(OPP))
+killer = NS(card_id=22, name="K", card_type="infantry", raw={"ptr": 202}, side=ME, obj=_obj(ME))
 chain2 = new_chain()
 chain2.include_own = True
 chain2.in_combat = True
@@ -95,8 +102,8 @@ chk("例外表：命中（%s → %s）" % (nm0, hook0), TR._suppression_excepted
 chk("例外表：未列出的 hook ⇒ False", TR._suppression_excepted(c_ex, "OnNope") is False)
 
 # ---- 死亡链顺序（双方都死：逐阶段交错，先防守方后攻击方）----
-att = NS(card_id=31, name="A", location="frontline", raw={})
-dfd = NS(card_id=32, name="D", location="frontline", raw={})
+att = NS(card_id=31, name="A", location="frontline", raw={}, obj=_obj(ME))
+dfd = NS(card_id=32, name="D", location="frontline", raw={}, obj=_obj(OPP))
 chain5 = new_chain()
 chain5.card = lambda x: x
 seq = []
@@ -113,7 +120,7 @@ chk("死亡链：防守方先、攻击方后，逐阶段交错",
 
 # ---- 摧毁链去重（to_fx 默认不输出 def_destroyed/att_destroyed 桶）----
 st = NS(cards=[])
-hit = {"hook": "OnDestroyed", "name": "V", "ptr": 0, "side": "enemy",
+hit = {"hook": "OnDestroyed", "name": "V", "ptr": 0, "side": OPP,
        "bucket": "def_destroyed", "eff": {"damage": 1}, "stopped": None,
        "out": {}, "records": [], "chance": [], "gaps": []}
 res = {"hits": [hit], "defender": 0, "damage": None}

@@ -43,10 +43,10 @@
   `cardUnderCursor / LocationUnderCursor / RowUnderCursor` 这几个 cursor 字段
   （跟 `_drag_lifecycle` 同性质，写侧红线允许——发出去的还是同一串鼠标事件）。
   其余几个（`CanPlayCardFromHand` / `CanPlayFromHand` / `CanAttack`）是纯查询。
-* ★ **构建必须一致，不自动切**：这些函数用 `kardsmem.build` 的偏移表，而 `board_api`
-  用**它自己**的表，两张表**用同一个选择函数**选（`KARDS_BUILD` > 运行中游戏的版本 > `current`，
-  只在 import 时选一次）。活着的游戏版本跟当前所选构建不对应时**直接报错**——自动改环境变量会让预检和 `board_api`
-  各用一套偏移（读数静默错位，比报错糟得多）。
+* ★ **RVA 来自解析链，不靠登记**（2026-10-03 P7）：这些函数用 `kardsmem.build` 的 RVA（`board_api` 也只从它取，
+  只有这一份）。`build_check` 对活着的游戏走 用户缓存 → 种子表复验 → 运行时扫描（全只读），成功就放行并记
+  `source: cache|seed|scan`；全失败才报错并说明哪一步没成。选表只在 import 时做起始选择，解析出的值与 import 期烤进
+  `ops.inject` 的不同时报“重启本进程”（自动改会让两边各用一套偏移，读数静默错位）。
 """
 from __future__ import annotations
 
@@ -67,6 +67,7 @@ _LOC: dict = {
     "probe": None,     # kardsmem.proc.list_kards_processes() 的缓存（含 md5，读一次 ~1s）
     "unhealthy": None, # ★ 最近一次**异常**（调用抛异常）；非 None = 整轮停手，见 call_read/call_write
     "unhealthy_pid": None,  # 标记不健康时那次 attach 的 pid（`reset_health()` 靠它判断"进程是不是真的换了"）
+    "rva": None,       # 最近一次 build_check 的 RVA 解析结果：{ok, source: cache|seed|scan|env, version, steps} 或 {ok: False, error}
 }
 
 
@@ -101,26 +102,25 @@ def _live_probe(refresh: bool = False) -> list:
 
 
 def build_check(refresh: bool = False) -> Optional[str]:
-    """活着的进程是不是当前选中的那一份构建？不是 ⇒ 一句人话；是 ⇒ None。
+    """活着的游戏的 RVA 能不能确定？不能 ⇒ 一句人话（说明哪一步失败）；能 ⇒ None，并把来源写进 `_LOC["rva"]`。
 
-    ★ 2026-10-03：判据改成**运行中游戏自报的 `版本号.分支`**（`kardsmem/version.py`，读进程内存里的
-      `ProjectVersion`），再按已登记的"版本→RVA 表"（`VERSION_TO_BUILD`）对 `build.CURRENT`；
-      不再用 SizeOfImage 间接推。版本未登记 ⇒ 不猜，报错。
+    ★ 2026-10-03 P7：不再按"版本是否登记"拒绝。走 `kardsmem.build.ensure_resolved`：用户缓存 → 种子表复验 →
+      运行时扫描（全只读），成功就放行，状态里记 `source: cache|seed|scan`（`status()["rva_source"]`）；
+      版本串（`kardsmem/version.py` 读进程内存）只作缓存键/日志。同一进程只解析一次（结果有进程内备忘）。
     """
     from kardsmem import build as B, version as V
     if not V.game_pids():
         return "没有活着的 kards 进程"
-    v = V.running_version(use_cache=not refresh)
-    if v is None:
-        return "认不出运行中游戏的版本（进程内存里没找到 `Kards 版本.分支` 串）"
-    b = V.build_key_for_version(v)
-    if b is None:
-        return ("运行中游戏的版本 %s 没有登记 RVA 表（kardsmem/version.py::VERSION_TO_BUILD）——"
-                "先为它生成/登记偏移表" % v)
-    if b != B.CURRENT:
-        return ("活着的游戏是版本 %s（对应偏移表 %s），但本进程选的是 %s（来源 %s）**不是同一份构建** —— "
-                "重启本进程（不设 KARDS_BUILD 即可自动按版本选表）"
-                % (v, b, B.CURRENT, getattr(B, "BUILD_SOURCE", "?")))
+    try:
+        res = B.ensure_resolved(refresh=refresh)
+    except B.BuildResolveError as e:
+        _LOC["rva"] = {"ok": False, "error": str(e), "steps": [list(x) for x in e.steps]}
+        return "RVA 解析失败（缓存 → 种子复验 → 扫描都没成）：%s" % e
+    _LOC["rva"] = {"ok": True, "source": res.source, "version": res.version, "key": res.key,
+                   "seconds": round(res.seconds, 2), "steps": [list(x) for x in res.steps]}
+    if B.RESTART_NEEDED:
+        return ("RVA 来源 %s，与本进程启动时载入的不同（ops.inject 已烤死旧值）—— 缓存已写好，"
+                "重启本进程一次即可（选表只在进程启动 import 时做一次）" % res.source)
     return None
 
 
@@ -307,6 +307,8 @@ def status(refresh: bool = False) -> dict:
             "unhealth_reason": _LOC.get("unhealthy"),
             "unhealth_pid": _LOC.get("unhealthy_pid"),
             "build_error": build_check(refresh=refresh),
+            "rva": _LOC.get("rva"),
+            "rva_source": (_LOC.get("rva") or {}).get("source"),
             "processes": [{"pid": r.get("pid"), "image_size": r.get("image_size"),
                            "matched": r.get("matched"), "path": r.get("path")}
                           for r in _live_probe(refresh=refresh)],
@@ -378,7 +380,7 @@ def can_move_to(card, location_enum: int = LOC_FRONTLINE, verbose: bool = False,
                  simulate_drag=simulate_drag)
 
 
-def can_attack(attacker, target, verbose: bool = False) -> dict:
+def can_attack(attacker, target, verbose: bool = False, snapshot=None) -> dict:
     """`cardsCheckFunctions_C::CanAttack(...)`：带 `fail_reason` 的攻击判据。
 
     `fail_reason` 举例：`not_enough_kredits_to_target`（打这个目标要多花指挥点，
@@ -387,6 +389,8 @@ def can_attack(attacker, target, verbose: bool = False) -> dict:
     a, t = _cid(attacker), _cid(target)
     if a is None or t is None:
         return {"ok": False, "stopped": "拿不到 attacker/target 的 card_id"}
+    if snapshot is not None:                      # 复用本次决策已读的盘面，不再每问一次重新全量快照（见 ops/query.game_can_attack）
+        return _call("game_can_attack", a, t, verbose=verbose, snapshot=snapshot)
     return _call("game_can_attack", a, t, verbose=verbose)
 
 

@@ -15,9 +15,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
 import semantics.triggers as TR                                    # noqa: E402
-from policy.boardeval import U                                  # noqa: E402
+from engine.state import EVENT_FX_KINDS, Sim, U                     # noqa: E402
+from sim.engine import _apply_eff                                   # noqa: E402
 
 fails = 0
 
@@ -147,17 +148,17 @@ def main():
         and TR.RETREAT_HOOK_SPECS["OnOtherCardRetreat"]["outs"] == ("stopAction",))
 
     # ---------------- 评估侧：撤退前结算 0x36 后果 ----------------
-    u = U(9, "enemy", "frontline", 2, 2, 2, "infantry")
-    s = B.Sim({9: u}, {"local": 20, "enemy": 20}, 5.0, {}, event_fx={"retreat": {9: {"kredit": 2}}})
-    B._apply_eff(s, {"retreat": True}, 9)
+    u = U(9, OPP, "frontline", 2, 2, 2, "infantry")
+    s = Sim({9: u}, {ME: 20, OPP: 20}, 5.0, {}, event_fx={"retreat": {9: {"kredit": 2}}}, my_side=ME)
+    _apply_eff(s, {"retreat": True}, 9)
     chk("撤退：单位离场 + 0x36 后果结算（+2 指挥点）",
         9 not in s.units and s.kredits == 7.0, "kred=%s" % s.kredits)
-    chk("event_fx 登记了 retreat 种类", "retreat" in B.EVENT_FX_KINDS)
+    chk("event_fx 登记了 retreat 种类", "retreat" in EVENT_FX_KINDS)
     chk("换数据答案要变：没有 retreat 后果表 ⇒ 只离场不加费",
-        (lambda s2: (B._apply_eff(s2, {"retreat": True}, 9), 9 not in s2.units
+        (lambda s2: (_apply_eff(s2, {"retreat": True}, 9), 9 not in s2.units
                      and s2.kredits == 5.0)[1])(
-            B.Sim({9: U(9, "enemy", "frontline", 2, 2, 2, "infantry")},
-                  {"local": 20, "enemy": 20}, 5.0, {})))
+            Sim({9: U(9, OPP, "frontline", 2, 2, 2, "infantry")},
+                  {ME: 20, OPP: 20}, 5.0, {}, my_side=ME)))
 
     print("\n结论：%s（%d 项失败）" % ("PASS" if not fails else "FAIL", fails))
     return 0 if not fails else 1

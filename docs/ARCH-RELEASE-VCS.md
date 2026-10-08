@@ -40,9 +40,25 @@
 |---|---|---|
 | S1 | `rvascan.py` + 离线测试（合成内存） | **已做**（`test_rvascan.py`） |
 | S2 | 对**真游戏**扫描，与 `golden_rva.json` 三个版本逐项对（需要游戏在跑；launcher 1.60 先） | 待游戏 |
-| S3 | `build.RVA` 改惰性解析；`names/objects/world/proc/ops.inject` 去掉 import 时取 RVA；删 `KARDS_BUILD`/`VERSION_TO_BUILD`/表 | 待 S2 |
+| S3a（= REFACTOR-PLAN P7） | **已做（离线，2026-10-03）**：解析链 `build.resolve` = 用户缓存 → 种子表复验 → 扫描；删 `VERSION_TO_BUILD`/`board._BUILD_TABLE`/`RVA_FALLBACK`（数据只剩 `build_tables.json` 一份种子）；`KARDS_BUILD` 仅作调试覆盖；`precheck.build_check`/`proc.Session.attach`/`gui/watcher` 改成“解析成功即放行 + `source: cache\|seed\|scan`”；测试 `tests/test_build_resolve.py`。**未做**：`build.RVA` 仍是 import 期共享字典（起始选择 + attach 时原地更新），`names`/`ops.inject` 仍在 import 期取常量 ⇒ 值变了要“重启本进程” | 完成（缺 S2 实机） |
+| S3b | `names/objects/world/ops.inject` 去掉 import 时取 RVA（全部改调用期读 `build.RVA`），就不再需要“重启”提示 | 待 S2；`ops/` 在拆分，等拆完 |
 | S4 | `build_tables.json`/`BUILDS` 迁成 `tests/fixtures/golden_rva.json`；`.gitignore` 缓存目录；`exes.py`/`buildsrc.py` 改读基准 | 待 S3 |
 | S5 | GUI/CLI 去掉版本显示以外的一切构建逻辑；`verify` 打印"来源 cache/scan + 用时" | 待 S3 |
+
+### 5.1 P7 落地后的查找链（实现：`kardsmem/build.py`）
+```
+import 期  _initial_select()   KARDS_BUILD > (有游戏) 缓存[版本+镜像大小] > 种子[镜像大小/版本] > 占位种子   ← 只为让常量有值，未复验
+attach 期  ensure_resolved()   resolve():  env 覆盖(不复验)
+                                   └ 用户缓存 → quick_verify 过 ⇒ source=cache
+                                   └ 种子表（镜像大小相同的条目，versions 命中的优先）→ quick_verify 过 ⇒ source=seed
+                                   └ rvascan.resolve 扫描（写缓存）⇒ source=scan
+                                   └ 全败 ⇒ BuildResolveError(steps)  ← 说明每步为什么没成，不拿旧表凑合
+                               成功 ⇒ apply()：原地更新共享的 build.RVA；(pid,基址,镜像,版本) 进程内备忘；失败备忘 60 s
+```
+* 版本串 = 缓存键 + 日志 + 面板；认不出版本串时没有缓存键，但种子(镜像大小)复验与扫描照样能走（扫描结果不缓存）。
+* `build_tables.json` 向后兼容扩展：每个构建多了 `versions`（该二进制对应的所有版本串）、`module`/`path_hint`/`ue`/`_note`（原 `BUILDS` 的人工备注）；
+  `buildsrc` 重新生成时只覆盖 `rva/sources/notes`，其余原样保留；新键的身份从 exe 本身算。
+* 面板 `watcher.detect_version` 只读版本串，给出预期 `source`（seed/cache/scan），不扫描；GUI 启动监听器不再传 `KARDS_BUILD`。
 
 ## 6. 风险
 * 形状判据在**别的 UE 版本/游戏**上可能多解（所以要求"恰好一个"，否则报错而不是挑一个）。

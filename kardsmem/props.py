@@ -146,11 +146,31 @@ def class_props(session, uclass: int, pool=None, max_depth: int = 16) -> list:
 
 
 def find_prop(session, uclass: int, name: str, pool=None) -> Optional[dict]:
-    """按名字找一个属性（子类优先）。"""
-    for r in class_props(session, uclass, pool):
-        if r.get("name") == name:
-            return r
-    return None
+    """按名字找一个属性（子类优先）。
+
+    一次建 sim 的作用域里（`readscope.build_scope`）按**类**记住整条属性链的 `{名字: 记录}` 索引：
+    原来每个 (类, 字段名) 都从头走一遍 UClass 属性链（上百次内存读/次），同一个类上要读十几个字段就走十几遍。
+    索引里同名取子类优先（与逐条扫描的"第一个命中"一致）；只记**读到了属性**的类（空链可能是瞬时读失败，下次照旧重走）；
+    作用域外行为不变。"""
+    from . import readscope
+    sc = readscope.current()
+    if sc is None:
+        for r in class_props(session, uclass, pool):
+            if r.get("name") == name:
+                return r
+        return None
+    idx = sc.table("prop_index", session)
+    table = idx.get(uclass)
+    if table is None:
+        sc.note("prop_index", False)
+        table = {}
+        for r in class_props(session, uclass, pool):
+            table.setdefault(r.get("name"), r)
+        if table:
+            idx[uclass] = table
+    else:
+        sc.note("prop_index", True)
+    return table.get(name)
 
 
 def read_bool(mem, obj: int, prop: dict) -> Optional[bool]:

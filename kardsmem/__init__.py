@@ -7,7 +7,7 @@
     from kardsmem import attach
     s = attach()
     print(s.snapshot().cards)      # 盘面/手牌/弃牌（board_api mem 后端）
-    print(s.gs().deck_ids(LOCAL))  # GameState 额外字段
+    print(s.gs().deck_ids())  # GameState 额外字段（缺省 = 我方 mySide；也可传 ESide）
     print(s.names().fname_of(...))  # FName（真名字池）
     print(s.rendered())            # 屏幕上摆着的每一张卡（不读图）
     print(s.pick())                # 是不是在等我选牌 + 候选是谁

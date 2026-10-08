@@ -17,10 +17,11 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
 import semantics.effectvm as EV                                    # noqa: E402
 import semantics.triggers as TR                                    # noqa: E402
-from policy.boardeval import U                                  # noqa: E402
+from engine.state import Sim, U                                    # noqa: E402
+from sim.engine import _apply_eff                                  # noqa: E402
 
 fails = 0
 
@@ -33,11 +34,12 @@ def chk(name, ok, extra=""):
 
 
 def mk(units=(), **kw):
-    return B.Sim({u.id: u for u in units}, {"local": 20, "enemy": 20}, 5.0, {}, **kw)
+    return Sim({u.id: u for u in units}, {ME: 20, OPP: 20}, 5.0, {}, **kw, my_side=ME)
 
 
-def eff_of(*records):
+def eff_of(*records, ptr_ids=None):
     r = EV.Recorder()
+    r.ptr_ids = dict(ptr_ids or {})
     r.records = [{"verb": v, "args": list(a), "tainted": False} for v, a in records]
     return EV.to_effects(r)
 
@@ -46,24 +48,30 @@ def main():
     # ---------------- effectvm：三个动词各出各的键 ----------------
     chk("SuppressUnit ⇒ suppress（不是 pin）", eff_of(("SuppressUnit", [11, 7, None])).get("suppress") is True)
     chk("PinUnit ⇒ pin", eff_of(("PinUnit", [11, 7])).get("pin") is True)
+    # ★★ 2026-10-04（P4 第十八刀）**把第一轮的"更正"撤回**：`SuppressMultipleUnits(const TArray<int>*&
+    #   cardsToSuppress, …)` 签名就是 **card ID** 数组（真实调用点 `SuppressUnit` 的实现是
+    #   `MakeArray_Array = [ cardID ]; SuppressMultipleUnits(MakeArray_Array, …)`，
+    #   `BP_CardFunctions.cpp:7446-7450`）⇒ 数组元素**原样就是 id**，不需要 `ptr_ids` 映射。
+    #   第一轮我拿**自己手写的** `[0x500, 0x501]` 当"证据"断定它是指针、还加了映射 ⇒ 那会把**真 id**
+    #   映成 `None`、效果被跳过 —— 是我引入的**回归**（已撤回，见 `effectvm` 那段留档）。
     e3 = eff_of(("SuppressMultipleUnits", [[11, 22], 7, None]))
-    chk("SuppressMultipleUnits ⇒ suppress_aoe + id 列表",
+    chk("SuppressMultipleUnits ⇒ suppress_aoe + id 列表（**数组本来就是 card_id**，原样传出）",
         e3.get("suppress_aoe") is True and e3.get("suppress_aoe_ids") == [11, 22], str(e3))
 
-    # ---------------- boardeval：压制 ≠ 定住 ----------------
-    pin_u = U(1, "enemy", "frontline", 3, 3, 3, "infantry", kw=("guard", "fury"), opc=1)
+    # ---------------- sim.engine：压制 ≠ 定住 ----------------
+    pin_u = U(1, OPP, "frontline", 3, 3, 3, "infantry", kw=("guard", "fury"), opc=1)
     pin_u.armor, pin_u.tax = 2, 3
     s1 = mk([pin_u])
-    B._apply_eff(s1, {"pin": True}, 1)
+    _apply_eff(s1, {"pin": True}, 1)
     u1 = s1.units[1]
     chk("定住：只置压制位，关键词/重甲/指向税不动",
         u1.pinned and set(u1.kw) >= {"guard", "fury"} and u1.armor == 2 and u1.tax == 3
         and not s1.gaps, str(s1.gaps))
 
-    sup_u = U(1, "enemy", "frontline", 3, 3, 3, "infantry", kw=("guard", "fury", "shock"), opc=1)
+    sup_u = U(1, OPP, "frontline", 3, 3, 3, "infantry", kw=("guard", "fury", "shock"), opc=1)
     sup_u.armor, sup_u.tax, sup_u.attacks_left = 2, 3, 2
     s2 = mk([sup_u])
-    B._apply_eff(s2, {"suppress": True}, 1)
+    _apply_eff(s2, {"suppress": True}, 1)
     u2 = s2.units[1]
     chk("压制：清关键词/重甲/指向税 + 置压制位 + 不能再动",
         u2.pinned and not ({"guard", "fury", "shock"} & set(u2.kw)) and u2.armor == 0
@@ -73,29 +81,29 @@ def main():
     chk("压制后不能行动（can_act False）", not u2.can_act())
 
     # 换数据答案跟着变：没关键词的单位压完只是压制
-    plain = U(1, "enemy", "frontline", 3, 3, 3, "infantry")
+    plain = U(1, OPP, "frontline", 3, 3, 3, "infantry")
     s3 = mk([plain])
-    B._apply_eff(s3, {"suppress": True}, 1)
+    _apply_eff(s3, {"suppress": True}, 1)
     chk("换数据答案要变：无关键词单位压制 ⇒ 只置位", not s3.units[1].kw and s3.units[1].pinned)
 
     # ---------------- 事件钩子后果（event_fx）接线 ----------------
-    a = U(1, "enemy", "frontline", 3, 3, 3, "infantry", kw=("guard",))
-    b = U(2, "enemy", "frontline", 2, 2, 2, "infantry", kw=("fury",))
+    a = U(1, OPP, "frontline", 3, 3, 3, "infantry", kw=("guard",))
+    b = U(2, OPP, "frontline", 2, 2, 2, "infantry", kw=("fury",))
     s4 = mk([a, b], event_fx={"suppress": {1: {"kredit": 1}, 2: {"kredit": 2}}})
-    B._apply_eff(s4, {"suppress": True}, 1)
-    B._apply_eff(s4, {"suppress": True}, 2)
+    _apply_eff(s4, {"suppress": True}, 1)
+    _apply_eff(s4, {"suppress": True}, 2)
     chk("0x3A 后果按被压制的卡结算（1 号 +1、2 号 +2 指挥点）",
         s4.kredits == 8.0, "kred=%s" % s4.kredits)
 
     s5 = mk([a, b], event_fx={"pin": {2: {"buff": [3, 0]}}})
-    B._apply_eff(s5, {"pin": True}, 2)
+    _apply_eff(s5, {"pin": True}, 2)
     chk("0x3D 后果只对命中的卡生效（2 号 +3 攻）", s5.units[2].atk == 5 and s5.units[1].atk == 3)
 
     # 群体压制：逐张走同一条路
-    c1, c2 = (U(5, "enemy", "frontline", 3, 3, 3, "infantry", kw=("guard",)),
-              U(6, "enemy", "frontline", 3, 3, 3, "infantry", kw=("shock",)))
+    c1, c2 = (U(5, OPP, "frontline", 3, 3, 3, "infantry", kw=("guard",)),
+              U(6, OPP, "frontline", 3, 3, 3, "infantry", kw=("shock",)))
     s6 = mk([c1, c2], event_fx={"suppress": {5: {"kredit": 1}, 6: {"kredit": 1}}})
-    B._apply_eff(s6, {"suppress_aoe": True, "suppress_aoe_ids": [5, 6]}, None)
+    _apply_eff(s6, {"suppress_aoe": True, "suppress_aoe_ids": [5, 6]}, None)
     chk("群体压制：两张都被清关键词 + 各自后果都结算",
         s6.units[5].pinned and s6.units[6].pinned and not s6.units[5].kw and not s6.units[6].kw
         and s6.kredits == 7.0, "kred=%s" % s6.kredits)

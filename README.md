@@ -1,51 +1,108 @@
 # kards-agent
 
-读 [KARDS](https://www.kards.com/) 客户端内存拿实时盘面，在游戏进程内**合成鼠标事件序列**操纵客户端
-（不挪真实光标、不抢焦点）。
+**KARDS 自动对局框架**：只读进程内存拿实时盘面，在游戏进程内**合成**与真人等价的鼠标事件来出牌，
+上层是一个规则 bot（带盘外模拟 + 评估 + 搜索），可选再接一个神经网络策略。
 
-Fork 自 [OCR-Kards-Auto](https://github.com/yumehanab1/OCR-Kards-Auto)（GPL-3.0），
-把「靠 OCR 认盘面」换成「靠内存读盘面」，只保留了上游的窗口/模板匹配等少量原语（见 `vendor/`）。
+> English summary — A Windows-only framework for automating the card game KARDS. It reads the live
+> game state through read-only process-memory access (UE reflection + a Kismet bytecode interpreter) and
+> performs actions by synthesizing the *full* mouse event sequence (hover → press → drag → release) inside the
+> game process, so what the server/opponent sees is indistinguishable from a human using a mouse. On top of
+> that sit an off-board simulator, an evaluator, a search-based rule bot, and an optional NN (torch) track.
+> **Training/AI matches only. Never PvP.** GPL-3.0; originally forked from
+> [OCR-Kards-Auto](https://github.com/yumehanab1/OCR-Kards-Auto). No game files are included.
 
-## 边界（重要）
+## 红线（先读这个）
 
-**读侧只读内存；写侧在游戏进程内复刻真实鼠标的事件序列。**
+1. **信息流与真人等价**：发给服务端/对手的东西，必须和真人用鼠标正常操作产生的完全一致。
+   输入侧按真实鼠标的**完整事件序列**重演（悬停 → 悬停转发 → 按下 → 起拖 → 拖动 → 落地/松开），**不跳步**。
+2. **读侧只读**：读状态只用 `ReadProcessMemory`；进程内的注入调用只允许“无副作用的只读查询”（例如问游戏自己 `CanAttack`）。
+3. **只打训练 / AI 局，不碰 PvP。** 开局闸门（`player/play_guard.py`）和面板都围绕这一条；
+   对手 `player_id` 为非负数即真人对局，不得启动。
+4. 不改游戏文件、不绕过反作弊/风控、不分发游戏资源。
 
-- 读：只用 `PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` + `ReadProcessMemory`
-  （蓝图字节码是**读出来在 Python 里解释**的）
-- 写：**判据只有一条** —— 发给服务端/对手的信息流必须跟真人用鼠标操作产生的**完全等价**
-  （`ops.inject`：悬停 → 悬停转发 → 按下 → 起拖 → 拖动 tick → 落地/松开，**不跳步**）
-- 旧的两条硬禁令（"不注入、不写内存"、"一律物理鼠标"）已在 2026-09-25 收窄为上面那一条；
-  物理鼠标实现 `ops.py` 随之于 2026-09-27 **归档**（`_archive/ops_mouse.py`，停用）
+完整红线与判据原则见 [CLAUDE.md](CLAUDE.md)（面向接手的开发者/agent）。
 
-## 能做什么
+## 系统要求
 
-| | |
-|---|---|
-| `kardsmem` | 读侧：世界/盘面/卡牌/手牌/指挥点/候选牌/游戏内提示文本 |
-| `kardsmem.props` | 走 UE 反射链，**按名字**把蓝图成员变量解析成偏移（跨构建自洽） |
-| `kardsmem.objects` | 遍历 `GUObjectArray`，拿到 UMG widget 这类非 Actor 对象 |
-| `kardsmem.kismet` | 反汇编运行时 Kismet 字节码（全游戏 10861 个函数解析通过） |
-| `ops/inject.py` | **执行侧（唯一）**：出牌 / 指向（指令一次成交 · 单位两阶段）/ 上线 / 攻击 / 抉择 / 换牌 / 结束回合 |
-| `agent/` | 命令层：`AgentSession` 的唯一动词集合 + 交互 shell + MCP server + 只读录制器 |
-| `tools/` | 取材 / 标定 / 探针（内存探针、minidump、坐标标定、PE 解析…） |
-| `_archive/ops_mouse.py` | 旧的物理鼠标执行侧（**已停用**，只作留档/对照；行模型回归仍在跑） |
+* Windows 10/11（x64）。读内存、注入、窗口截图都用 Win32 API，不支持其它系统。
+* 已安装的 KARDS 客户端（Steam 或官方 launcher）。目前适配 1.60 系列；换版本会在运行时扫描 RVA 并缓存到
+  `%LOCALAPPDATA%\kards-agent\rva-cache\`，新版本的兼容性以实机为准。
+* Python 3.12+（CI 跑 3.12 与 3.14；开发环境 3.14），需带 `tkinter`（控制面板）。
+* 主环境依赖仅 `frida`、`numpy`（见 `requirements.txt`）。NN 训练另需 `torch`（`requirements-nn.txt`，可选）。
 
-```bash
-cd D:\Kards\kards-agent
-python -m kardsmem selftest                 # 读侧自检
-KARDS_BUILD=launcher_default python ops/inject.py selftest   # 执行侧自检（按构建选表）
-python -m interfaces.shell                       # 交互式
+离线部分（模拟、VM、评估、全部测试）**不需要游戏**；上线跑局才需要游戏在运行。
+
+## 安装
+
+```powershell
+git clone <本仓库>            # 或解压 dist\kards-agent-<版本>.zip
+cd kards-agent
+.\install.ps1                 # 建 .venv、装 requirements.txt、跑离线自检
+.\install.ps1 -Nn             # 可选：另建 nn\venv 并装 torch（体积大）
 ```
 
-接续任务先读 **`CLAUDE.md`**（红线 / 判据原则 / 已知弯路 / 发布纪律 / 下一步），
-主规格在 `..\reverse-data\reports\spec\KARDS-AUTOMATION.md`。
+手动也行：`python -m venv .venv && .venv\Scripts\pip install -r requirements.txt`。
 
-## 版本
+## 怎么跑
 
-偏移表是为**某一个具体构建**写的，按 `SizeOfImage` 识别；换版本要重新标定。
-字段偏移优先走反射链现算，代码里尽量不硬编码。
+| 想做什么 | 命令 |
+|---|---|
+| 控制面板（推荐入口：开始/停止、局数、状态、决策历史、日志） | `run_gui.bat`（= `python -m gui.app`） |
+| 常驻监听器（先开游戏再开它；面板也会替你拉起） | `run_listener.bat`（= `python tools\live_session.py`） |
+| 离线测试（不需要游戏） | `run_tests.bat [关键字]`（= `python tests\run_all.py`） |
+| 读侧自检 / 读一眼盘面 | `python -m kardsmem selftest`、`python -m kardsmem --help` |
+| 交互式 shell / MCP server（给人或 LLM 用） | `python -m interfaces.shell`、`python -m interfaces.mcp` |
 
-## 许可
+监听器通过 `data\live\live_cmd.txt`（追加一行 = 一条命令）与 `live_log.txt`（结果）通信；
+面板通过 `control.json` 控制它。**不要在对局进行中强杀监听器**（会让游戏崩溃），用面板的“停止”或 `quit` 命令。
 
-GPL-3.0，见 [LICENSE](LICENSE)。
-派生关系与上游出处见 [NOTICE](NOTICE)。
+## 目录结构与依赖方向
+
+每个包只干一件事，依赖只许向下，由 `tests/test_arch_rules.py` 强制：
+
+```
+L5  gui/  interfaces/  tools/        入口：面板 / shell+MCP / 一次性脚本
+L4  player/                          玩家：规则策略、在线回路、录制、开局闸门
+L3  agent/            learn/         命令层（一组动词）   离线学习（torch，可选）
+L2  ops/  semantics/  sim → evaluation → policy
+L1  kardsmem/                        读侧：内存 / UE 反射 / Kismet VM / 盘面 / RVA 扫描
+L0  base/                            路径、版本、Win32 封装
+```
+
+各包的职责与“`agent/` 和 `ops/` 有什么区别”等常见问题见 [docs/STRUCTURE.md](docs/STRUCTURE.md)；
+总纲在 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，重构路线在 [docs/REFACTOR-PLAN.md](docs/REFACTOR-PLAN.md)。
+
+## 数据落盘位置
+
+运行期文件一律经 `base/paths.py`，**不进 git**：
+
+| 位置 | 内容 |
+|---|---|
+| `<仓库>\data\` | 默认根目录。环境变量 `KARDS_DATA_DIR` 可改；开发布局（仓库旁有 `reverse-data\`）落在 `..\kards-data\` |
+| `data\live\` | 监听器命令/日志通道、热重载开关 |
+| `data\nn\logs\` | 决策日志（每步一行 JSONL） |
+| `data\recordings\` | 只读录制 |
+| `data\gui\` | 面板状态、版本缓存 |
+| `data\api\` | 官方卡表缓存（“没进预备”的判据） |
+| `%LOCALAPPDATA%\kards-agent\rva-cache\` | 运行时扫描出的 RVA 缓存 |
+
+## 版本、更新日志与发布
+
+* 版本号：`base/version.py`；变更见 [CHANGELOG.md](CHANGELOG.md)。
+* 打包：`python tools\make_release.py`——对**已提交**内容 `git archive` 出 `dist\kards-agent-<版本>.zip`，
+  并在干净目录里跑一遍离线测试（`--dry-run` 只看不写，`--no-venv` 用当前解释器）。
+* 发布纪律：`kards-agent/` 在开发时是伞仓库的一个**子树**，在里面直接 `git push` 会把整个伞仓库推上公网。
+  公开只推拆分出来的 `publish/kards-agent` 分支，并先核对两个 tree 相等；步骤见 [CLAUDE.md](CLAUDE.md)「发布纪律」。
+  `tools\make_release.py` 不做任何推送。
+
+## 许可与鸣谢
+
+GPL-3.0，见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。本项目最初 fork 自
+[OCR-Kards-Auto](https://github.com/yumehanab1/OCR-Kards-Auto)（yumehanab1，GPL-3.0），
+早期借用了其窗口/模板原语；这些文件现已移除，但思路和起步工作归功于上游。
+
+## 免责声明
+
+本项目为个人研究/学习用途，**与 KARDS 及其发行方无任何关联，也未获其认可**。使用自动化工具可能违反游戏的服务条款，
+并可能导致账号受限，风险自负。作者不对因使用本软件造成的任何损失负责。请只在训练/AI 对局中使用，不要用于 PvP。
+本仓库不包含任何游戏文件、逆向导出物或账号信息。

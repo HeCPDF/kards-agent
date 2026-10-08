@@ -13,7 +13,10 @@
     exe 反汇编                    → FNamePool（`FName::AppendString` 里的 `lea r8,[rip+…]`）
     exe + 参照构建                → GWorld（dump 里给 0 时，用参照构建的指令模式迁移过来）
 
-产物：`kardsmem/build_tables.json`（**数据**，跟着包走；`build.py` / `kardsmem/board.py` 都读它）。
+产物：`kardsmem/build_tables.json`（**数据**，跟着包走；唯一入口 `kardsmem.build` 读它，`board.py` 只从 build 取）。
+★ 2026-10-03 P7：这张表现在只是**种子**（运行时先复验，不过就扫描，见 `build.resolve`），不再是"版本登记制"的放行名单。
+重新生成时只覆盖 RVA/来源/告警；身份与人工备注（`image_size/exe_size/md5/versions/path_hint/ue/_note`）原样保留；
+新键（`BUILD_SOURCES` 里加了、JSON 里还没有）的身份从 exe 本身算。
 
 用法
 ====
@@ -313,14 +316,25 @@ def derive_gworld_live(build_key: str, exe: Optional[str] = None) -> Optional[in
 # --------------------------------------------------------------------------
 # 汇总
 # --------------------------------------------------------------------------
+def _identity_from_exe(exe: str, src: dict, sdk_name: str) -> dict:
+    """新构建的身份：SizeOfImage（解析 PE 头）/文件大小/md5/版本串（`BUILD_SOURCES[key]["version"]`，缺省取 sdk 目录名）。"""
+    pe = _pe_tools()
+    _d, _ib, soi, _secs = pe.parse_pe(exe)
+    ver = src.get("version") or sdk_name
+    return {"version": ver, "image_size": int(soi), "exe_size": os.path.getsize(exe),
+            "md5": B.md5_file(exe), "module": B.GAME_EXE, "versions": [ver]}
+
+
 def build_table(key: str, verbose: bool = True) -> dict:
     """算出某个构建的 RVA 表 + 每个值的**来源**。"""
     src = BUILD_SOURCES.get(key)
     if not src:
         return {"error": "没有登记 %s 的来源（BUILD_SOURCES）" % key}
-    info = B.BUILDS.get(key, {})
+    info = dict(B.BUILDS.get(key, {}))
     sdk_name = src["sdk"]
     exe = find_exe(src["tree"])
+    if exe and not info.get("image_size"):                     # 新键：身份从 exe 本身算（不靠人抄）
+        info.update(_identity_from_exe(exe, src, sdk_name))
     rva, sources, notes = {}, {}, []
 
     dump = dump_offsets(sdk_name)
@@ -359,23 +373,28 @@ def build_table(key: str, verbose: bool = True) -> dict:
             else:
                 notes.append("GWorld 缺（dump 里是 0，且扫不到进程）")
 
+    prev_rva = (load_tables().get(key) or {}).get("rva") or {}          # 这次算不出来的项（例如 exe 不在本机）沿用旧值，别把种子弄残
+    for name in TABLE_KEYS:
+        if name not in rva and prev_rva.get(name):
+            rva[name] = prev_rva[name]
+            sources[name] = "沿用上次生成的值"
+            notes.append("%s 这次算不出来，沿用上次 0x%X" % (name, prev_rva[name]))
+
     if verbose:
         print("  构建 %s（%s）" % (key, info.get("version", "?")))
         print("    exe : %s" % (exe or "（找不到）"))
         print("    sdk : %s" % (SDK_ROOT / sdk_name))
-    return {"key": key, "version": info.get("version"),
-            "image_size": info.get("image_size"), "exe_size": info.get("exe_size"),
-            "md5": info.get("md5"),     # 身份来自 build.BUILDS（人工登记）；偏移才是这里算的
-            "rva": rva, "sources": sources, "notes": notes}
+    # 身份与人工备注来自种子表本身（`B.BUILDS` 就是读这个 JSON）；这里只重算偏移
+    return {"key": key, **info, "rva": rva, "sources": sources, "notes": notes}
 
 
 def refresh(path: Path = TABLES_JSON, only: Optional[str] = None, write: bool = True) -> dict:
-    builds = {}
     keys = [only] if only else list(BUILD_SOURCES)
+    builds = {} if not only else {k: v for k, v in load_tables(path).items() if k != only}   # --build 只重算一个，别丢掉其它键
     for k in keys:
-        t = build_table(k)
-        builds[k] = t
-    out = {"_note": "由 kardsmem.buildsrc 从 SDK dump + exe 生成；别手改 —— 重跑生成器",
+        builds[k] = build_table(k)
+    out = {"_note": "随包种子表：已发布版本的 RVA 真值 + 构建身份。运行时只作种子（加载前对进程复验，见 kardsmem.build.resolve）；"
+                    "RVA 由 kardsmem.buildsrc 从 SDK dump + exe 生成，其余字段（身份/versions/备注）人工登记，重新生成时原样保留。",
            "builds": builds}
     if write:
         path.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

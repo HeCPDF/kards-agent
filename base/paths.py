@@ -10,12 +10,29 @@
 from __future__ import annotations
 
 import os
+import sys
 
-AGENT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))          # …/kards-agent
-UMBRELLA = os.path.dirname(AGENT_ROOT)                                            # …/Kards（伞仓库根）
+#: PyInstaller 冻结（`kards-agent.exe`）？冻结时 `__file__` 落在只读的 `_internal/`（`sys._MEIPASS`），
+#: 不能当数据目录用；**可写数据一律落在 exe 所在目录**（`<exe 目录>/data`），随包资源（build_tables.json、
+#: agent.js.tpl）由各模块自己的 `Path(__file__)` 经 `_MEIPASS` 取到（打包脚本 `tools/build_exe.py` 负责放对位置）。
+FROZEN = bool(getattr(sys, "frozen", False))
+
+if FROZEN:
+    AGENT_ROOT = os.path.dirname(os.path.abspath(sys.executable))                # exe 所在目录（用户解压的那个文件夹）
+    UMBRELLA = AGENT_ROOT                                                         # 冻结包没有伞仓库；别往 exe 目录的上一层写东西
+    RESOURCE_ROOT = getattr(sys, "_MEIPASS", AGENT_ROOT)                          # 随包只读资源根
+else:
+    AGENT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))      # …/kards-agent
+    UMBRELLA = os.path.dirname(AGENT_ROOT)                                        # …/Kards（伞仓库根）
+    RESOURCE_ROOT = AGENT_ROOT
+
+
 def _default_data() -> str:
     """运行期数据目录：环境变量 `KARDS_DATA_DIR` > 开发布局（伞仓库旁的 `kards-data/`）> 发布布局（仓库内 `data/`）。
-    发布出去的仓库只有 kards-agent 这一棵树，所以落在 `<仓库>/data/`（已在 .gitignore）。"""
+    发布出去的仓库只有 kards-agent 这一棵树，所以落在 `<仓库>/data/`（已在 .gitignore）。
+    冻结的 exe 包：`<exe 目录>/data`（不看伞仓库标志物，也绝不落在临时的 `_MEIPASS`）。"""
+    if FROZEN:
+        return os.path.join(AGENT_ROOT, "data")
     dev = os.path.join(UMBRELLA, "kards-data")
     if os.path.isdir(os.path.join(UMBRELLA, "reverse-data")) or os.path.isdir(dev):
         return dev

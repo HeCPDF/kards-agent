@@ -9,9 +9,8 @@
 都是 `GConfig->GetString("/Script/EngineSettings.GeneralProjectSettings","ProjectVersion",…)`）。
 只读 `VirtualQueryEx`+`ReadProcessMemory` 扫这个形状（UTF-16 与 ASCII），≥2 处且只有一个不同的值才采信。
 
-选表发生在**进程启动 import 时一次**（不是运行中切换）：
-  `KARDS_BUILD` 环境变量（显式覆盖）> 运行中游戏的版本 > 兜底 `current`（没有游戏在跑/认不出）。
-认出的版本不在 `VERSION_TO_BUILD` 里 ⇒ 不猜，退回兜底，并由 `agent/precheck.build_check` 报"未登记的版本"。
+版本号**只当身份**：RVA 缓存键、日志、面板显示；它**不是放行条件**（2026-10-03 P7：未登记的版本也能起来，
+走 用户缓存 → 种子表复验 → 运行时扫描，见 `kardsmem/build.py::resolve`）。`KARDS_BUILD` 仅作调试覆盖。
 
 本模块**不依赖** `build.py` / `kardsmem/board.py`（它们 import 本模块），只读。
 """
@@ -24,14 +23,6 @@ import os
 import re
 import time
 
-# ---- 已知版本 → 构建键（键必须在 `build.BUILDS` 与 `board_api._BUILD_TABLE` 里；selftest 核对）----
-# 同一个 exe 二进制可被多个版本共用（launcher 渠道 1.58→1.60 只换了 pak）⇒ 多个版本可指同一张表。
-VERSION_TO_BUILD = {
-    "1.60.27292.Steam": "current",
-    "1.60.27292.launcher": "launcher_default",
-    "1.58.27125.launcher": "launcher_default",
-    "1.57.26586.launcher": "launcher_157_orig",
-}
 GAME_EXE = "kards-Win64-Shipping.exe"
 from base import paths as _paths_v
 CACHE = _paths_v.VERSION_CACHE
@@ -214,30 +205,34 @@ def version_of_pid(pid: int, use_cache: bool = True, read_fn=read_game_version, 
     return v
 
 
-def build_key_for_version(version):
-    """已知版本 → 构建键；未登记 ⇒ None（不猜）。"""
-    return VERSION_TO_BUILD.get(version) if version else None
+# ---------------------------------------------------------------- 主模块（镜像大小 / 基址）
+class _ME32W(ctypes.Structure):
+    _fields_ = [("dwSize", wt.DWORD), ("th32ModuleID", wt.DWORD), ("th32ProcessID", wt.DWORD),
+                ("GlblcntUsage", wt.DWORD), ("ProccntUsage", wt.DWORD), ("modBaseAddr", ctypes.c_void_p),
+                ("modBaseSize", wt.DWORD), ("hModule", ctypes.c_void_p),
+                ("szModule", ctypes.c_wchar * 256), ("szExePath", ctypes.c_wchar * 260)]
 
 
-def auto_build_key():
-    """运行中游戏的版本 → 构建键；任何一步认不出 ⇒ None（调用方退回兜底）。永不抛。"""
-    try:
-        return build_key_for_version(running_version())
-    except Exception:                                             # noqa: BLE001
+def game_module(pid: int, exe: str = GAME_EXE):
+    """进程主模块 → `(基址, SizeOfImage, 路径)`；找不到 ⇒ None。只读（Toolhelp 快照）。
+
+    放在这个无依赖的叶子模块里：`build.py` 在 import 时就要知道镜像大小，而 `board.py`/`proc.py` 反过来要 import
+    `build.py`，不能让 `build.py` 顶层去 import 它们（会成环）。"""
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateToolhelp32Snapshot.restype = wt.HANDLE
+    k32.Module32FirstW.argtypes = [wt.HANDLE, ctypes.POINTER(_ME32W)]
+    k32.Module32NextW.argtypes = [wt.HANDLE, ctypes.POINTER(_ME32W)]
+    snap = k32.CreateToolhelp32Snapshot(0x8 | 0x10, pid)
+    if snap in (None, -1, ctypes.c_void_p(-1).value):
         return None
-
-
-def select_build(env=None):
-    """→ `(构建键, 来源)`。来源 ∈ `env` / `version:<版本>` / `default`。"""
-    env = os.environ if env is None else env
-    k = env.get("KARDS_BUILD")
-    if k:
-        return k, "env"
     try:
-        v = running_version()
-    except Exception:                                             # noqa: BLE001
-        v = None
-    b = build_key_for_version(v)
-    if b:
-        return b, "version:%s" % v
-    return "current", "default"
+        e = _ME32W()
+        e.dwSize = ctypes.sizeof(_ME32W)
+        ok = k32.Module32FirstW(snap, ctypes.byref(e))
+        while ok:
+            if e.szModule.lower() == exe.lower():
+                return (e.modBaseAddr or 0, e.modBaseSize, e.szExePath)
+            ok = k32.Module32NextW(snap, ctypes.byref(e))
+    finally:
+        k32.CloseHandle(snap)
+    return None

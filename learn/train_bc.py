@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from base import paths as _paths
 from .dataset import (build_encoded, coverage, describe, iterate_batches,
                       load_records, main_type_counts, split_games, to_torch_batch)
 from .encode import TYPE_NAMES
@@ -76,7 +77,7 @@ def run_epoch(model, samples, batch_size, opt=None, type_weight=None,
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="BC 训练（P2）")
-    ap.add_argument("--data", default=r"D:\Kards\kards-data\recordings")
+    ap.add_argument("--data", default=_paths.RECORD_DIR)
     ap.add_argument("--out", default=None,
                     help="默认 D:\\Kards\\kards-data\\nn\\runs\\bc-<时间戳>")
     ap.add_argument("--epochs", type=int, default=30)
@@ -132,7 +133,7 @@ def main(argv=None) -> int:
                "mulligan", "choose_target"), tw)})
 
     out_dir = Path(a.out) if a.out else (
-        Path(r"D:\Kards\kards-data\nn\runs") /
+        Path(_paths.DATA) / "nn" / "runs" /
         time.strftime("bc-%Y%m%d-%H%M%S"))
     out_dir.mkdir(parents=True, exist_ok=True)
     history = []

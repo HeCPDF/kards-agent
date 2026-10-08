@@ -35,6 +35,21 @@
     nn/venv/Scripts/python.exe -m player.rule
 """
 from __future__ import annotations
+from sim.state import H as _H, U as _U          # ★ 不用 `import sim.state as _st`：
+#   `_st` 与 `RuleV2._st`（盘面快照）同名，读代码容易看错（A 的建议 ✓）。
+from evaluation.value import W as _W, delta as _delta, unit_value as _unit_value
+# ★ **不能**写 `import evaluation.value as _va`：`evaluation/__init__.py` 里 `from .value import … value`
+#   把包属性 `evaluation.value` 遮成了**函数** ⇒ `import a.b as c` 拿到的是函数、不是模块 ✗
+#   （Python 3.7+ 走 `getattr(a,'b')`）。原 `policy/boardeval.py:46` 就警告过这条 ✓。
+import sim.engine as _en
+import policy.search as _se
+import sim.adapter as _ad            # ★ 走兼容壳 `sim.adapter`（与 `engine.adapter` 是同一函数对象 ✓）：
+#   依赖表里 `player` 允许 `sim`、**不**允许 `engine`（`tests/test_arch_rules.py:87`）—— 门面一删就露出来了 ✓
+# ★ P5（2026-10-04）：本文件原靠 `policy.boardeval` 门面在 import 时做 wiring；
+#   现在门面只是转调，rule 作为**生产入口**自己调一次（幂等 ✓，`policy.search` 是 L4 ✓）。
+from policy.search import wire_sim as _wire_sim
+_wire_sim()
+
 
 from typing import Optional
 
@@ -43,11 +58,74 @@ from learn.baselines import StrategicRule
 import json
 import time
 
-from policy import boardeval as BE
-from semantics import effectvm as EV
+from kardsmem import gamemodel as _GM
+from kardsmem.board import Card as _BoardCard
+from kardsmem.gamemodel import ESide, other_side
 
-LOCAL, ENEMY = "local", "enemy"
-UNIT_ROWS = ("frontline", "back")
+from semantics import effectvm as EV
+from player import deferred_fx as _DFX
+
+
+def _vm_innermost(stopped) -> str:
+    """VM 停止原因剥掉『被调函数停在：』外层包装后的最内层句子（诊断用，永不抛）。"""
+    try:
+        from kardsmem.vm import _innermost_msg
+        return _innermost_msg(stopped or "")
+    except Exception:                                     # noqa: BLE001
+        return str(stopped or "")
+
+
+# 『目标阵营』关系词（相对施法者：`cardprobe` 的 side 字段 / 效果字典的 "target"）。**不是座位**——
+# 座位是 `ESide`，"我方"只是 `side == st.my_side` 的谓词。
+REL_FOE, REL_FRIEND = "enemy", "friend"
+
+
+# ---------------------------------------------------------------------------
+# 位置谓词（座位迁移契约：卡的位置看 `card.obj`，座位是 `ESide`，不再有 "local"/"enemy"/"hand"/"back" 字符串）。
+# ★ "front"/"support"/"hq" 只是**目标种类**的字样（_tkind 用），"frontline"/"back" 只是 **sim 的行概念**（`U.row`），
+#   都不是座位也不是游戏位置。
+def _is_front(c) -> bool:
+    return c.obj.InFrontline()
+
+
+def _is_support_unit(c) -> bool:
+    """支援线上的单位（不含 HQ 卡）。"""
+    return c.obj.InSupportLine() and not c.obj.IsHQ()
+
+
+def _is_pinned(c) -> bool:
+    """被**压制**（pin）⇒ 不能移动（原版 `IsPinned = pinnedTurns > 0`，IDA 0x144AFCD30）。
+
+    为什么规则侧要挑掉它：`ops/play.py:792` 的移动动词用**只读** `is_pinned` 挡住被压制的单位
+    （实机 2026-10-04 一局里 2 次 `move_up` 被拒："6 被压制（pin），不能移动"），
+    而候选生成不查它 ⇒ 白提一个注定被拒的动作。
+    ★ 这是**只读字段**（快照 `raw["pinned_turns"]`，`kardsmem/board.py` 的 `CARD_I32`），
+      不是推断 —— §7.6f「判据负责挑、游戏负责判」：这里只挑，最终裁决仍在游戏。
+    ★ 读不到（老快照/字段缺）⇒ 返回 False（**不拦**），保持"判据不足就放行"。
+    """
+    return bool((getattr(c, "raw", None) or {}).get("pinned_turns"))
+
+
+def _is_field_unit(c) -> bool:
+    """前线或支援线上的单位（不含 HQ）= 旧 `location in ("frontline","back")`。"""
+    return c.obj.IsFieldUnit()
+
+
+def _sim_row(c) -> str:
+    """sim 的行概念：前线 → "frontline"，其余在场位置 → "back"。"""
+    return "frontline" if c.obj.InFrontline() else "back"
+
+
+def _hq_of(cards, side):
+    """某一方的 HQ 卡（没有 → None）。"""
+    return next((c for c in (cards or []) if c.obj.side == side and c.obj.IsHQ()), None)
+
+
+def _my_seat(st) -> ESide:
+    """本地座位；读不出就抛（不兜底、不默认 1）。"""
+    if getattr(st, "my_side", None) is None:
+        raise ValueError("本地座位读不出（st.my_side 为空）")
+    return st.my_side
 
 # ---------------------------------------------------------------------------
 # 预报（天气三选一）预测的**留痕**：第一层已定三张（蓝天/薄雾/狂风，不抽随机数），
@@ -183,6 +261,12 @@ PARAMS = {
     "lethal": 1000.0,
     "soft_penalty": 0.05,   # 违反"兵种×所在行"表的候选：不剔除，只沉底（游戏仍能说了算）
     "min_attack_value": 0.25,
+    # 影子对账（P5 A/B/C 三方）是**安全网**，不影响决策；实机每步同步跑会白占时间 ⇒ 默认关（用户 2026-10-07 时延目标：每步 ≤ ~1 s）。
+    # 要开：params={"shadow": True}；tools/reconcile_batch.py 与测试直接调 `_shadow_check`，不受此开关影响。
+    "shadow": False,
+    # 单步"可选预查询"的时间预算（秒）：`_search_sim` 里逐 (手牌×目标) 问游戏 CanPlay 的循环超时后，剩余的对不再问
+    # （按"放行"处理——与问不到时同口径；真正打出前 `_confirm` 仍会问游戏闸门）。0 = 不限。
+    "step_budget_s": 1.0,
     "gate_budget": 10,      # 一次决策最多问游戏几次闸门
     # 花费怎么纳入排序（用户 2026-09-30 的两种思路）：
     #   "ratio"    方案 A：排序键 = 场面分数差(delta) ÷ 花费
@@ -268,6 +352,62 @@ class Plan:
 
 
 # ---------------------------------------------------------------------------
+def _replay_new_gaps(replay_gaps, direct_gaps):
+    """重放（C）的缺口里**扣掉直跑（B）已经声明过的**（按条数）。
+
+    重放逐行镜像 sink、调的是同一批原生函数 ⇒ 原生函数自己如实返回的『没建模的那部分』
+    （例：`apply_suppress` 的 SUPPRESS_GAP）B 和 C 会**各记一条一模一样的**；那不是 B/C 分叉，
+    只是同一个已知缺口被记了两次。只有 **B 没有而 C 多出来的**（重放表缺 kind / 目标不在场 / 参数对不上）
+    才是真正的重放缺口 ✓。
+    """
+    from collections import Counter
+    left = Counter(direct_gaps or ())
+    out = []
+    for g in replay_gaps or ():
+        if left.get(g, 0) > 0:
+            left[g] -= 1
+        else:
+            out.append(g)
+    return out
+
+
+def _shadow_branches(r, eff, seed, cap: int = 4):
+    """影子对账里一张牌（一个 (牌, 目标)）要比的**独立条目**：`(条目表, 跳过原因)`。条目 = `(forced, 标签, A 路效果)`。
+
+    用户拍板（2026-10-06，`docs/REFACTOR-PLAN.md` §5.7）：
+      * **随机结果不是分支**：有牌局随机流种子 ⇒ A/B 同种子按游戏的 LCG 跑出具体结果，只有一个条目（`forced=None`，标签空）；
+      * **抉择（`WhichChooseOne`）每个选项是一个独立动作**（路径 = 选项下标；与搜索里 `policy.search.expand_paths` 的行动同口径）：
+        每个选项一个条目，标签 `[选项i]`（多个抉择点 ⇒ `[选项i,j]`）；A 路取 `outcomes[i]` 并上公共部分（同 `sim.engine._choice_branches`）；
+      * 只有**读不到种子**（`seed is None`，`P["use_rng"]=False`）时，随机点才退回旧的枚举（标签 `[随机分支i]`，`cap` 封顶）；
+      * 有种子却仍有随机点没接进牌局流（`r["chance"]` 非空：VM 里还没按流实现的随机原语）⇒ **不枚举成分支假装比过**，
+        返回 `(None, 原因)`，由调用方记 skipped（原因点名动词，便于补原语）。
+    `r` = B 路探查（forced=None）的 `record_effects` 结果。"""
+    nodes = list(r.get("nodes") or [])
+    chance = list(r.get("chance") or ())
+    if not nodes and not chance and not r.get("choice"):
+        return [(None, "", eff)], None
+    outs = (eff or {}).get("outcomes")
+    e0 = {k: v for k, v in (eff or {}).items() if k not in ("outcomes", "outcomes_mode")}
+    choice_n = [n for n in nodes if n.get("verb") in EV.CHOICE_VERBS]
+    rand_n = [n for n in nodes if n.get("verb") not in EV.CHOICE_VERBS]
+    if chance or rand_n:
+        if seed is not None:
+            return None, ("随机点 %s 没接进牌局随机流（有种子也推不出具体结果；按用户口径不枚举成分支）"
+                          % (sorted(set(chance) | {n.get("verb") for n in rand_n}),))
+        # 退路：读不到种子 ⇒ 旧的随机枚举（A 路与 B 路同一个 `_combos` 顺序），分支数超 cap 记 skipped
+        combos = EV._combos([n["size"] for n in nodes], 8) if nodes else []
+        ok = (r.get("complete") and nodes and {n["verb"] for n in nodes} >= set(chance)
+              and isinstance(outs, (list, tuple)) and len(outs) == len(combos) and len(combos) <= cap)
+        if not ok:
+            return None, "随机（没有种子，枚举也比不了：分支数/outcomes 对不上）"
+        return [(cb, "[随机分支%d]" % i, dict(e0, **e_i)) for i, (cb, (_w, e_i)) in enumerate(zip(combos, outs))], None
+    # 只剩抉择点：每个选项一个独立动作
+    combos = EV._combos([n["size"] for n in choice_n], 8)
+    if not (r.get("complete") and isinstance(outs, (list, tuple)) and len(outs) == len(combos) and combos):
+        return None, "抉择：A 路没有逐选项的 outcomes（%s 个 vs %d 条路径）" % (len(outs) if isinstance(outs, (list, tuple)) else "无", len(combos))
+    return [(cb, "[选项%s]" % ",".join(str(i) for i in cb), dict(e0, **e_i)) for cb, (_w, e_i) in zip(combos, outs)], None
+
+
 class RuleV2(StrategicRule):
     """规则策略 V2。继承 `StrategicRule` 只为复用 `choose_mulligan`（用户定调的
     跳费口径）；其余 `choose_*` 全部重写。"""
@@ -343,19 +483,19 @@ class RuleV2(StrategicRule):
 
     def worth(self, c) -> float:
         """单位价值 —— 与 `boardeval.unit_value` 同一把尺（攻防 + 关键词，不含费用）。"""
-        return BE.unit_value(BE.U(c.card_id, c.side, c.location, int(_atk(c)), int(_def(c)),
+        return _unit_value(_U(c.obj.CardID, c.side, _sim_row(c), int(_atk(c)), int(_def(c)),
                                   0, getattr(c, "card_type", None), self.plan(c).kw))
 
     # ---- 场面模拟 / 排序键 ----
     @property
     def _W(self) -> dict:
-        w = dict(BE.W)
+        w = dict(_W)
         w["kred_w"] = self.P["kred_w"] if self.P["rank"] == "resource" else 0.0
         return w
 
     def _build_sim(self, st, kred):
         ids, dcards = self._deck_state(st)
-        self._sim = BE.from_cards(st.cards, lambda c: self.plan(c).kw,
+        self._sim = _ad.from_cards(st.cards, lambda c: self.plan(c).kw,
                                   actionable=lambda c: self._actionable(st, c),
                                   kredits=float(kred),
                                   deck=ids, deck_cards=dcards,
@@ -372,14 +512,16 @@ class RuleV2(StrategicRule):
                                             "steal": self._steal_fx(st),
                                             "retreat": self._retreat_fx(st),
                                             "turn_end": self._turn_end_fx(st)},
-                                  attack_fx=self._attack_fx(
-                                      st, next((c for c in st.cards if c.side == ENEMY and c.location == "hq"), None)),
+                                  attack_fx=self._attack_fx(st, _hq_of(st.cards, st.other_side)),
                                   kredit_max=int(getattr(st, "max_possible_kredits", None) or 24),
                                   spawn_stats=self._spawn_stat,
-                                  front_limited=bool(getattr(st, "frontline_limiters", None)))
+                                  front_limited=bool(getattr(st, "frontline_limiters", None)),
+                                  my_side=_my_seat(st))
+        self._sim.hold_v = _en.WEIGHTS["draw_v"]                  # 新造牌/匿名牌的持有价值：直跑与字典路共用（engine 不 import 权重表）
+        self._finish_event_fx(self._sim, st)                      # A5：转化后 / 效果伤害链 / 0x1D（要先有候选效果）
         # 预报候选表：手里有预报牌、或攻击/上线的钩子后果里带 `forecast` 标记时才算（9 次评估较贵，按回合+种子缓存）
         if (any(isinstance(h.eff, dict) and h.eff.get("forecast") for h in self._sim.hand.values())
-                or BE._has_key(self._sim.attack_fx, "forecast") or BE._has_key(self._sim.event_fx, "forecast")):
+                or _en._has_key(self._sim.attack_fx, "forecast") or _en._has_key(self._sim.event_fx, "forecast")):
             self._sim.forecast = self._fc_table(st)
         sp = {}
         for h in self._sim.hand.values():                         # 三选一加入手牌（selectCardToDraw 一族）：候选按活种子预测
@@ -392,7 +534,7 @@ class RuleV2(StrategicRule):
         ht = {}
         for h in self._sim.hand.values():                         # 手牌目标提示（175th 等）：逐候选空跑 OnHandTargetSelected
             if isinstance(h.eff, dict) and h.eff.get("hand_target_pending"):
-                others = [x for x in st.hand(LOCAL) if x.card_id != h.id]
+                others = [x for x in st.hand() if x.obj.CardID != h.id]
                 fx = self._hand_target_fx_for(st, h.id, others)
                 if fx:
                     ht[h.id] = fx
@@ -403,19 +545,19 @@ class RuleV2(StrategicRule):
     def _d(self, after) -> float:
         """候选动作的 ΔV。
 
-        ★ 2026-10-02（§8-8 回合结束消费点）：先 `BE.sim_turn_end(after)` —— 候选终态其实是
+        ★ 2026-10-02（§8-8 回合结束消费点）：先 `_en.sim_turn_end(after)` —— 候选终态其实是
         "我停手、这一回合真正结束"时的盘面：我方 `OnEndOfTurn`（0x19）的预计算后果要算进去，
         `AddAttackUntilEndOfTurn` 的临时攻也要按 `RemoveBuffsEndOfTurn` 清掉（幂等）。
         这是**行为改动**（打分口径变了），要实机验证。
         """
-        return BE.delta(self._sim, BE.sim_turn_end(after), self._W)
+        return _delta(self._sim, _en.sim_turn_end(after), self._W)
 
     def _deck_state(self, st, ttl: float = 3.0):
         """**整条牌库** → `(ids, deck_cards)`：
 
         * `ids` = `GameState.DeckCardIDs_Left` 的**原始 id 列表**（index 0 = 牌顶，保序）；
           `None` = 读不出来（未知，调用方退回旧行为）。
-        * `deck_cards` = `{card_id: BE.H}` 模板表（含 `_on_draw` 抽到时效果）。
+        * `deck_cards` = `{card_id: _st.H}` 模板表（含 `_on_draw` 抽到时效果）。
 
         用户 2026-10-02（最终口径）：**牌库是模拟里的一等状态** ——
           * 抽牌 = 按游戏此刻的真实牌序抽；抽到哪张，就按那张自己的持有价值进手牌；
@@ -435,15 +577,15 @@ class RuleV2(StrategicRule):
         if km is not None:
             try:
                 from kardsmem.gs import load as _load_gs
-                ids = _load_gs(km).deck_ids("local") or []
-                by = {cr.card_id: cr for cr in (getattr(st, "cards", None) or [])}
+                ids = _load_gs(km).deck_ids(_my_seat(st)) or []
+                by = {cr.obj.CardID: cr for cr in (getattr(st, "cards", None) or [])}
                 # "抽到时效果"：抵抗那类 `autoplay` 牌 = **抽到就免费打出** ⇒ 跑它自己的
                 # `OnPlayedFromHand`（游戏自己的字节码），把摘要挂成 `_on_draw` 交给 boardeval。
                 # 只对牌库顶前 `MAX_ON_DRAW` 张做（每张 0.6 s 上限；3 s 缓存）。
                 from kardsmem.cards import read_gameplay_tags
                 from kardsmem.rng import Stream, read_seed
                 from semantics import effectvm as EV
-                hooks = EV.make_read_hooks(st, getattr(st, "my_side_raw", None))
+                hooks = EV.make_read_hooks(st, st.my_side)
                 seed = read_seed(km)
                 for n_i, i in enumerate(ids):
                     ids_out.append(i)
@@ -466,7 +608,7 @@ class RuleV2(StrategicRule):
                                         od[kk] += vv
                                     else:
                                         od[kk] = vv
-                            seat = getattr(st, "my_side_raw", None)
+                            seat = st.my_side
                             st_stream = Stream(seed) if seed is not None else None
                             # ① `autoplay`（抵抗、预报第一段）：**抽到就免费打出** ⇒ 跑 OnPlayedFromHand
                             is_auto = bool(ptr0 and "autoplay" in (read_gameplay_tags(km, ptr0) or []))
@@ -516,8 +658,8 @@ class RuleV2(StrategicRule):
                                     eff["_autoplay"] = True       # 原版：入 autoplay 队列、动作边界冲刷（sim.chain.flush_autoplay）
                         except Exception:                         # noqa: BLE001
                             eff = {}
-                    cards_out[cr.card_id] = BE.H(
-                        cr.card_id, getattr(cr, "name", "?"),
+                    cards_out[cr.obj.CardID] = _H(
+                        cr.obj.CardID, getattr(cr, "name", "?"),
                         int(getattr(cr, "kredit_cost", 0) or 0),
                         getattr(cr, "card_type", None) or "order",
                         int(getattr(cr, "attack", 0) or 0),
@@ -539,7 +681,7 @@ class RuleV2(StrategicRule):
         """
         f = getattr(st, "fatigue", None) or {}
         try:
-            return int(f.get(LOCAL) or 0)
+            return int(f.get(st.my_side) or 0)
         except Exception:                                         # noqa: BLE001
             return 0
 
@@ -556,31 +698,72 @@ class RuleV2(StrategicRule):
     # ------------------------------------------------------------ 状态切片
     @staticmethod
     def _split(st):
-        me = [c for c in st.cards if c.side == LOCAL and c.location in UNIT_ROWS]
-        foes = [c for c in st.cards if c.side == ENEMY and c.location in UNIT_ROWS]
-        ehq = next((c for c in st.cards if c.side == ENEMY and c.location == "hq"), None)
+        mine, theirs = _my_seat(st), st.other_side
+        me = [c for c in st.cards if c.obj.side == mine and _is_field_unit(c)]
+        foes = [c for c in st.cards if c.obj.side == theirs and _is_field_unit(c)]
+        ehq = _hq_of(st.cards, theirs)
         return me, foes, ehq
 
     @staticmethod
     def _tkind(t) -> str:
-        return {"hq": "hq", "frontline": "front", "back": "support"}.get(t.location, "?")
+        o = t.obj
+        return "hq" if o.IsHQ() else "front" if o.InFrontline() else "support" if o.InSupportLine() else "?"
 
     def _table_ok(self, a, t) -> bool:
         """OCR 用户确认的"兵种×所在行"表。只当排序信号，不当否决。"""
         at, tk = self.utype(a), self._tkind(t)
         if at in GROUND:
-            return tk == "front" if a.location == "back" else tk in ("support", "hq")
+            return tk == "front" if _is_support_unit(a) else tk in ("support", "hq")
         return tk in ("front", "support", "hq")
+
+    # ---- 跨步缓存（同一回合内；局面签名没变的单位/配对不重问游戏）----
+    _FP_ATTRS = ("attack", "attackBuff", "defense", "attackLeft", "hasAttackedThisTurn", "Location", "isSuppressed",
+                 "isBeingGuarded", "enterPlayOnTurn", "kredits", "kreditsBuff", "operationCost", "operationCostBuff")
+
+    @classmethod
+    def _card_fp(cls, c) -> tuple:
+        o = getattr(c, "obj", None)
+        return tuple(repr(getattr(o, a, None)) for a in cls._FP_ATTRS) + (repr(getattr(c, "can_act", None)),)
+
+    @staticmethod
+    def _step_sig(st, kred=None) -> tuple:
+        """整盘粗签名：回合 + 指挥点 + 每张牌 (id, 位置)。出牌/部署/移动/死亡/抽牌都会改它；
+        只有"不改位置也不死人"的动作（单纯的攻击）后它不变。"""
+        if kred is None:
+            try:
+                kred = (getattr(st, "kredits", None) or {}).get(getattr(st, "my_side", None))
+            except Exception:                                     # noqa: BLE001
+                kred = None
+        return (getattr(st, "turn", None), kred,
+                tuple(sorted((repr(c.obj.CardID), repr(getattr(c.obj, "Location", None))) for c in st.cards)))
+
+    def _xc_get(self, kind, ids, sig, fps):
+        v = self.__dict__.setdefault("_xcache", {}).get((kind,) + ids)
+        if v is not None and v[0] == sig and v[1] == fps:
+            self.__dict__["_xc_hits"] = self.__dict__.get("_xc_hits", 0) + 1
+            return v[2]
+        return None
+
+    def _xc_put(self, kind, ids, sig, fps, val):
+        self.__dict__.setdefault("_xcache", {})[(kind,) + ids] = (sig, fps, val)
 
     def _actionable(self, st, u) -> bool:
         """这个单位现在能不能动 —— **问游戏自己**（`BP_Logic::CanCardDoAnything`），
         不看闪击、不看进场回合（2026-09-30 用户：闪击只是其中一种原因，游戏有这个函数）。
         问不到（None）→ 退回内存里的 `can_act` 字段；再不行就放行，让攻击闸门去裁决。"""
-        key = ("act", u.card_id, self._epoch)
+        key = ("act", u.obj.CardID, self._epoch)
         if key in self._act_cache:
             return self._act_cache[key]
+        _sig = self._step_sig(st) if getattr(st, "cards", None) is not None else None
+        _fp = (self._card_fp(u),)
+        if _sig is not None:
+            _hit = self._xc_get("act", (u.obj.CardID,), _sig, _fp)
+            if _hit is not None:
+                self._act_cache[key] = _hit
+                return _hit
         r = None
         try:
+            self.__dict__["_rpc_n"] = self.__dict__.get("_rpc_n", 0) + 1
             r = self.act_fn(u)
         except Exception:                                         # noqa: BLE001
             r = None
@@ -588,6 +771,8 @@ class RuleV2(StrategicRule):
             r = getattr(u, "can_act", None)
         ok = r is not False
         self._act_cache[key] = ok
+        if _sig is not None:
+            self._xc_put("act", (u.obj.CardID,), _sig, _fp, ok)
         return ok
 
     def _playable(self, c, cost, kred) -> bool:
@@ -597,7 +782,7 @@ class RuleV2(StrategicRule):
         ★ 2026-09-30 用户纠正：指挥点要**实时读**、槽可以被加减，不能拿"第 n 回合 = n 点"
           或我自己的 `cost > kred` 去筛。只有闸门给不出答案（None）时才退回费用比较。
         """
-        key = ("playable", c.card_id, self._epoch)
+        key = ("playable", c.obj.CardID, self._epoch)
         if key in self._act_cache:
             return self._act_cache[key]
         try:
@@ -618,7 +803,7 @@ class RuleV2(StrategicRule):
     def _attack_cands(self, st, me, foes, ehq, kred):
         P, out = self.P, []
         targets = list(foes) + ([ehq] if ehq is not None else [])
-        interceptors = [f for f in foes if f.location == "back" and self.utype(f) == "fighter"
+        interceptors = [f for f in foes if _is_support_unit(f) and self.utype(f) == "fighter"
                         and getattr(f, "is_revealed", True) is not False]
         actors = [a for a in me if _atk(a) > 0 and self._actionable(st, a)]
         hitters = [a for a in actors
@@ -631,7 +816,7 @@ class RuleV2(StrategicRule):
         for a in actors:
             at = self.utype(a)
             for t in targets:
-                key = ("attack", a.card_id, t.card_id)
+                key = ("attack", a.obj.CardID, t.obj.CardID)
                 if key in self._tried or key in self._bad:
                     continue
                 if getattr(t, "is_being_guarded", False):        # 游戏必拒（OCR 白拖 4 次）
@@ -640,11 +825,11 @@ class RuleV2(StrategicRule):
                 if at == "bomber" and interceptors and tk in ("hq", "support"):
                     continue
                 if tk == "hq":
-                    v = self._d(BE.sim_attack(self._sim, a.card_id, None, hq=True))
+                    v = self._d(_en.sim_attack(self._sim, a.obj.CardID, None, hq=True))
                     if lethal and a in hitters:
                         v += P["lethal"]
                 else:
-                    v = self._d(BE.sim_attack(self._sim, a.card_id, t.card_id))
+                    v = self._d(_en.sim_attack(self._sim, a.obj.CardID, t.obj.CardID))
                     if "guard" in self.plan(t).kw:
                         v += 0.5                                  # 先清守护单位
                 if not self._table_ok(a, t):
@@ -652,7 +837,7 @@ class RuleV2(StrategicRule):
                 if v < P["min_attack_value"] and v < P["lethal"] / 2:
                     continue
                 out.append((self._rk(v, _opcost(a)), v, key,
-                            {"kind": "attack", "card": a.card_id, "target": t.card_id,
+                            {"kind": "attack", "card": a.obj.CardID, "target": t.obj.CardID,
                              "note": "规则2：%s→%s v=%.2f" % (a.name, t.name, v)},
                             _opcost(a)))
         return out
@@ -665,18 +850,18 @@ class RuleV2(StrategicRule):
         倾向（plan.side）只影响分数：倾向一致 ×1，倾向相反 ×-0.5，未知时偏敌方。
         """
         P = self.P
-        pools = [("enemy", list(foes) + ([ehq] if ehq is not None else [])),
-                 ("friend", [u for u in me if u.card_id != c.card_id])]
+        pools = [(REL_FOE, list(foes) + ([ehq] if ehq is not None else [])),
+                 (REL_FRIEND, [u for u in me if u.obj.CardID != c.obj.CardID])]
         scored = []
         for side, pool in pools:
             if plan.side is None:
-                mult = 0.7 if side == "enemy" else 0.4
+                mult = 0.7 if side == REL_FOE else 0.4
             else:
-                mult = 1.0 if (side == "enemy") == (plan.side == "enemy") else -0.5
+                mult = 1.0 if (side == REL_FOE) == (plan.side == REL_FOE) else -0.5
             for t in pool:
-                if ("play", c.card_id, t.card_id) in self._bad:
+                if ("play", c.obj.CardID, t.obj.CardID) in self._bad:
                     continue                                      # 游戏说过不行
-                if side == "enemy":
+                if side == REL_FOE:
                     if self._tkind(t) == "hq":
                         v = P["hq_dmg"] * (plan.damage or 2)
                     elif plan.damage is not None:
@@ -692,7 +877,7 @@ class RuleV2(StrategicRule):
     # ------------------------------------------------------------ 候选：出牌
     def _play_cands(self, st, kred, me, foes, ehq):
         P, out = self.P, []
-        for c in st.hand(LOCAL):
+        for c in st.hand():
             cost = _n(getattr(c, "kredit_cost", None), 99)
             if not self._playable(c, cost, kred):
                 continue                     # 指挥点够不够 + 牌自己现在能不能打：问游戏
@@ -703,7 +888,7 @@ class RuleV2(StrategicRule):
                 continue                                          # 反制：另开动词，暂不打
             unit = self.is_unit(c)
             if unit:
-                base = self._d(BE.sim_deploy(self._sim, -c.card_id, int(_atk(c)), int(_def(c)),
+                base = self._d(_en.sim_deploy(self._sim, -c.obj.CardID, int(_atk(c)), int(_def(c)),
                                              int(cost), getattr(c, "card_type", None),
                                              self.plan(c).kw)) * P["deploy_mult"]
             else:
@@ -711,13 +896,13 @@ class RuleV2(StrategicRule):
             if pl.needs_target:
                 cands = self._target_cands(st, c, pl, me, foes, ehq)
                 if not cands and unit:
-                    key = ("play", c.card_id, None)
+                    key = ("play", c.obj.CardID, None)
                     if key not in self._tried and key not in self._bad:
                         out.append((self._rk(base * 0.9, cost), base * 0.9, key,
-                                    {"kind": "play_unit", "card": c.card_id,
+                                    {"kind": "play_unit", "card": c.obj.CardID,
                                      "note": "规则2：部署 %s（无可指向目标）" % c.name}, cost))
                 for tv, t in cands:
-                    key = ("play", c.card_id, t.card_id)
+                    key = ("play", c.obj.CardID, t.obj.CardID)
                     if key in self._tried or key in self._bad:
                         continue
                     v = base + P["order_target_mult"] * tv
@@ -725,33 +910,35 @@ class RuleV2(StrategicRule):
                         continue                                  # 指令打不出收益：留着
                     kind = "play_unit_target" if unit else "play_event_target"
                     out.append((self._rk(v, cost), v, key,
-                                {"kind": kind, "card": c.card_id, "target": t.card_id,
+                                {"kind": kind, "card": c.obj.CardID, "target": t.obj.CardID,
                                  "note": "规则2：%s → %s" % (c.name, t.name)}, cost))
             else:
-                key = ("play", c.card_id, None)
+                key = ("play", c.obj.CardID, None)
                 if key in self._tried or key in self._bad:
                     continue
                 out.append((self._rk(base, cost), base, key,
-                            {"kind": "play_unit" if unit else "play_event", "card": c.card_id,
+                            {"kind": "play_unit" if unit else "play_event", "card": c.obj.CardID,
                              "note": "规则2：%s %s" % ("部署" if unit else "指令", c.name)}, cost))
         return out
 
     # ------------------------------------------------------------ 候选：上线
     def _move_cands(self, st, me, foes, ehq, kred, attackers):
         P, out = self.P, []
-        if getattr(st, "frontline_owner", None) == ENEMY:
+        if getattr(st, "frontline_owner", None) == st.other_side:
             return out                                            # 前线被占：上不去
         for u in me:
-            if u.location != "back" or self.utype(u) not in GROUND:
+            if not _is_support_unit(u) or self.utype(u) not in GROUND:
                 continue
-            if u.card_id in attackers or not self._actionable(st, u) or _atk(u) <= 0:
+            if u.obj.CardID in attackers or not self._actionable(st, u) or _atk(u) <= 0:
                 continue
-            key = ("move", u.card_id, None)
+            if _is_pinned(u):
+                continue                      # 被压制 ⇒ 移动必被拒（见 _is_pinned 注释）：不提议
+            key = ("move", u.obj.CardID, None)
             if key in self._tried or key in self._bad:
                 continue
-            v = self._d(BE.sim_move(self._sim, u.card_id))
+            v = self._d(_en.sim_move(self._sim, u.obj.CardID))
             out.append((self._rk(v, _opcost(u)), v, key,
-                        {"kind": "move_up", "card": u.card_id,
+                        {"kind": "move_up", "card": u.obj.CardID,
                          "note": "规则2：上线 %s（下回合可打支援线/总部）" % u.name}, _opcost(u)))
         return out
 
@@ -767,7 +954,7 @@ class RuleV2(StrategicRule):
         没有就退回内存旗标（`base`）。"""
         base = frozenset(str(k).lower()[3:] if str(k).lower().startswith("has") else str(k).lower()
                          for k in (getattr(c, "keywords", None) or []))
-        got = self._kw_cache.get((c.card_id, self._epoch))
+        got = self._kw_cache.get((c.obj.CardID, self._epoch))
         out = base if got is None else frozenset((base - self._KW_COVERED) | got)
         return out | self._move_attack_kw(c)
 
@@ -786,8 +973,8 @@ class RuleV2(StrategicRule):
         """一次 RPC 把场上和手牌所有牌的关键词问完（`card_keywords_many`），按 (牌, epoch) 缓存。
         epoch 在每个已执行的动作后 +1，所以动作之后下一步会重取（关键词可能被授予/移除）。"""
         need = [c for c in st.cards
-                if c.location in ("frontline", "back", "hand")
-                and (c.card_id, self._epoch) not in self._kw_cache
+                if _is_field_unit(c) or c.obj.InHand()
+                and (c.obj.CardID, self._epoch) not in self._kw_cache
                 and (getattr(c, "raw", None) or {}).get("ptr")]
         if not need:
             return
@@ -801,7 +988,7 @@ class RuleV2(StrategicRule):
         for c in need:
             v = r["keywords"].get(int(c.raw["ptr"]))
             if v is not None:
-                self._kw_cache[(c.card_id, self._epoch)] = frozenset(v)
+                self._kw_cache[(c.obj.CardID, self._epoch)] = frozenset(v)
         if len(self._kw_cache) > 600:                             # 别无限长
             for k in list(self._kw_cache)[:300]:
                 self._kw_cache.pop(k, None)
@@ -979,12 +1166,12 @@ class RuleV2(StrategicRule):
         try:
             self.P["vm_budget_s"] = self._vm_spent + 30.0
             self.P["vm_one_s"] = max(float(self.P.get("vm_one_s") or 1.0), 3.0)
-            import types as _types
             # ★ 候选牌是**下回合开始**才进手牌（预报写变量、下回合 spawn；三选一加入手牌也是留着下回合用）⇒ 用"下回合的指挥点"评估：
             #   槽位 +1（夹到 getMaxPossibleKredits），而不是本回合剩下的零头——否则贵牌（6 费）和便宜牌拿到的是同一个"买不起"的待遇。
-            _slots = (getattr(st, "slots", None) or {}).get(LOCAL)
+            me_ = _my_seat(st)
+            _slots = (getattr(st, "slots", None) or {}).get(me_)
             _mx = int(getattr(st, "max_possible_kredits", None) or 24)
-            kred = float(min(int(_slots) + 1, _mx)) if isinstance(_slots, int) else float(int((st.kredits or {}).get(LOCAL) or 0))
+            kred = float(min(int(_slots) + 1, _mx)) if isinstance(_slots, int) else float(int((st.kredits or {}).get(me_) or 0))
             fake, info = [], []
             if not hasattr(self, "_cand_dbg"):
                 self._cand_dbg = {}
@@ -1002,22 +1189,22 @@ class RuleV2(StrategicRule):
                 #   = HEATWAVE 的 `attack_turn`，三种天气同分）。
                 ids = self.__dict__.setdefault("_fake_ids", {})
                 cid = ids.setdefault(nm, -1000 - len(ids))
-                fake.append(_types.SimpleNamespace(
-                    card_id=cid, name=nm, side=LOCAL, location="hand",
-                    attack=atk, defense=dfn, total_attack=None, total_defense=None,
-                    kredit_cost=cost, card_type=ty or "order", raw={"ptr": p_},
-                    is_being_guarded=False, total_operation_cost=None, operation_cost=0,
-                    gotcha_activated=0, enter_play_on_turn=None))
+                _o = _GM.BaseCardObject(
+                    CardID=cid, Type=_GM.EType[ty or "order"], Location=_GM.HAND_OF[me_],
+                    side=me_, attack=atk, attackBuff=0, defense=dfn, kredits=cost, kreditsBuff=0,
+                    operationCost=0, operationCostBuff=0, gotchaActivated=0, isBeingGuarded=False,
+                    ptr=p_, title=nm)
+                fake.append(_BoardCard(uid="fake%d" % cid, obj=_o, raw={"ptr": p_}))
                 info.append((cid, nm, atk, dfn, cost, ty or "order"))
             if not fake:
                 return None
             # 带目标的候选（天气预报牌那类）：照 `_search_sim` 的做法**逐对目标**空跑效果
             #   —— 不枚举目标的话，它们会被当成"只有费用"，三条路径的分数会一模一样。
-            board = [c for c in st.cards if getattr(c, "location", None) in ("frontline", "back")]
-            ehq = next((c for c in st.cards if c.side == ENEMY and c.location == "hq"), None)
+            board = [c for c in st.cards if _is_field_unit(c)]
+            ehq = _hq_of(st.cards, st.other_side)
             legal, pair_eff = {}, {}
             for cid, nm, atk, dfn, cost, ty in info:
-                c = next((x for x in fake if x.card_id == cid), None)
+                c = next((x for x in fake if x.obj.CardID == cid), None)
                 lt = [None]                      # 不指向也算一种走法
                 # 运行时旗标说「不用指向」（范围/随机目标）⇒ 与 `_search_sim` 一致：不替它挑目标。
                 # 否则范围效果会被套到"最好的一个目标"上，分数虚高（实测 scorching_sun2 = 6.24，缺口却最高分）。
@@ -1025,22 +1212,22 @@ class RuleV2(StrategicRule):
                     tg = list(board) + ([ehq] if ehq is not None else [])
                     for t in tg[: self.P.get("legal_max_targets", 14)]:
                         try:
-                            pair_eff[(cid, t.card_id)] = self._hand_eff(c, t)
+                            pair_eff[(cid, t.obj.CardID)] = self._hand_eff(c, t)
                         except Exception:                         # noqa: BLE001
                             continue
-                        lt.append(t.card_id)
+                        lt.append(t.obj.CardID)
                 legal[cid] = lt
-            sim = BE.from_cards(list(st.cards) + fake, self._kw,
+            sim = _ad.from_cards(list(st.cards) + fake, self._kw,
                                 actionable=lambda c: True, kredits=kred,
                                 hand_eff=lambda c: self._hand_eff(c),
-                                legal=legal, pair_eff=pair_eff)
+                                legal=legal, pair_eff=pair_eff, my_side=me_)
             out = []
             for cid, nm, atk, dfn, cost, ty in info:
-                c = next((x for x in fake if x.card_id == cid), None)
+                c = next((x for x in fake if x.obj.CardID == cid), None)
                 if ty in UNIT_TYPES:
-                    after = BE.sim_deploy(sim, cid, atk, dfn, cost, ty,
+                    after = _en.sim_deploy(sim, cid, atk, dfn, cost, ty,
                                           kw=(self._kw(c) if c else ()), hand_id=cid)
-                    out.append((nm, BE.delta(sim, after, self._W)))
+                    out.append((nm, _delta(sim, after, self._W)))
                 else:
                     best_v = None
                     try:                                   # 留痕：这张候选牌取到的效果摘要（排查“不同牌同分”）
@@ -1050,13 +1237,13 @@ class RuleV2(StrategicRule):
                     except Exception as _exc:              # noqa: BLE001
                         self._cand_dbg[nm] = ("留痕失败 %s" % type(_exc).__name__, 0)
                     for tid in legal.get(cid) or [None]:
-                        aft = BE.sim_order(sim, cid, tid)
-                        v = BE.delta(sim, aft, self._W)
+                        aft = _en.sim_order(sim, cid, tid)
+                        v = _delta(sim, aft, self._W)
                         if getattr(aft, "enter_mods", None):
                             # 常驻进场效果（JUNGLE FEVER）：单打一张没有收益，价值在"之后进场的单位"——再试各手牌单位部署一次
                             for h in list(aft.hand.values()):
                                 if h.is_unit() and h.id is not None and h.id >= 0 and h.cost <= aft.kredits:
-                                    v = max(v, BE.delta(sim, BE.sim_deploy(aft, -(h.id + 5000), h.atk, h.dfn, h.cost, h.typ,
+                                    v = max(v, _delta(sim, _en.sim_deploy(aft, -(h.id + 5000), h.atk, h.dfn, h.cost, h.typ,
                                                                           h.kw, hand_id=h.id), self._W))
                         if best_v is None or v > best_v:
                             best_v = v
@@ -1073,7 +1260,7 @@ class RuleV2(StrategicRule):
         if not self.P["use_vm"]:
             return None
         tid = getattr(target_card, "card_id", None)
-        key = ("vm", c.card_id, tid)
+        key = ("vm", c.obj.CardID, tid)
         seed = self._rng_seed()
         if key in self._eff_cache:
             hit = self._eff_cache[key]
@@ -1090,20 +1277,21 @@ class RuleV2(StrategicRule):
             return None
         tptr = (getattr(target_card, "raw", None) or {}).get("ptr") if target_card is not None else 0
         t0 = time.time()
+        # 评估的常是静态卡/临时手牌（对象上 side=0）：把「这张牌是我方的」按真实座位喂给空跑。
+        # 这张表要同时喂给 `enumerate_effects`（get_field 读）和 `make_read_hooks`（GetOppositeSide
+        # 一类读 hook）—— 只喂一边，另一边就会把能算的效果断在这里（实测 RAPID RESPONSE）；
+        # 也不在判据里把「读不出座位」当默认（座位读不出就是缺口）。
+        ov = ({(ptr, "side"): int(self._seat())}
+              if self._seat() is not None and c.obj.side == self._seat() else None)
         try:
             r = EV.enumerate_effects(km, ptr, tptr or 0, target_card is not None, hook=None,
-                                     my_side=getattr(self._st, "my_side_raw", None),
-                                     board=self._st, my_seat=getattr(self._st, "my_side_raw", None),
-                                     read_hooks=EV.make_read_hooks(
-                                         self._st, getattr(self._st, "my_side_raw", None)),
+                                     my_side=self._seat(),
+                                     board=self._st, my_seat=self._seat(),
+                                     read_hooks=self._play_hooks(km, self._st, self._seat(), ptr, ov),
                                      slots=dict(getattr(self._st, "slots", None) or {}),
-                                     hq_own=self._hq_ptrs("local"), hq_enemy=self._hq_ptrs("enemy"),
+                                     hq_own=self._hq_ptrs(self._seat()), hq_enemy=self._hq_ptrs(self._other()),
                                      rng_seed=seed,
-                                     # 评估的常是静态卡/临时手牌（对象上 side=0）：把“这张牌是我方的”按真实座位喂给空跑，
-                                     # 而不是在判据里把“读不出座位”当成我方（座位不可能读不出，读不出就是 bug）。
-                                     field_overrides=({(ptr, "side"): self._st.my_side_raw}
-                                                      if getattr(c, "side", None) == LOCAL
-                                                      and getattr(self._st, "my_side_raw", None) in (1, 2) else None),
+                                     field_overrides=ov,
                                      budget_s=(one_s if one_s else max(
                                          0.2, min(self.P["vm_one_s"],
                                                   self.P["vm_budget_s"] - self._vm_spent))))
@@ -1150,28 +1338,53 @@ class RuleV2(StrategicRule):
         self._eff_cache[key] = eff
         return eff
 
+    @staticmethod
+    def _play_hooks(km, st, seat, ptr, ov=None) -> dict:
+        """打出一张牌（A 路 `enumerate_effects` / 影子 B 路 `record_effects`）用的只读钩子：盘面读 + 卡池类原生
+        （`IsCardReserved` / `GetAllActiveStaticCards`，`choosespawn.pool_hooks`；没有它们 ⇒ 从"全部可用卡"里随机取牌的指令全停在
+        `GetDSession().cards_reserve_changes` 上）。池子数据读不出 ⇒ 只有盘面钩子（VM 照旧停并记缺口）。"""
+        hooks = EV.make_read_hooks(st, seat, field_overrides=ov, played_ptr=ptr)   # played_ptr：GetCardsInHandBySide 排除正在打出的那张
+        try:
+            from semantics import choosespawn as CS
+            for k, v in CS.pool_hooks(km, ptr or 0).items():
+                hooks.setdefault(k, v)
+        except Exception:                                         # noqa: BLE001
+            pass
+        return hooks
+
     def _attach_fight_dmg(self, eff) -> None:
         """效果里有 `fight=[a,b]` ⇒ 过改伤钩子（0x25/0x26 …）预算两个方向的伤害，写进 `fight_dmg=(a→b, b→a)`。
         只在有人覆写改伤钩子时才有差别；算不出（无盘面/无 VM）就不加，boardeval 按裸 atk 并记缺口。"""
         fs = eff.get("fight") if isinstance(eff, dict) else None
         st = getattr(self, "_st", None)
         km = self._km()
-        if not (isinstance(fs, (list, tuple)) and len(fs) == 2) or st is None or km is None:
+        multi = isinstance(eff, dict) and isinstance(eff.get("fights"), (list, tuple)) and eff["fights"]
+        pairs = [tuple(x) for x in eff["fights"]] if multi else ([tuple(fs)] if isinstance(fs, (list, tuple)) and len(fs) == 2 else [])
+        if not pairs or st is None or km is None:
             return
         try:
             from semantics import triggers as TR
-            by_id = {c.card_id: c for c in (st.cards or [])}
-            a, b = by_id.get(fs[0]), by_id.get(fs[1])
-            if a is None or b is None:
-                return
-            tc = self._trig_cache(st)
-            seat = getattr(st, "my_side_raw", None)
-            stream = self._trig_stream()
-            res = TR.fight_damage(km, st, a, b, stream=stream, my_side=seat,
-                                  read_hooks=EV.make_read_hooks(st, seat), budget_s=0.6, cache=tc,
-                                  kw_of=self._kw, hq_own=self._hq_ptrs("local"), hq_enemy=self._hq_ptrs("enemy"),
-                                  enum_random=stream is None)
-            eff["fight_dmg"] = (res["to_b"], res["to_a"])
+            by_id = {c.obj.CardID: c for c in (st.cards or [])}
+            dmgs = []
+            for fa, fb in pairs:
+                a, b = by_id.get(fa), by_id.get(fb)
+                if a is None or b is None:
+                    dmgs.append(None)
+                    continue
+                tc = self._trig_cache(st)
+                seat = st.my_side
+                stream = self._trig_stream()
+                res = TR.fight_damage_fx(km, st, a, b, stream=stream, my_side=seat,
+                                         read_hooks=EV.make_read_hooks(st, seat), budget_s=0.6, cache=tc,
+                                         kw_of=self._kw, hq_own=self._hq_ptrs(st.my_side), hq_enemy=self._hq_ptrs(st.other_side),
+                                         enum_random=stream is None)
+                dmgs.append((res["to_b"], res["to_a"]))
+                # A5-②：对打的 ApplyDamageToCard 受伤链钩子（桶）也留下来，建 Sim 后由 `_finish_event_fx` 并进 event_fx["damage"]
+                self.__dict__.setdefault("_fightfx_tbl", {})[("fight", a.obj.CardID, b.obj.CardID)] = res
+            if multi:
+                eff["fight_dmgs"] = dmgs
+            if dmgs and dmgs[-1] is not None:
+                eff["fight_dmg"] = dmgs[-1]
         except Exception:                                         # noqa: BLE001
             pass
 
@@ -1184,10 +1397,10 @@ class RuleV2(StrategicRule):
         self._st = st
         t_end = time.time() + budget_s
         n = 0
-        for c in st.hand(LOCAL):
+        for c in st.hand():
             if c.name in self.avoid or time.time() > t_end:
                 continue
-            if self._eff_cache.get(("vm", c.card_id, None)) is not None or ("vm", c.card_id, None) in self._eff_cache:
+            if self._eff_cache.get(("vm", c.obj.CardID, None)) is not None or ("vm", c.obj.CardID, None) in self._eff_cache:
                 continue
             try:
                 if self.plan(c).needs_target and not self.is_unit(c):
@@ -1208,15 +1421,15 @@ class RuleV2(StrategicRule):
             return out
         from semantics import cardprobe
         eptr = (getattr(ehq, "raw", None) or {}).get("ptr")
-        own = next((c for c in st.cards if c.side == "local" and c.location == "hq"), None)
+        own = _hq_of(st.cards, st.my_side)
         optr = (getattr(own, "raw", None) or {}).get("ptr") if own is not None else None
         for c in st.cards:
-            if c.side != "local" or c.location not in ("frontline", "back"):
+            if c.obj.side != st.my_side or not _is_field_unit(c):
                 continue
-            key = ("aa", c.card_id, getattr(st, "turn", None))
+            key = ("aa", c.obj.CardID, getattr(st, "turn", None))
             if key in self._eff_cache:
                 if self._eff_cache[key]:
-                    out[c.card_id] = self._eff_cache[key]
+                    out[c.obj.CardID] = self._eff_cache[key]
                 continue
             self._eff_cache[key] = None
             ptr = (getattr(c, "raw", None) or {}).get("ptr")
@@ -1225,8 +1438,8 @@ class RuleV2(StrategicRule):
                     continue
                 r = EV.enumerate_effects(
                     km, ptr, 0, False, hook="OnAfterAttack",
-                    my_side=getattr(st, "my_side_raw", None),
-                    read_hooks=EV.make_read_hooks(st, getattr(st, "my_side_raw", None)),
+                    my_side=st.my_side,
+                    read_hooks=EV.make_read_hooks(st, st.my_side),
                     slots=dict(getattr(st, "slots", None) or {}),
                     args={"defenderCard": eptr, "wasShockAttack": False,
                           "attackCost": _n(getattr(c, "operation_cost", None), 1)},
@@ -1240,15 +1453,25 @@ class RuleV2(StrategicRule):
             eff.pop("uncertain", None)
             if eff:
                 self._eff_cache[key] = eff
-                out[c.card_id] = eff
+                out[c.obj.CardID] = eff
                 self.eff_src[c.name + "#after_attack"] = "vm"
         return out
 
+    def _seat(self):
+        """当前快照里的本地座位（`ESide`；没快照/读不出 → None，调用方自己处理，不兜底）。"""
+        return getattr(self._st, "my_side", None)
+
+    def _other(self):
+        s = self._seat()
+        return None if s is None else other_side(s)
+
     def _hq_ptrs(self, side) -> tuple:
-        """某一方总部卡的指针（给 VM 把「对总部的 ChangeDefense」记成回血/受伤）。"""
+        """某一方（`ESide`）总部卡的指针（给 VM 把「对总部的 ChangeDefense」记成回血/受伤）。"""
+        if side is None:
+            return ()
         try:
             return tuple((getattr(c, "raw", None) or {}).get("ptr")
-                         for c in self._st.cards if c.side == side and c.location == "hq")
+                         for c in self._st.cards if c.obj.side == side and c.obj.IsHQ())
         except Exception:                                         # noqa: BLE001
             return ()
 
@@ -1290,29 +1513,38 @@ class RuleV2(StrategicRule):
             tab.setdefault(w, {})[t] = (n, float(v))
         return tab
 
+    def _armed_probe(self, km, st, ptr, hook, args, ov, vo, rh, hq_own, hq_enemy, one_s) -> dict:
+        """延迟钩子空跑（`player/deferred_fx.probe_fx` 的唯一 VM 入口；`record_effects` 的生产调用点留在 rule 里，
+        `test_to_effects_ratchet` 的名单只减不增）。`ov` = 只读字段覆盖（假设来源牌"已打出"），`vo` = 视图覆盖（授予账）。"""
+        seat = st.my_side
+        return EV.record_effects(km, ptr, 0, False, hook=hook, my_side=seat, read_hooks=rh, args=args,
+                                 board=st, my_seat=seat, timeout_s=one_s, field_overrides=ov,
+                                 view_overrides=vo or None, hq_own=hq_own, hq_enemy=hq_enemy)
+
     def _standing_enter_fx(self, c) -> Optional[dict]:
         """指令的**常驻进场效果**（`OnOtherCardEnterPlay`）：对一个假想的"之后进场的己方单位"空跑它的钩子，得到每个进场单位吃到的
         效果摘要。守卫字段按"本回合已打出"覆盖（`enterPlayOnTurn`＝本回合、`side`＝我方座位）——只读覆盖，不写游戏。
         探针单位用场上任一己方单位（钩子只看它在场/是单位/同 side）；场上一个都没有 ⇒ None（记缺口）。按 (卡, 回合, 探针) 缓存。"""
         st, km = self._st, self._km()
         ptr = (getattr(c, "raw", None) or {}).get("ptr")
-        if st is None or km is None or not ptr or getattr(st, "my_side_raw", None) is None:
+        if st is None or km is None or not ptr or st.my_side is None:
             return None
-        probe = next((x for x in st.cards if x.side == LOCAL and x.location in ("frontline", "back")
+        probe = next((x for x in st.cards if x.obj.side == st.my_side and _is_field_unit(x)
                       and (getattr(x, "raw", None) or {}).get("ptr")), None)
         if probe is None:
             self.gaps[c.name + "#standing"] = "常驻进场效果：场上没有己方单位可当探针，无法空跑 OnOtherCardEnterPlay"
             return None
-        key = ("standing", c.name, getattr(st, "turn", None), probe.card_id)
+        key = ("standing", c.name, getattr(st, "turn", None), probe.obj.CardID)
         if key in self._eff_cache:
             return self._eff_cache[key]
         out = None
+        ov = {(ptr, "enterPlayOnTurn"): st.turn, (ptr, "side"): int(st.my_side)}
         try:
-            r = EV.record_effects(km, ptr, 0, False, hook="OnOtherCardEnterPlay", my_side=st.my_side_raw,
-                                  read_hooks=EV.make_read_hooks(st, st.my_side_raw),
+            r = EV.record_effects(km, ptr, 0, False, hook="OnOtherCardEnterPlay", my_side=st.my_side,
+                                  read_hooks=EV.make_read_hooks(st, st.my_side, field_overrides=ov),
                                   args={"cardPlayed": probe.raw["ptr"], "Method": 1},
-                                  board=st, my_seat=st.my_side_raw, timeout_s=4.0,
-                                  field_overrides={(ptr, "enterPlayOnTurn"): st.turn, (ptr, "side"): st.my_side_raw})
+                                  board=st, my_seat=st.my_side, timeout_s=4.0,
+                                  field_overrides=ov)
             if r.get("stopped"):
                 if not ("没有" in str(r["stopped"]) and "覆写" in str(r["stopped"])):
                     self.gaps[c.name + "#standing"] = "常驻进场效果 VM 停在：%s" % str(r["stopped"])[:100]
@@ -1330,6 +1562,7 @@ class RuleV2(StrategicRule):
         cost = _n(getattr(c, "kredit_cost", None), 0)
         e = self._vm_eff(c, target_card)
         src = "vm" if e else None
+        _dh = None if unit else _DFX.hooks_of(self, c)          # 指令打出后仍挂着的钩子（census：732 张指令里 180 张）；单位/读不出 ⇒ 空/None
         if not e:
             e = dict(pl.effects or {})
             src = "static" if e else None
@@ -1342,11 +1575,11 @@ class RuleV2(StrategicRule):
         e = dict(e)
         e.pop("uncertain", None)
         if pl.side and "target" not in e:
-            e["target"] = "enemy" if pl.side == "enemy" else "friend"
+            e["target"] = REL_FOE if pl.side == REL_FOE else REL_FRIEND
         # 运行时旗标说「不用指向」，摘要里却有「对目标…」的效果 ⇒ 是范围/随机目标之类，我们没建模：
         # 记成覆盖缺口并去掉这些无处可施的效果，改用保守估值（不静默地套到不存在的目标上）。
         _tk = ("damage", "destroy", "retreat", "pin", "unpin", "give", "buff", "armor")
-        _scoped = bool(e.get("buff_ids"))                 # 效果已按目标卡逐张记账 ⇒ 范围已知，不是缺口（哪怕眼下只有一张）
+        _scoped = bool(e.get("buff_ids") or e.get("armor_ids") or e.get("damage_ids") or e.get("pin_ids") or e.get("give_ids"))                 # 效果已按目标卡逐张记账 ⇒ 范围已知，不是缺口（哪怕眼下只有一张）
         if (not unit and not pl.needs_target and target_card is None
                 and any(k in e for k in _tk) and "outcomes" not in e and not _scoped):
             for k in _tk:
@@ -1363,11 +1596,17 @@ class RuleV2(StrategicRule):
             #      不能把它叫"缺口"、更不能编造价值；打出去只剩丢手牌的负收益 ⇒ 不空打。
             #   ② VM 没跑出来（超时/停在未实现的原语）⇒ 才是**真缺口**：记下来供补，
             #      同样不编造价值（旧默认 order_mult*cost 让 6 费空打牌净 +3.24）。
-            if src == "vm":
+            if src == "vm" and not _dh:
                 e["_vm_empty"] = True
                 self.eff_src[c.name] = "vm(空)"
                 return e
-            if self.eff_src.get(c.name, "").startswith("需目标") and target_card is None:
+            if src == "vm" and _dh:
+                # ★ 2026-10-07（用户："它似乎不认得梯队的效果"）：`OnPlayedFromHand` 空跑为空 ≠ 这张牌没效果——它**打出后仍挂着钩子**
+                #   （ECHELON：`OnAfterOtherCardAttacks`）。以前这里把它记成"已知的空"（`vm(空)`）。现在：不是已知的空，
+                #   延迟后果由 `engine.deferred` 登记表建模（`event_fx["armed"]`），建模不了的记缺口。
+                e["_est"] = self.P.get("unknown_order_est", 0.0)
+                src = "vm(延迟)"
+            elif self.eff_src.get(c.name, "").startswith("需目标") and target_card is None:
                 e["_est"] = self.P.get("unknown_order_est", 0.0)        # 不带目标时无价值；价值在逐目标评估里
                 src = "需目标"
             else:
@@ -1416,6 +1655,12 @@ class RuleV2(StrategicRule):
                 src = (src or "none") + "+shuffled"
         except Exception as _exc:                             # noqa: BLE001
             self.marker_err["shuffled"] = "%s: %s" % (type(_exc).__name__, str(_exc)[:110])
+        if _dh:
+            # 延迟钩子的诚实登记：有钩子但 sim 事件点没接 / 事件由对方发起而估值权重为 0 ⇒ 记缺口（`#deferred` / `#deferred_val`）
+            _DFX.note(self, c, _dh)
+            _DFX.valuation_gap(self, c, _dh)
+            if "延迟" not in (src or ""):
+                src = (src or "none") + "+延迟"
         self.eff_src[c.name] = src or "none"
         return e
 
@@ -1429,28 +1674,22 @@ class RuleV2(StrategicRule):
           调 `SetActiveBondsAtStartOfTurn(side)` 覆盖它。实测（协力卡组那局）敌方回合里
           `activeBondFactions` 与我方场上国家不一致，正是这个原因。所以按 `st.our_turn` 选边：
           我方回合 = 我方场上国家（打我方手牌的判定场景），敌方回合 = 敌方场上国家。
-          读不到 `our_turn` 时保守按我方算（旧行为）。
+          读不到 `our_turn`/`my_side`（行动方不明）⇒ 返回 `None` 并记缺口，**不**按我方算。
         """
         turn = getattr(st, "turn", None)
         our = getattr(st, "our_turn", None)
-        side = ENEMY if our is False else LOCAL
+        if our is None or st.my_side is None:
+            self.gaps["bond_factions"] = "协力：读不到行动方（our_turn=%s my_side=%s），无法判定 activeBondFactions" % (
+                our, st.my_side)
+            return None
+        side = st.my_side if our else st.other_side              # 此刻行动方的座位
         c = getattr(self, "_bondfaction_cache", None)
         if c and c[0] == (turn, side):
             return c[1]
-        out = set()
-        for x in (getattr(st, "cards", None) or []):
-            if getattr(x, "side", None) != side:
-                continue
-            if getattr(x, "location", None) not in ("frontline", "back"):
-                continue
-            if not self.is_unit(x):
-                continue
-            # BP 的 IsUnrevealedCovertCard = hasCovert ∧ !isRevealed（隐蔽未揭示的除外）
-            if "covert" in (getattr(x, "keywords", None) or []) and not getattr(x, "is_revealed", False):
-                continue
-            f = getattr(x, "faction_enum", None)
-            if f is not None:
-                out.add(int(f))
+        # 原版 `SetActiveBondsAtStartOfTurn` 的读侧已移植：`engine.natives.bond.active_bond_factions`
+        # （`is_unit` 沿用本类的类型判断——多一层静态卡表兜底）
+        out = _en.active_bond_factions(
+            (x for x in (getattr(st, "cards", None) or []) if _is_field_unit(x)), side, is_unit=self.is_unit)
         self._bondfaction_cache = ((turn, side), out)
         return out
 
@@ -1504,12 +1743,12 @@ class RuleV2(StrategicRule):
             from kardsmem import kismet as _kismet
             from kardsmem.objects import ObjectArray as _OA
             oa = _OA(km)
-            hooks = EV.make_read_hooks(st, getattr(st, "my_side_raw", None))
-            seat = getattr(st, "my_side_raw", None)
+            hooks = EV.make_read_hooks(st, st.my_side)
+            seat = st.my_side
             hq_own = tuple((getattr(x, "raw", None) or {}).get("ptr")
-                           for x in (st.cards or []) if x.side == LOCAL and x.location == "hq")
+                           for x in (st.cards or []) if x.obj.side == st.my_side and x.obj.IsHQ())
             hq_enemy = tuple((getattr(x, "raw", None) or {}).get("ptr")
-                             for x in (st.cards or []) if x.side == ENEMY and x.location == "hq")
+                             for x in (st.cards or []) if x.obj.side == st.other_side and x.obj.IsHQ())
         except Exception:                                         # noqa: BLE001
             return []
         out = []
@@ -1522,9 +1761,9 @@ class RuleV2(StrategicRule):
         #   下次实机一眼能区分这两类。
         tried: dict = {}
         for c in (getattr(st, "cards", None) or []):
-            if getattr(c, "location", None) not in ("frontline", "back"):
+            if not _is_field_unit(c):
                 continue
-            if getattr(c, "side", None) != LOCAL:
+            if c.obj.side != st.my_side:
                 continue          # BP：`Event_intelCard->side == side`（同 side 才触发）
             if getattr(c, "card_id", None) == getattr(played_card, "card_id", None):
                 # 打出的牌自己刚进场（部署后）也可能带 0x1C？BP 里触发列表是"场上带该
@@ -1567,7 +1806,7 @@ class RuleV2(StrategicRule):
                 nm = ((getattr(c, "fname", None) or getattr(c, "name", None) or "")).lower()
                 if "7th_scottish" in nm or "scottish_borderers" in nm:
                     unseen = sum(1 for x in (st.cards or [])
-                                 if x.side == ENEMY and x.location == "hand"
+                                 if x.obj.side == st.other_side and x.obj.InHand()
                                  and not bool((getattr(x, "raw", None) or {}).get("card_seen")))
                     extra = intel_n - unseen
                     if extra > 0 and not eff.get("damage_hq"):
@@ -1576,7 +1815,7 @@ class RuleV2(StrategicRule):
             except Exception:                                     # noqa: BLE001
                 pass
             if eff:
-                out.append((c.card_id, eff))
+                out.append((c.obj.CardID, eff))
             else:
                 tried[getattr(c, "name", "?")] = "empty-eff stopped=%s" % (
                     str((r or {}).get("stopped"))[:60],)
@@ -1586,18 +1825,18 @@ class RuleV2(StrategicRule):
             # `tried` 为空才是真的"场上没有覆写 0x1C 的本方卡"。下一局一眼分辨
             # "缺情报卡 / 缺触发卡 / 卡不在场上 / VM 停了"。
             names = [getattr(x, "name", "?") for x in (getattr(st, "cards", None) or [])
-                     if getattr(x, "side", None) == LOCAL
-                     and getattr(x, "location", None) in ("frontline", "back")]
+                     if x.obj.side == st.my_side
+                     and _is_field_unit(x)]
             why = ("有覆写卡但空跑没产出（见 tried）" if tried
                    else "场上没有覆写 OnIntelTriggered 的本方卡")
             self.intel_dbg = {"why": why, "card": getattr(played_card, "name", "?"),
-                              "intel_n": intel_n, "board_local": names[:8]}
+                              "intel_n": intel_n, "board_mine": names[:8]}
             if tried:
                 self.intel_dbg["tried"] = dict(tried)
             self.intel_dbg["__last__"] = {
                 "why": why,
                 "card": getattr(played_card, "name", "?"),
-                "intel_n": intel_n, "board_local": names[:8]}
+                "intel_n": intel_n, "board_mine": names[:8]}
             if tried:
                 self.intel_dbg["__last__"]["tried"] = dict(tried)
         return out
@@ -1624,15 +1863,15 @@ class RuleV2(StrategicRule):
             from kardsmem import kismet as _kismet
             from kardsmem.objects import ObjectArray as _OA
             oa = _OA(km)
-            hooks = EV.make_read_hooks(st, getattr(st, "my_side_raw", None))
-            seat = getattr(st, "my_side_raw", None)
+            hooks = EV.make_read_hooks(st, st.my_side)
+            seat = st.my_side
         except Exception:                                         # noqa: BLE001
             return []
         out = []
         for c in (getattr(st, "cards", None) or []):
-            if getattr(c, "location", None) not in ("frontline", "back", "discard"):
+            if not (_is_field_unit(c) or c.obj.InDiscard()):
                 continue
-            if getattr(c, "side", None) != LOCAL:
+            if c.obj.side != st.my_side:
                 continue
             ptr = (getattr(c, "raw", None) or {}).get("ptr")
             if not ptr:
@@ -1661,7 +1900,7 @@ class RuleV2(StrategicRule):
             e1 = (dict(outs[0][1]) if len(outs) == 1
                   else {"outcomes": [(w, dict(e)) for w, e in outs]})
             if e1:
-                out.append((c.card_id, e1))
+                out.append((c.obj.CardID, e1))
         return out
 
     def _deck_shuffled_triggers(self, st, played_card, eff) -> list:
@@ -1690,15 +1929,15 @@ class RuleV2(StrategicRule):
             from kardsmem import kismet as _kismet
             from kardsmem.objects import ObjectArray as _OA
             oa = _OA(km)
-            hooks = EV.make_read_hooks(st, getattr(st, "my_side_raw", None))
-            seat = getattr(st, "my_side_raw", None)
+            hooks = EV.make_read_hooks(st, st.my_side)
+            seat = st.my_side
         except Exception:                                         # noqa: BLE001
             return []
         out = []
         for c in (getattr(st, "cards", None) or []):
-            if getattr(c, "location", None) not in ("frontline", "back"):
+            if not _is_field_unit(c):
                 continue
-            if getattr(c, "side", None) != LOCAL:
+            if c.obj.side != st.my_side:
                 continue
             ptr = (getattr(c, "raw", None) or {}).get("ptr")
             if not ptr:
@@ -1729,12 +1968,12 @@ class RuleV2(StrategicRule):
             nm = (getattr(c, "name", None) or getattr(c, "fname", None) or "").lower()
             if "sabae" in nm:
                 cnt = sum(1 for x in (st.cards or [])
-                          if getattr(x, "location", None) in ("frontline", "back"))
+                          if _is_field_unit(x))
                 if cnt > 0:
                     e1 = dict(e1)
                     e1["damage"] = max(int(e1.get("damage") or 0), cnt)
             if e1:
-                out.append((c.card_id, e1))
+                out.append((c.obj.CardID, e1))
         return out
 
     _DEATH_HOOKS = ("OnDestroyed", "OnOtherCardDestroyed", "OnBeforeDestroyed", "OnBeforeOtherCardDestroyed",
@@ -1756,6 +1995,15 @@ class RuleV2(StrategicRule):
                     "OnAfterOtherCardLeaveBoardOrOwner")
     # 撤退族（0x36）＝ `ApplyMakeCardRetreat`：自己 `OnBeforeRetreat` + 0x36 旁观者
     _RETREAT_HOOKS = ("OnBeforeRetreat", "OnOtherCardRetreat")
+    # A5（2026-10-03）：转化后（旧牌离场族 + 0x22）/ 效果伤害链 / 能力变化（0x1D）——都依赖候选效果，建 Sim 之后由 `_finish_event_fx` 补表
+    _CONVERT_HOOKS = ("OnLeaveBoardOrOwner", "OnOtherCardLeaveBoardOrOwner", "OnCardLocationMoved",
+                      "OnOtherCardLocationMoved", "OnAfterLeaveBoard", "OnAfterOtherCardLeaveBoardOrOwner",
+                      "OnOtherCardConverted")
+    _ABILITIES_HOOKS = ("OnOtherCardAbilitiesChanged",)
+    # sim 效果键 → 关键词（只有原版会广播 0x1D 的那 7 个，见 sim.state.ABILITIES_KEYWORDS）
+    _REMOVE_KEYS = {"remove_smokescreen": "smokescreen", "remove_guard": "guard", "remove_fury": "fury",
+                    "remove_blitz": "blitz", "remove_ambush": "ambush", "remove_mobilize": "mobilize",
+                    "remove_shock": "shock"}
 
     def _trig_cache(self, st):
         """同一回合内共用的 `TriggerCache`（指针→类、类→函数两层缓存）；换回合清空（对象指针可能被复用）。"""
@@ -1769,9 +2017,10 @@ class RuleV2(StrategicRule):
 
     @staticmethod
     def _board_sig(st) -> tuple:
-        return tuple(sorted((c.card_id, c.side, c.location, getattr(c, "attack", None), getattr(c, "defense", None))
+        return tuple(sorted((c.obj.CardID, int(c.obj.side or 0), int(c.obj.Location or 0),
+                             getattr(c, "attack", None), getattr(c, "defense", None))
                             for c in (getattr(st, "cards", None) or [])
-                            if getattr(c, "location", None) in ("frontline", "back", "hq")))
+                            if c.obj.IsLocatedOnBoard()))
 
     def _trig_stream(self):
         """触发链用的随机流：游戏种子读得到 ⇒ `Stream(seed)`（确定）；否则 None ⇒ 随机点枚举（不伪造）。"""
@@ -1812,27 +2061,27 @@ class RuleV2(StrategicRule):
             present = TR.present_hooks(km, st, self._DEATH_HOOKS, tc)
             meta["hooked"] = sorted(present)
             if present:
-                seat = getattr(st, "my_side_raw", None)
+                seat = st.my_side
                 hooks = EV.make_read_hooks(st, seat)
                 stream = self._trig_stream()
-                hq_o, hq_e = self._hq_ptrs("local"), self._hq_ptrs("enemy")
-                board = [c for c in (st.cards or []) if getattr(c, "location", None) in ("frontline", "back")]
+                hq_o, hq_e = self._hq_ptrs(st.my_side), self._hq_ptrs(st.other_side)
+                board = [c for c in (st.cards or []) if _is_field_unit(c)]
 
                 def strongest(side):
-                    cs = [c for c in board if c.side == side]
+                    cs = [c for c in board if c.obj.side == side]
                     return max(cs, key=lambda c: (getattr(c, "attack", 0) or 0), default=None)
                 for v in board:
                     meta["victims"] += 1
                     if time.time() - t0 > 3.0:
                         meta["skipped"] += 1
                         continue
-                    killer = strongest(ENEMY if v.side == LOCAL else LOCAL)
+                    killer = strongest(other_side(v.obj.side))
                     eff = TR.death_effects(km, st, v, killer, stream=stream, my_side=seat, read_hooks=hooks,
                                            budget_s=0.6, cache=tc, kw_of=self._kw, hq_own=hq_o, hq_enemy=hq_e,
                                            enum_random=stream is None)
                     meta["computed"] += 1
                     if eff:
-                        out[v.card_id] = eff
+                        out[v.obj.CardID] = eff
         except Exception:                                         # noqa: BLE001
             out = {}
         meta["elapsed_s"] = round(time.time() - t0, 3)
@@ -1869,12 +2118,12 @@ class RuleV2(StrategicRule):
             present = TR.present_hooks(km, st, self._MOVE_HOOKS, tc)
             meta["hooked"] = sorted(present)
             if present:
-                seat = getattr(st, "my_side_raw", None)
+                seat = st.my_side
                 hooks = EV.make_read_hooks(st, seat)
                 stream = self._trig_stream()
-                hq_o, hq_e = self._hq_ptrs("local"), self._hq_ptrs("enemy")
+                hq_o, hq_e = self._hq_ptrs(st.my_side), self._hq_ptrs(st.other_side)
                 board = [c for c in (st.cards or [])
-                         if getattr(c, "location", None) in ("frontline", "back") and c.side == LOCAL]
+                         if _is_field_unit(c) and c.obj.side == st.my_side]
                 for c in board:
                     meta["units"] += 1
                     if time.time() - t0 > 3.0:
@@ -1886,7 +2135,7 @@ class RuleV2(StrategicRule):
                                           enum_random=stream is None)
                     meta["computed"] += 1
                     if eff:
-                        out[c.card_id] = eff
+                        out[c.obj.CardID] = eff
         except Exception:                                         # noqa: BLE001
             out = {}
         meta["elapsed_s"] = round(time.time() - t0, 3)
@@ -1922,10 +2171,10 @@ class RuleV2(StrategicRule):
             present = TR.present_hooks(km, st, self._DRAW_HOOKS, tc)
             meta["hooked"] = sorted(present)
             if present:
-                seat = getattr(st, "my_side_raw", None)
+                seat = st.my_side
                 hooks = EV.make_read_hooks(st, seat)
                 stream = self._trig_stream()
-                hq_o, hq_e = self._hq_ptrs("local"), self._hq_ptrs("enemy")
+                hq_o, hq_e = self._hq_ptrs(st.my_side), self._hq_ptrs(st.other_side)
                 for cid in sorted(set(int(x) for x in ids if x is not None)):
                     meta["ids"] += 1
                     if time.time() - t0 > 3.0:
@@ -1968,12 +2217,12 @@ class RuleV2(StrategicRule):
             present = TR.present_hooks(km, st, hooks, tc)
             meta["hooked"] = sorted(present)
             if present:
-                seat = getattr(st, "my_side_raw", None)
+                seat = st.my_side
                 rh = EV.make_read_hooks(st, seat)
                 stream = self._trig_stream()
-                hq_o, hq_e = self._hq_ptrs("local"), self._hq_ptrs("enemy")
+                hq_o, hq_e = self._hq_ptrs(st.my_side), self._hq_ptrs(st.other_side)
                 board = [c for c in (st.cards or [])
-                         if getattr(c, "location", None) in ("frontline", "back")]
+                         if _is_field_unit(c)]
                 for c in board:
                     meta["units"] += 1
                     if time.time() - t0 > budget_s:
@@ -1984,7 +2233,7 @@ class RuleV2(StrategicRule):
                                  hq_own=hq_o, hq_enemy=hq_e, enum_random=stream is None)
                     meta["computed"] += 1
                     if eff:
-                        out[c.card_id] = eff
+                        out[c.obj.CardID] = eff
         except Exception:                                         # noqa: BLE001
             out = {}
         meta["elapsed_s"] = round(time.time() - t0, 3)
@@ -2007,9 +2256,31 @@ class RuleV2(StrategicRule):
         return self._unit_event_fx(st, "reveal", self._REVEAL_HOOKS, TR.reveal_effects)
 
     def _veteran_fx(self, st) -> dict:
-        """变老兵时（OnBecomingVeteran + 0x20）别人会怎样 `{卡 id: eff}`。"""
+        """变老兵时（OnBecomingVeteran + 0x20 + 末尾 0x1D）别人会怎样 `{卡 id: eff}`。
+        原版 `MakeVeteran` 是**先把旗标改成 `_vet` 静态卡的值、再跑全部钩子**（BP_CardFunctions.cpp:7195-7280），
+        所以钩子读到的应当是升级后的关键词：有 `_vet` 静态卡就喂 `view_overrides`，读不到就如实退回快照值。"""
         from semantics import triggers as TR
-        return self._unit_event_fx(st, "veteran", self._VETERAN_HOOKS, TR.veteran_effects)
+
+        def runner(km, st_, c, **kw):
+            return TR.veteran_effects(km, st_, c, view_overrides=self._vet_view(km, c) or None, **kw)
+        return self._unit_event_fx(st, "veteran", self._VETERAN_HOOKS + self._ABILITIES_HOOKS, runner)
+
+    def _vet_view(self, km, c) -> dict:
+        """升级后的关键词视图覆盖（`{ptr: {keywords_add/keywords_remove}}`）；读不出 `_vet` 静态卡 ⇒ {}。"""
+        try:
+            from kardsmem.gs import make_static_card_provider
+            from semantics import triggers as TR
+            nm = str(getattr(c, "fname", None) or getattr(c, "name", None) or "").lower()
+            vet = make_static_card_provider(km)(nm + "_vet") if nm else None
+            if not vet:
+                return {}
+            fl = vet.get("keyword_flags") or {}
+            add = ["has_" + k for k in TR.ABILITIES_KW if fl.get("has_" + k)]
+            rem = [x for k in TR.ABILITIES_KW if not fl.get("has_" + k) for x in ("has_" + k, k)]
+            ptr = (getattr(c, "raw", None) or {}).get("ptr")
+            return {ptr: {"keywords_add": add, "keywords_remove": rem}} if ptr else {}
+        except Exception:                                         # noqa: BLE001
+            return {}
 
     def _heal_fx(self, st) -> dict:
         """被满血治疗时（0xC 否决 / 0x2C / OnFullyRepaired）`{卡 id: eff}`；toHeal = 最大防御 − 当前总防御。"""
@@ -2024,13 +2295,15 @@ class RuleV2(StrategicRule):
     def _steal_fx(self, st) -> dict:
         """被偷走时（离场/入场钩子）`{敌方单位 id: eff}`（只算敌方单位）。"""
         from semantics import triggers as TR
-        mine = getattr(st, "my_side_raw", None) or 1
+        if st.my_side is None:
+            return {}                                        # 座位读不出 ⇒ 不知道偷到哪一边，不算
+        mine, theirs = st.my_side, st.other_side
 
         def runner(km, st_, c, **kw):
-            if getattr(c, "side", None) != "enemy":
+            if c.obj.side != theirs:
                 return {}
-            new_loc = 5 if mine == 1 else 6                  # 左=5 右=6（ECardLocationEnum 支援线）
-            old_loc = 6 if mine == 1 else 5
+            new_loc = int(_GM.SUPPORT_OF[mine])              # 偷来的单位落到我方支援线（ECardLocationEnum）
+            old_loc = int(_GM.SUPPORT_OF[theirs])
             return TR.steal_effects(km, st_, c, new_loc, old_loc, **kw)
         return self._unit_event_fx(st, "steal", self._STEAL_HOOKS, runner)
 
@@ -2056,10 +2329,180 @@ class RuleV2(StrategicRule):
             st, "turn_end", ("OnEndOfTurn",),
             lambda km, st_, c, **kw: TR.end_of_turn_effects(km, st_, only_card=c, **kw))
 
+    # ---- A5（2026-10-03）：依赖候选效果的三族预计算（转化后 / 效果伤害链 / 能力变化 0x1D）----
+    @staticmethod
+    def _walk_effs(e):
+        """效果摘要（含 `outcomes` 分支里的子摘要）逐个吐出来。"""
+        if isinstance(e, dict):
+            yield e
+            for _w, sub in (e.get("outcomes") or ()):
+                yield from RuleV2._walk_effs(sub)
+
+    def _cand_effs(self, sim):
+        """候选动作会用到的全部效果摘要：手牌自己的 + 逐 (牌, 目标) 空跑出来的。"""
+        for h in sim.hand.values():
+            yield from self._walk_effs(getattr(h, "eff", None))
+        for e in (sim.pair_eff or {}).values():
+            yield from self._walk_effs(e)
+
+    def _finish_event_fx(self, sim, st) -> None:
+        """`Sim` 建好之后补三张表：要先有候选效果，才知道有哪些转化 / 伤害 / 关键词变化要预计算。
+        算不出的（无 VM / 无盘面 / 异常）就不放（sim 侧按「没有条目」处理并记缺口，不编造）。"""
+        if sim is None or st is None:
+            return
+        for kind, fn in (("convert", self._convert_fx), ("damage", self._damage_fx), ("abilities", self._abilities_fx),
+                         # 延迟/常驻效果（ECHELON 一族；`player/deferred_fx.py`）：先名单后空跑（后者读前者）
+                         ("armed_spec", lambda st_, sim_: _DFX.spec_fx(self, st_, sim_)),
+                         ("armed", lambda st_, sim_: _DFX.probe_fx(self, st_, sim_))):
+            try:
+                sim.event_fx[kind] = fn(st, sim) or {}
+            except Exception as ex:                               # noqa: BLE001
+                sim.event_fx[kind] = {}
+                self.fx_meta.setdefault(kind, {})["error"] = "%s: %s" % (type(ex).__name__, str(ex)[:80])
+
+    def _fx_ctx(self, st):
+        """三个 A5 表共用的运行环境；VM 不可用 ⇒ None。"""
+        km = self._km()
+        if km is None or st is None or not self.P.get("use_vm", True):
+            return None
+        from semantics import triggers as TR
+        seat = st.my_side
+        return dict(TR=TR, km=km, tc=self._trig_cache(st), seat=seat, rh=EV.make_read_hooks(st, seat),
+                    hq_o=self._hq_ptrs(st.my_side), hq_e=self._hq_ptrs(st.other_side),
+                    by_id={c.obj.CardID: c for c in (st.cards or [])})
+
+    def _fx_kw(self, ctx) -> dict:
+        stream = self._trig_stream()
+        return dict(stream=stream, my_side=ctx["seat"], read_hooks=ctx["rh"], budget_s=0.6, cache=ctx["tc"],
+                    kw_of=self._kw, hq_own=ctx["hq_o"], hq_enemy=ctx["hq_e"], enum_random=stream is None)
+
+    def _convert_fx(self, st, sim) -> dict:
+        """被转化时（`ConvertCard`，BP_CardFunctions.cpp:12611）别人会怎样：
+        `{(发起牌 id, 旧牌 id 元组, 目标卡名): {"old": {旧 id: eff}, "new": eff, "after": eff, "gaps": [...]}}`。
+        只对候选效果里真有 `convert` 载荷（`effectvm._convert_payload`）的算；新牌实例不存在 ⇒ 新牌自己的 OnEnterPlay(5)/0x2B
+        不算并写进该条的 `gaps`（`triggers.run_convert` 的 `new_card=None`）。"""
+        ctx = self._fx_ctx(st)
+        if ctx is None:
+            return {}
+        cvs = {}
+        for e in self._cand_effs(sim):
+            cv = e.get("convert")
+            if isinstance(cv, dict) and cv.get("ids") and cv.get("name"):
+                cvs[(cv.get("instigator", 0), tuple(cv["ids"]), cv["name"])] = cv
+        meta = self.fx_meta.setdefault("convert", {})
+        meta.update({"keys": len(cvs), "computed": 0, "skipped": 0, "hooked": [], "elapsed_s": 0.0})
+        if not cvs:
+            return {}
+        TR, out, t0 = ctx["TR"], {}, time.time()
+        meta["hooked"] = sorted(TR.present_hooks(ctx["km"], st, self._CONVERT_HOOKS, ctx["tc"]))
+        for key, cv in cvs.items():
+            if time.time() - t0 > 3.0:
+                meta["skipped"] += 1
+                continue
+            ids = [int(i) for i in cv["ids"]]
+            out[key] = TR.convert_fx(ctx["km"], st, ids, [-(7000 + i) for i in range(len(ids))], cv["name"],
+                                     int(cv.get("instigator", 0) or 0), bool(cv.get("skip_trigger")),
+                                     old_cards=[ctx["by_id"][i] for i in ids if i in ctx["by_id"]], new_card=None,
+                                     **self._fx_kw(ctx))
+            meta["computed"] += 1
+        meta["elapsed_s"] = round(time.time() - t0, 3)
+        return out
+
+    def _damage_fx(self, st, sim) -> dict:
+        """效果伤害的原版链（`DamageCard`:895 → `ApplyDamageToCard`:16375）：
+        `{(来源牌 id, 目标 id): {"final", "amount", "buckets", "gaps"}}` + 对打 `("fight", a, b)`（由 `_attach_fight_dmg` 留下的）。
+        来源牌 = 打出/部署的那张牌（effectvm 没记 `damagerCardID`，写进 gaps）；目标是总部 / 群体伤害的不走这条链（gaps 里有说明）。"""
+        out = {}
+        tbl = self.__dict__.get("_fightfx_tbl") or {}
+        for e in self._cand_effs(sim):
+            _ps = e.get("fights") if isinstance(e.get("fights"), (list, tuple)) else [e.get("fight")]
+            for fs in _ps:
+                if isinstance(fs, (list, tuple)) and len(fs) == 2 and ("fight", fs[0], fs[1]) in tbl:
+                    out[("fight", fs[0], fs[1])] = tbl[("fight", fs[0], fs[1])]
+        ctx = self._fx_ctx(st)
+        if ctx is None:
+            return out
+        TR, t0 = ctx["TR"], time.time()
+        meta = self.fx_meta.setdefault("damage", {})
+        meta.update({"pairs": 0, "computed": 0, "skipped": 0, "elapsed_s": 0.0})
+        for (hid, tid), pe in (sim.pair_eff or {}).items():
+            if tid in (None, "hq") or (hid, tid) in out:
+                continue
+            dealer, target = ctx["by_id"].get(hid), ctx["by_id"].get(tid)
+            if dealer is None or target is None or not target.obj.IsFieldUnit():
+                continue
+            for e in self._walk_effs(pe):
+                n = e.get("damage")
+                if not isinstance(n, (int, float)) or n <= 0:
+                    continue
+                meta["pairs"] += 1
+                if time.time() - t0 > 3.0:
+                    meta["skipped"] += 1
+                    break
+                fx = TR.damage_card_fx(ctx["km"], st, target, int(n), dealer, **self._fx_kw(ctx))
+                fx["amount"] = int(n)
+                fx["gaps"] = list(fx.get("gaps") or []) + ["伤害来源按「打出的牌」假定（effectvm 没记 damagerCardID）"]
+                out[(hid, tid)] = fx
+                meta["computed"] += 1
+                break
+        meta["elapsed_s"] = round(time.time() - t0, 3)
+        return out
+
+    def _abilities_fx(self, st, sim) -> dict:
+        """关键词赋予/移除后的 0x1D 广播（`ExecuteOnOtherCardsAbilitiesChanged`:20885）：`{(单位 id, "+/-关键词"): eff}`。
+        只对候选效果里出现过的 (方向, 关键词) × **sim 里真有的单位**算（sim 消费端只查得到这些 id；多算的没人用），
+        关键词的「原先有没有」也以 sim 的 U 为准（`_apply_eff` 的广播条件看的就是它，用盘面视图会漂移）。
+        钩子读的是**改变之后**的关键词视图（`view_overrides`）。
+        场上没有任何牌覆写 0x1D ⇒ `{}`（零成本）；预算用尽 ⇒ `("gap",)` 条目里如实写。"""
+        ctx = self._fx_ctx(st)
+        if ctx is None:
+            return {}
+        TR, t0 = ctx["TR"], time.time()
+        meta = self.fx_meta.setdefault("abilities", {})
+        meta.update({"combos": 0, "computed": 0, "skipped": 0, "hooked": [], "elapsed_s": 0.0})
+        present = TR.present_hooks(ctx["km"], st, self._ABILITIES_HOOKS, ctx["tc"])
+        meta["hooked"] = sorted(present)
+        if not present:
+            return {}
+        combos = set()
+        for e in self._cand_effs(sim):
+            for k in e.get("give") or ():
+                if k in TR.ABILITIES_KW:
+                    combos.add(("+", k))
+            for rk, kw in self._REMOVE_KEYS.items():
+                if e.get(rk):
+                    combos.add(("-", kw))
+        meta["combos"] = len(combos)
+        out = {}
+        for uid, usim in (sim.units or {}).items():
+            card = ctx["by_id"].get(uid)
+            if card is None or not _is_field_unit(card):
+                continue                                      # 拿不到盘面指针 ⇒ VM 跑不了（不拿别的牌冒充）
+            have = frozenset(getattr(usim, "kw", ()) or ())
+            for d, kw in sorted(combos):
+                if (d == "+") == (kw in have):
+                    continue                                      # 已经有了 / 本来就没有 ⇒ 原版不广播
+                if time.time() - t0 > 3.0:
+                    meta["skipped"] += 1
+                    continue
+                eff = TR.abilities_changed_effects(ctx["km"], st, card,
+                                                   view_overrides=TR.abilities_view_override(card, kw, d == "+"),
+                                                   **self._fx_kw(ctx))
+                meta["computed"] += 1
+                if eff:
+                    out[(uid, d + kw)] = eff
+        gaps = []
+        if meta["skipped"]:
+            gaps.append("abilities：预算用尽，%d 项 0x1D 广播未算" % meta["skipped"])
+        gaps.append("abilities：移除关键词按「被移除的是唯一给予者」算（多给予者时游戏里可能仍有）")
+        out[("gap",)] = gaps
+        meta["elapsed_s"] = round(time.time() - t0, 3)
+        return out
+
     def _attack_fx(self, st, ehq) -> dict:
         """**攻击链钩子的后果** `{(攻击者 id, 目标 id|"hq"): fx}`（`triggers.build_attack_fx`：0x1E 换目标 /
         0x1F 吞攻击 / 伤害管线 / 受击·幸存 / OnAfterAttack·0x04 / 花费通知，顺序=`AttackCard` 字节码）。
-        喂 `BE.from_cards(attack_fx=...)`；`sim_attack` 据此让 stop/consumed/switch 真正改变攻击结算。
+        喂 `_ad.from_cards(attack_fx=...)`；`sim_attack` 据此让 stop/consumed/switch 真正改变攻击结算。
         整盘没有任何牌覆写这些钩子 ⇒ 零成本 `{}`；按 (回合, 盘面签名) 缓存；`P["use_vm"]=False` 关闭。
         摧毁链的钩子**不在这里**（`death_fx` 管，避免双算，见 `triggers.to_fx(dedupe_death)`）。"""
         km = self._km()
@@ -2073,20 +2516,20 @@ class RuleV2(StrategicRule):
         try:
             from semantics import triggers as TR
             tc = self._trig_cache(st)
-            board = [c for c in (st.cards or []) if getattr(c, "location", None) in ("frontline", "back")]
-            foes = [c for c in board if c.side == ENEMY] + ([ehq] if ehq is not None else [])
+            board = [c for c in (st.cards or []) if _is_field_unit(c)]
+            foes = [c for c in board if c.obj.side == st.other_side] + ([ehq] if ehq is not None else [])
             pairs = []
             for a in board:
-                if a.side != LOCAL or not self._actionable(st, a):
+                if a.obj.side != st.my_side or not self._actionable(st, a):
                     continue
                 opc = _n(getattr(a, "operation_cost", None), 1)
                 for d in foes:
                     pairs.append((a, d, opc + _n(getattr(d, "kredits_tax_as_enemy_target", None), 0)))
-            seat = getattr(st, "my_side_raw", None)
+            seat = st.my_side
             stream = self._trig_stream()
             tbl = TR.build_attack_fx(km, st, pairs, my_side=seat, read_hooks=EV.make_read_hooks(st, seat),
                                      budget_s=0.6, stream=stream, kw_of=self._kw,
-                                     hq_own=self._hq_ptrs("local"), hq_enemy=self._hq_ptrs("enemy"),
+                                     hq_own=self._hq_ptrs(st.my_side), hq_enemy=self._hq_ptrs(st.other_side),
                                      cache=tc, total_budget_s=4.0, enum_random=stream is None)
             res = dict(tbl)
             if hasattr(self, "fx_meta"):
@@ -2124,7 +2567,7 @@ class RuleV2(StrategicRule):
             from semantics import triggers as TR
             from kardsmem.rng import Stream
             stream = Stream(seed) if seed is not None else None
-            seat = getattr(st, "my_side_raw", None)
+            seat = st.my_side
             res = TR.run_play_hooks(km, st, played_card, method=1, stream=stream,
                                     my_side=seat,
                                     read_hooks=EV.make_read_hooks(st, seat),
@@ -2133,13 +2576,13 @@ class RuleV2(StrategicRule):
                                     exclude=[(getattr(played_card, "raw", None) or {}).get("ptr")],
                                     budget_s=0.8,
                                     include_counter=True)
-            by_ptr = {(getattr(x, "raw", None) or {}).get("ptr"): x.card_id
+            by_ptr = {(getattr(x, "raw", None) or {}).get("ptr"): x.obj.CardID
                       for x in (st.cards or [])}
             for h in (res.get("hits") or []):
                 eff = h.get("eff") or {}
                 if not eff:
                     continue
-                if h.get("side") != LOCAL:
+                if h.get("side") != st.my_side:
                     continue          # 敌方反制：方向语义特殊，第一版不算
                 cid = by_ptr.get(h.get("ptr"))
                 if cid is None:
@@ -2179,94 +2622,173 @@ class RuleV2(StrategicRule):
         cache[key] = val
         return val
 
-    def _eff_bond(self, st, c, target_card=None) -> dict:
-        """手牌效果 + 协力的**打出时**后果（BP `OnCardPlayedFromHand`）：
-        `HasBond && !activeBondFactions.Contains(faction)` ⇒ 己方总部吃一次疲劳伤害。
-        未满足才加 `bond_fatigue`；牌不是 bond 或国家已在集合里 = 无额外效果。
-        """
-        e = self._hand_eff(c, target_card)
+    def _blocked_without_target(self, c) -> bool:
+        """一张**要目标**的单位牌，在我们**一个合法目标都没找到**时，不带目标还能不能部署 —— 问游戏自己的
+        `CanPlayFromHand`（卡自己的覆写）。它回 `can=False`（带理由，如 `friendly_unit`）⇒ 这条『不指向』走法不存在，
+        别当候选（2026-10-05 实机 T8：3rd CARPATHIAN 场上没有友方单位，仍被排成 `deploy` 而被拒）。
+        问不到 / 回 True ⇒ 保留候选（宁可多试一步，也不因为问不到就否掉）。结果按 (牌, epoch) 缓存。"""
+        key = ("nt-blocked", c.obj.CardID, self._epoch)
+        if key in self._act_cache:
+            return self._act_cache[key]
+        blocked = False
         try:
-            if self._has_bond(c):
-                f = getattr(c, "faction_enum", None)
-                if f is None or int(f) not in self._bond_factions(st):
-                    e = dict(e)
-                    e["bond_fatigue"] = True
+            r = self.sess._inj("game_can_play_from_hand", c.obj.CardID) or {}
+            blocked = bool(r.get("ok")) and r.get("can") is False
         except Exception:                                         # noqa: BLE001
-            pass
-        return e
+            blocked = False
+        self._act_cache[key] = blocked
+        return blocked
 
     def _search_sim(self, st, kred, ehq):
-        """建搜索用的模拟场面：手牌带效果摘要；带目标的牌用游戏的判断函数列出合法目标。"""
+        """建搜索用的模拟场面：手牌带效果摘要；带目标的牌用游戏的判断函数列出合法目标。
+
+        整个建 sim 包在 `readscope.build_scope()` 里：几百次 VM 空跑共用同一份卡视图 / 反射链 / 快照数值表
+        （一次建 sim 里 `st` 是静止的；见 `kardsmem/readscope.py` 的边界说明）。命中统计进 `self._scope_stats`。"""
+        from kardsmem import readscope as _RSc
+        with _RSc.build_scope() as _sc:
+            try:
+                return self._search_sim_body(st, kred, ehq)
+            finally:
+                self._scope_stats = _sc.stats()
+                try:
+                    self._scope_hot = _sc.hot()
+                    for _w in self._scope_hot.get("worst") or []:       # 卡指针 → 名字（日志可读）
+                        _c = next((c for c in getattr(self, "_st", None).cards
+                                   if (getattr(c, "raw", None) or {}).get("ptr") == _w.get("ptr")), None)
+                        _w["card"] = getattr(_c, "name", None)
+                except Exception:                                       # noqa: BLE001
+                    self._scope_hot = None
+
+    def _search_sim_body(self, st, kred, ehq):
+        from kardsmem.readscope import current as _RSc_cur
         self._st = st
+        _stg, _tl = {}, [time.perf_counter()]
+
+        _stg_vm = {}                                        # 每段新读了多少张卡视图（view 未命中增量；>0 的才记）
+        _rs = _RSc_cur()
+        _vm0 = [(_rs.misses.get("view", 0) if _rs is not None else 0)]
+
+        def _lap(name):                                     # 分段计时（进 probe.timing.stages）：build_sim_s 剩下那 ~1.7 s 花在哪
+            _n_ = time.perf_counter()
+            _stg[name] = round(_stg.get(name, 0.0) + _n_ - _tl[0], 3)
+            _tl[0] = _n_
+            if _rs is not None:
+                _v_ = _rs.misses.get("view", 0)
+                if _v_ > _vm0[0]:
+                    _stg_vm[name] = _stg_vm.get(name, 0) + _v_ - _vm0[0]
+                _vm0[0] = _v_
+        self._stage_t = _stg
+        self._stage_vm = _stg_vm
+        try:                                                # 本机读内存的单次耗时（µs）：区分"机器/游戏慢"与"读得多"
+            _km_ = self.sess._kardsmem()
+            _t_ = time.perf_counter()
+            for _ in range(20):
+                _km_.m.u8(_km_.base)
+            self._rpm_us = round((time.perf_counter() - _t_) / 20 * 1e6)
+        except Exception:                                   # noqa: BLE001
+            self._rpm_us = None
         self.prefetch_kw(st)                                # 关键词：一次 RPC 批量问游戏
+        _lap("prefetch_kw")
         if getattr(st, "turn", None) != self._vm_turn:      # 预算按回合重置（缓存跨步保留）
             self._vm_turn = getattr(st, "turn", None)
             self._vm_spent = 0.0
         legal, pair_eff = {}, {}
-        board = [c for c in st.cards if c.location in ("frontline", "back")]
-        for c in st.hand(LOCAL):
+        _t0 = time.perf_counter()
+        _bud = float(self.P.get("step_budget_s") or 0)
+        _sig = self._step_sig(st, kred)
+        board = [c for c in st.cards if _is_field_unit(c)]
+        for c in st.hand():
             if c.name in self.avoid:
                 continue
             if not self.plan(c).needs_target:
                 # 运行时旗标说不用指向 ⇒ 就是一条不带目标的走法，搜索不替它挑目标
                 if not self.is_unit(c):
-                    legal[c.card_id] = [None]
+                    legal[c.obj.CardID] = [None]
                 continue
             cost = _n(getattr(c, "kredit_cost", None), 99)
             if not self._playable(c, cost, kred):
                 continue
-            cands = [(t.card_id, t) for t in board if t.card_id != c.card_id]
+            cands = [(t.obj.CardID, t) for t in board if t.obj.CardID != c.obj.CardID]
             if ehq is not None:
                 cands.append(("hq", ehq))
             lt = []
             for tid, t in cands[: self.P["legal_max_targets"] + 1]:
-                key = ("legal", c.card_id, tid)
+                key = ("legal", c.obj.CardID, tid)
                 ok = self._act_cache.get(key)
                 if ok is None:
-                    try:
-                        ok = self.sess.can_play(c, target=t).get("can") is not False
-                    except Exception:                             # noqa: BLE001
-                        ok = True
+                    _fp = (self._card_fp(c), self._card_fp(t))
+                    ok = self._xc_get("legal", (c.obj.CardID, tid), _sig, _fp)
+                    if ok is None:
+                        if _bud and time.perf_counter() - _t0 > _bud:
+                            ok = True                             # 超预算：不再问（按放行；打出前 `_confirm` 仍问闸门）
+                            self.__dict__["_budget_skipped"] = self.__dict__.get("_budget_skipped", 0) + 1
+                        else:
+                            try:
+                                self.__dict__["_rpc_n"] = self.__dict__.get("_rpc_n", 0) + 1
+                                ok = self.sess.can_play(c, target=t).get("can") is not False
+                            except Exception:                     # noqa: BLE001
+                                ok = True
+                            self._xc_put("legal", (c.obj.CardID, tid), _sig, _fp, ok)
                     self._act_cache[key] = ok
                 if ok:
                     lt.append(tid)
-                    pair_eff[(c.card_id, tid)] = self._eff_bond(st, c, t)
-            if self.is_unit(c):
+                    pair_eff[(c.obj.CardID, tid)] = self._hand_eff(c, t)
+            if self.is_unit(c) and not (not lt and self._blocked_without_target(c)):
                 lt.append(None)                                   # 单位：不指向也可以试
-                pair_eff[(c.card_id, None)] = self._eff_bond(st, c)
-            legal[c.card_id] = lt
+                pair_eff[(c.obj.CardID, None)] = self._hand_eff(c)
+            legal[c.obj.CardID] = lt
+        _lap("legal_loop")
         # 已经在手里"激活"的反制（gotcha_activated>0）不再列成走法：`ToggleGotcha` 是开关，
         # 再 play 一次会把它关掉（board_api 注释/CLAUDE.md 反制一节）。它仍留在手牌里，只是不再是候选。
         # `avoid`（用户指定不想打的牌）也在这里去掉：原来只在"带目标牌的合法目标枚举"里检查，
         # 不带目标的牌照样进搜索——实机 SEABORNE INVASION / NZANS 都在回避名单里却被打了出去。
         cards = [c for c in st.cards
-                 if not (c.side == LOCAL and c.location == "hand"
+                 if not (c.obj.side == st.my_side and c.obj.InHand()
                          and ((getattr(c, "gotcha_activated", 0) or 0) > 0 or c.name in self.avoid))]
         ids, dcards = self._deck_state(st)
-        self._sim = BE.from_cards(
+        _lap("deck_state")
+        # 协力：手里有协力牌才去读 `activeBondFactions`（没有就不必、也不记"行动方不明"的缺口）
+        _bf = self._bond_factions(st) if any(self._has_bond(c) for c in st.hand()) else None
+        _lap("bond")
+        _after_hq = self._after_hq(st, ehq)
+        _lap("after_hq")
+        _death_fx = self._death_fx(st)
+        _lap("death_fx")
+        _attack_fx = self._attack_fx(st, ehq)
+        _lap("attack_fx")
+        _efx = {}
+        for _k, _f in (("move", self._move_fx), ("draw", self._draw_fx), ("suppress", self._suppress_fx), ("pin", self._pin_fx),
+                       ("reveal", self._reveal_fx), ("retreat", self._retreat_fx), ("veteran", self._veteran_fx),
+                       ("heal", self._heal_fx), ("steal", self._steal_fx), ("turn_end", self._turn_end_fx)):
+            _efx[_k] = _f(st)
+            _lap("fx_" + _k)
+        self._sim = _ad.from_cards(
             cards, self._kw, actionable=lambda c: self._actionable(st, c), kredits=float(kred),
-            hand_eff=lambda c: self._eff_bond(st, c), front_owner=getattr(st, "frontline_owner", None),
+            hand_eff=lambda c: self._hand_eff(c), front_owner=getattr(st, "frontline_owner", None),
             turn=getattr(st, "turn", None), legal=legal, pair_eff=pair_eff,
-            after_hq=self._after_hq(st, ehq),
+            after_hq=_after_hq,
             # 牌库读得到 ⇒ 抽牌按**抽到的那张**走；空库抽按游戏疲劳规则（`_fatigue` + boardeval）
             deck=ids, deck_cards=dcards,
             fatigue=self._fatigue(st),
             rng_seed=self._rng_seed(),
-            death_fx=self._death_fx(st), attack_fx=self._attack_fx(st, ehq),
-            event_fx={"move": self._move_fx(st), "draw": self._draw_fx(st),
-                      "suppress": self._suppress_fx(st), "pin": self._pin_fx(st),
-                      "reveal": self._reveal_fx(st), "retreat": self._retreat_fx(st),
-                      "veteran": self._veteran_fx(st), "heal": self._heal_fx(st),
-                      "steal": self._steal_fx(st),
-                      "turn_end": self._turn_end_fx(st)},
-            kredit_max=int(getattr(st, "max_possible_kredits", None) or 24))
+            death_fx=_death_fx, attack_fx=_attack_fx,
+            event_fx=_efx,
+            kredit_max=int(getattr(st, "max_possible_kredits", None) or 24), my_side=_my_seat(st),
+            # 生成单位（USS YORKTOWN / DEATH FROM ABOVE 这类 SpawnCardOnBattlefield）用卡自己的面板；没给 ⇒ 字典路把
+            # 召唤全当"面板读不到"丢掉（只记缺口），而直跑路会真生成 ⇒ A/B 恒分歧（2026-10-06 批量对账 280 个 unit 键）
+            # （用 lambda 而不是绑定方法：影子对账 `copy.deepcopy(sim)` 会把绑定方法的 `__self__`=整个 Rule 一起深拷，拷到文件句柄就炸）
+            spawn_stats=lambda n: self._spawn_stat(n), front_limited=bool(getattr(st, "frontline_limiters", None)),
+            bond_of=self._has_bond, bond_factions=_bf)
+        _lap("from_cards")
+        self._finish_event_fx(self._sim, st)                      # A5：转化后 / 效果伤害链 / 0x1D（要先有候选效果）
+        _lap("finish_event_fx")
         return self._sim
 
     @staticmethod
     def _akey(a, ehq) -> tuple:
         dst = a.dst
         if dst == "hq" and ehq is not None:
-            dst = ehq.card_id
+            dst = ehq.obj.CardID
         if a.kind == "attack":
             return ("attack", a.src, dst)
         if a.kind == "move":
@@ -2274,10 +2796,10 @@ class RuleV2(StrategicRule):
         return ("play", a.src, dst) + ((tuple(a.path),) if getattr(a, "path", ()) else ())
 
     def _act_of(self, st, a, ehq, gain, seq) -> dict:
-        names = {c.card_id: c.name for c in st.cards}
+        names = {c.obj.CardID: c.name for c in st.cards}
         dst = a.dst
         if dst == "hq" and ehq is not None:
-            dst = ehq.card_id
+            dst = ehq.obj.CardID
         if a.kind == "attack":
             act = {"kind": "attack", "card": a.src, "target": dst}
         elif a.kind == "move":
@@ -2297,6 +2819,161 @@ class RuleV2(StrategicRule):
                                                   ("｜后续 " + tail) if tail else "", gain)
         return act
 
+    @staticmethod
+    def _shadow_on_draw(state, n):
+        """直跑的抽牌链回调：与 `sim.engine._apply_eff` 抽牌同一条链（同权重、同上限、同旁观者 fx）。"""
+        from sim.chain import draw_chain
+        run = draw_chain(state, n, apply_effect=_en._apply_eff, hand_cap=_en.HAND_CAP,
+                         anon_hold=_en.WEIGHTS["draw_v"], cap=_en.DRAW_CAP,
+                         bystander_fx=(state.event_fx.get("draw") or {}).get)
+        state.gaps += list(run.gaps)
+
+    @staticmethod
+    def _shadow_on_death(state, uid):
+        """直跑/重放的死亡链回调：与字典路同一个死亡后果源（`sim.engine._apply_death` ⇒ `Sim.death_fx[uid]`，
+        即 `triggers.death_effects` 预计算的完整摧毁序列）。单位此刻已离场（原版 `ApplyRemoveCardFromBoard` 之后）。"""
+        _en._apply_death(state, uid)
+
+    # ---- P5 影子对账（不改行为）：字典路 vs 直跑路 vs 调用重放 ----
+    def _shadow_check(self, st, sim, budget_s: float = 1.5, max_cards: int = 4) -> dict:
+        """对手里的**指令**（不带目标 / 逐目标）各做一次三方对账，只记录、**不影响决策**：
+
+        A = 现有路径：`sim.pair_eff` 的 eff 字典 → `_apply_eff`；
+        B = 直跑：对 `Sim` 副本跑 VM（已迁动词直改状态）；
+        C = 重放：B 记下的 `applied` 调用串 → `engine.calls.apply_calls` 到另一份副本。
+        diff(A,B) = 字典路与直跑路的语义分歧（含「动词还没迁」）；diff(B,C) = 重放器与 sink 漂移。
+        随机/抉择口径（用户 2026-10-06，REFACTOR-PLAN §5.7；规则见 `_shadow_branches`）：随机用牌局流种子算成**具体结果**、不当分支；
+        抉择每个选项是**独立条目**（`[选项i]`，各比各的、各记一条）；只有读不到种子才退回随机枚举；
+        有种子却仍有没接进流的随机点 ⇒ skipped（点名动词）。结果进 `probe["shadow"]`；`rng_exact`/`choice_actions`/`enum_fallback` 是计数。"""
+        import copy
+        from semantics.shadow import apply_calls, snapshot
+        out = self.__dict__.setdefault("_shadow_out", {})
+        km = self._km()
+        seat = self._seat()
+        res = {"n": 0, "same": 0, "diff_ab": [], "diff_bc": [], "skipped": [], "gaps": {}}
+        if km is None or seat is None or not self.P.get("use_vm"):
+            return res
+        t_end = time.time() + budget_s
+        by_id = {c.obj.CardID: c for c in st.cards}
+        seed = self._rng_seed()
+        done = 0
+        for (cid, tid), eff in list(sim.pair_eff.items()):
+            c = by_id.get(cid)
+            if c is None or self.is_unit(c) or done >= max_cards or time.time() > t_end:
+                continue
+            # 缓存：卡级索引 `idx[卡键] -> [条目键…]`；条目键 = 卡键 + (选择路径,)。抉择牌的**每个选项是一个独立条目**
+            # （2026-10-06 用户拍板：二选一拆成独立动作，对账也逐选项记结果，不再并成一条带分支的评估）。
+            key = ("shadow", cid, tid, getattr(st, "turn", None), seed)
+            idx = self.__dict__.setdefault("_shadow_idx", {})
+            if key in idx and idx[key] and all(k_ in out for k_ in idx[key]):
+                for k_ in idx[key]:
+                    st_prev, pl_prev = out[k_]
+                    if st_prev == "same":
+                        res["n"] += 1
+                        res["same"] += 1
+                    else:
+                        res["n"] += 1 if st_prev != "skipped" else 0
+                        res[st_prev].append(pl_prev)
+                continue
+            done += 1
+            idx[key] = []
+            ptr = (getattr(c, "raw", None) or {}).get("ptr")
+            tc = by_id.get(tid) if tid is not None else None
+            if tid == "hq" and tc is None:
+                # `pair_eff` 里『打总部』的目标键是字面量 "hq"（`_search_sim` 的 `cands.append(("hq", ehq))`），不是卡 id ⇒
+                # `by_id.get("hq")` 恒为 None，直跑就拿不到目标（2026-10-06 实机 AIR BLITZ/KM BISMARCK 的 diff_ab：
+                # A 打了总部、B 没有目标可打）。换成敌方总部那张牌（与 `_search_sim` 的 `ehq` 同一张）。
+                tc = next((x for x in st.cards if x.obj.side == self._other() and x.obj.IsHQ()), None)
+            tptr = (getattr(tc, "raw", None) or {}).get("ptr") if tc is not None else 0
+            if not ptr:
+                continue
+            ov = {(ptr, "side"): int(seat)} if c.obj.side == seat else None
+            try:
+                def _run_b(forced=None):
+                    """B 路一次：`forced` = 各随机/抉择点选第几个结果（None = 探查模式，全选 0 号）。→ `(r, s_b)`。"""
+                    s_b = copy.deepcopy(sim)
+                    s_b.hand.pop(cid, None)          # 原版先把牌移出手牌再 OnPlayedFromHand（与 `sim_order` 同口径）
+                    r = EV.record_effects(km, ptr, tptr or 0, tc is not None, hook=None, my_side=seat,
+                                          board=st, my_seat=seat, forced=forced,
+                                          read_hooks=self._play_hooks(km, st, seat, ptr, ov),
+                                          slots=dict(getattr(st, "slots", None) or {}),
+                                          hq_own=self._hq_ptrs(seat), hq_enemy=self._hq_ptrs(self._other()),
+                                          rng_seed=seed, field_overrides=ov, timeout_s=float(self.P.get("shadow_vm_s", 0.6)),
+                                          direct_state=s_b, direct_spawn_stat=self._spawn_stat,
+                                          direct_on_draw=self._shadow_on_draw,
+                                          direct_on_death=self._shadow_on_death)
+                    return r, s_b
+                r, s_b = _run_b()
+                # 这张牌**没有打出/部署钩子覆写** ⇒ 打出它本身不改状态（常驻/触发型指令：IMPERIAL DECREE 只有 `OnOtherCardDealDamage*`），
+                # 这不是 VM 缺口（`_vm_effect` 同口径记 `eff_src="无覆写"`）⇒ 与 A 比"什么都没发生"，不记 skipped。
+                _stp = str(r.get("stopped") or "")
+                if not r.get("complete") and "没有" in _stp and "覆写" in _stp and not r.get("applied"):
+                    r = dict(r, complete=True)
+                # ★ 2026-10-06 用户拍板（REFACTOR-PLAN §5.7）：**随机结果不当分支**——有牌局随机流种子 ⇒ A/B 都拿同一个种子按游戏的 LCG
+                #   跑出**具体结果**（`Recorder.stream`；直跑 sink 的 `ctx.rng` 与录制器是同一个 `Stream` ⇒ 抽取顺序一致），只比这一个结果；
+                #   **抉择（二选一）每个选项是一个独立动作**（路径 = 选项下标；与搜索里 `expand_paths` 生成的行动同一口径）⇒ 逐选项各比一次、
+                #   各记一条结果；只有**读不到种子**（`P["use_rng"]=False`）时才退回旧的随机枚举（`shadow_branch_cap` 封顶）。
+                #   有种子却仍留下随机点（VM 里还没接进牌局流的随机原语）⇒ 如实记 skipped（原因点名动词），不枚举成分支假装比过。
+                branches, why = _shadow_branches(r, eff, seed, int(self.P.get("shadow_branch_cap", 4)))
+                if branches is None or not r.get("complete"):
+                    why = why if r.get("complete") else (
+                        # 取最内层原因再截 200：原先整串截 60 只剩外层 "被调函数停在：Unimplemente"，看不出缺什么（BUZZ BOMB→hq）
+                        str(r.get("stopped"))[:60] + " ‖ " + _vm_innermost(r.get("stopped"))[:200])
+                    k_ = key + ((),)
+                    out[k_] = ("skipped", "%s→%s：%s" % (c.name, tid, why))
+                    idx[key].append(k_)
+                    res["skipped"].append(out[k_][1])
+                    continue
+                tag = "%s→%s" % (c.name, tid)
+                for bi, (forced, label, e_a) in enumerate(branches):
+                    k_ = key + (tuple(forced) if forced is not None else (),)        # 条目键 = 卡键 + 选择路径（逐选项一条）
+                    btag = tag + label
+                    if forced is None or not any(forced):
+                        r_i, s_b_i = (r, s_b) if forced is None or bi == 0 else _run_b(forced)
+                    else:
+                        r_i, s_b_i = _run_b(forced)
+                    idx[key].append(k_)
+                    if r_i.get("exact"):
+                        res["rng_exact"] = res.get("rng_exact", 0) + 1
+                    if label.startswith("[选项"):
+                        res["choice_actions"] = res.get("choice_actions", 0) + 1
+                    elif label:
+                        res["enum_fallback"] = res.get("enum_fallback", 0) + 1
+                    if not r_i.get("complete"):
+                        out[k_] = ("skipped", "%s：分支 %s 的 VM 停了：%s" % (btag, forced, _vm_innermost(r_i.get("stopped"))[:120]))
+                        res["skipped"].append(out[k_][1])
+                        continue
+                    s_a = copy.deepcopy(sim)
+                    s_a.hand.pop(cid, None)
+                    _en._apply_eff(s_a, dict(e_a or {}), tid, src=cid)
+                    s_c = copy.deepcopy(sim)
+                    s_c.hand.pop(cid, None)
+                    rr = apply_calls(s_c, r_i.get("applied") or [], on_draw=self._shadow_on_draw,
+                                     on_death=self._shadow_on_death)
+                    a, b, cc = snapshot(s_a), snapshot(s_b_i), snapshot(s_c)
+                    dab = {k: (a.get(k), b.get(k)) for k in set(a) | set(b) if a.get(k) != b.get(k)}
+                    dbc = {k: (b.get(k), cc.get(k)) for k in set(b) | set(cc) if b.get(k) != cc.get(k)}
+                    if r_i.get("direct_gaps"):
+                        res["gaps"][btag] = list(r_i["direct_gaps"])[:3]
+                    if dab:
+                        cand = ("diff_ab", {"card": btag, "diff": {k: repr(v)[:300] for k, v in list(dab.items())[:6]}})
+                    elif (dbc or _replay_new_gaps(rr.gaps, r_i.get("direct_gaps")) or {k for k, ek in (("forecast", "forecast"), ("choose_spawn", "choose_spawn"),
+                                                              ("hand_target", "hand_target_pending"))
+                                             if (e_a or {}).get(ek)} != {p[0] for p in rr.pending}):
+                        cand = ("diff_bc", {"card": btag, "diff": {k: repr(v)[:300] for k, v in list(dbc.items())[:6]},
+                                            "gaps": _replay_new_gaps(rr.gaps, r_i.get("direct_gaps"))[:3], "pending": [p[0] for p in rr.pending]})
+                    else:
+                        cand = ("same", btag)
+                    res["n"] += 1
+                    out[k_] = cand
+                    if cand[0] == "same":
+                        res["same"] += 1
+                    else:
+                        res[cand[0]].append(cand[1])
+            except Exception as ex:                               # noqa: BLE001
+                res["skipped"].append("%s→%s：%s: %s" % (c.name, tid, type(ex).__name__, str(ex)[:60]))
+        return res
+
     def _choose_main_search(self, st, kred, ehq, ex):
         P = self.P
         asked, n_cands = 0, 0
@@ -2308,12 +2985,18 @@ class RuleV2(StrategicRule):
             sup = (getattr(self, "suppress_kinds", None) or set()) |                 (getattr(self, "forbid_kinds", None) or set())
             skip = lambda a: (self._akey(a, ehq) in self._bad or self._akey(a, ehq) in self._tried  # noqa: E731
                               or a.kind in sup)
-            seqs = BE.search(sim, self._W, P["depth"], P["beam"], P["branch"], 12, skip=skip)
+            seqs = _se.search(sim, self._W, P["depth"], P["beam"], P["branch"], 12, skip=skip)
             _t_c = time.perf_counter()
             # 分段计时（TODO B1）：建 sim（含 VM/钩子预计算）与束搜索分开记，进 probe.timing
             _timing = {"build_sim_s": round(_t_b - _t_a, 3), "beam_s": round(_t_c - _t_b, 3),
                        "vm_s": round(self._vm_spent - vm0, 3), "sim_units": len(sim.units),
-                       "sim_hand": len(sim.hand)}
+                       "sim_hand": len(sim.hand), "stages": dict(getattr(self, "_stage_t", None) or {}),
+                       "scope": dict(getattr(self, "_scope_stats", None) or {}),
+                       "stage_vmiss": dict(getattr(self, "_stage_vm", None) or {}),
+                       "rpm_us": getattr(self, "_rpm_us", None),
+                       "vm_calls": getattr(self, "_scope_hot", None),
+                       "rpc_n": self.__dict__.get("_rpc_n", 0), "xc_hits": self.__dict__.get("_xc_hits", 0),
+                       "budget_skipped": self.__dict__.get("_budget_skipped", 0)}
             cands = []
             for gain, seq in seqs:
                 if gain < P["min_gain"] and gain < P["lethal"] / 2:
@@ -2323,14 +3006,26 @@ class RuleV2(StrategicRule):
                     continue
                 cands.append((gain, self._akey(a, ehq), self._act_of(st, a, ehq, gain, seq), a.cost))
             n_cands = max(n_cands, len(cands))
-            self.probe = {"kred": kred, "n": len(cands), "path": "search",
+            _t_sh = time.perf_counter()
+            try:
+                _shadow = self._shadow_check(st, sim) if self.P.get("shadow", False) else None
+            except Exception as _ex:                              # noqa: BLE001
+                _shadow = {"error": "%s: %s" % (type(_ex).__name__, str(_ex)[:80])}
+            _timing["shadow_s"] = round(time.perf_counter() - _t_sh, 3)       # 影子对账的耗时（原先藏在 t_decide 里，2026-10-06 实机 1K 时卡 14–18 s 的嫌疑项）
+            self._asks = []                                       # 本轮问游戏闸门的明细 [(动作, can, reason, 秒)]，进 probe.asks
+            self.probe = {"kred": kred, "n": len(cands), "path": "search", "shadow": _shadow, "asks": self._asks, "hq": {str(k): v for k, v in (getattr(sim, "hq", None) or {}).items()},
                           "eff_src": dict(self.eff_src), "gaps": dict(self.gaps),
                           "fx_meta": {k: dict(v) for k, v in self.fx_meta.items()},
                           "intel_dbg": dict(self.intel_dbg or {}),
                           "marker_err": dict(self.marker_err or {}),
                           "vm_s": round(self._vm_spent, 2), "timing": _timing,
-                          "hand": [(h.name, getattr(h, "kredit_cost", None)) for h in st.hand(LOCAL)],
+                          "hand": [(h.name, getattr(h, "kredit_cost", None)) for h in st.hand()],
                           "top": [(round(c[0], 2), c[2]["note"]) for c in cands[:6]]}
+            try:
+                self._probe_hq(sim, seqs, ehq)
+            except Exception as _e:                           # noqa: BLE001
+                self.probe["hq_diag_error"] = "%s: %s" % (type(_e).__name__, str(_e)[:80])
+            _seq_of = {self._akey(sq[0], ehq): sq for _g, sq in seqs if sq}
             if not cands:
                 break
             progressed = False
@@ -2338,9 +3033,15 @@ class RuleV2(StrategicRule):
                 if asked >= P["gate_budget"]:
                     break
                 asked += 1
-                if self._confirm(act, st):
+                _t_ask = time.perf_counter()
+                _ok = self._confirm(act, st)
+                _g = (act.get("meta") or {}).get("gate") or {}
+                self._asks.append((act.get("note", "")[:60], _g.get("can"), _g.get("reason"), _g.get("source"),
+                                   round(time.perf_counter() - _t_ask, 2)))
+                if _ok:
                     self._tried.add(key)
                     act["score"] = round(gain, 3)
+                    self._note_hq_expect(sim, act, _seq_of.get(key), ehq, st)
                     if act.get("path"):                       # 把选择路径交给执行侧：弹出选项时照点，不再重算
                         self.__dict__.setdefault("_plan", __import__("policy.plan", fromlist=["PlanStore"]).PlanStore()).put(act["card"], act["path"])
                     return act
@@ -2350,11 +3051,55 @@ class RuleV2(StrategicRule):
                 break
         return {"kind": "end", "note": "规则2/搜索：没有值得做的动作（候选 %d，问闸门 %d）" % (n_cands, asked)}
 
+    # ------------------------------------------------------------ 打总部的取证（2026-10-07 00:04 局：搜索预测致命、总部连吃三击没死）
+    def _probe_hq(self, sim, seqs, ehq) -> None:
+        """进 probe：① 总部防御/重甲/免疫（sim 值）与快照原值；② 每个能打总部的己方单位用的攻击值；
+        ③ 致命序列逐步的 sim 总部防御；④ 上一步"打总部"的预测 vs 这次实读（`hq_check`，下局对账用）。"""
+        opp = sim.opp
+        d = {"def": sim.hq.get(opp), "armor": sim.hq_armor.get(opp, 0), "immune": bool(sim.hq_immune.get(opp)),
+             "guarded": bool(getattr(sim, "hq_guarded", False)), "known": bool(sim.hq_known)}
+        if ehq is not None:
+            o = ehq.obj
+            d["snap"] = {"defense": getattr(o, "defense", None), "maxDefense": getattr(o, "maxDefense", None),
+                         "heavyArmor": getattr(o, "heavyArmor", None), "heavyArmorBuff": getattr(o, "heavyArmorBuff", None),
+                         "isImmune": getattr(o, "isImmune", None), "attackBuff": getattr(o, "attackBuff", None)}
+        self.probe["hq_det"] = d
+        self.probe["atk_hq"] = [(u.id, u.atk, u.attacks_left, u.opc, sorted(u.kw)[:4], getattr(u, "atk_buff", 0))
+                                for u in sim.units.values()
+                                if u.side == sim.me and u.atk > 0 and _en.can_hit_hq(sim, u)]
+        chain = []
+        for gain, sq in seqs[:3]:
+            if gain < self.P["lethal"] / 2 or not sq:
+                continue
+            s2, steps = sim, []
+            for a in sq:
+                s2 = _en.apply(s2, a)
+                steps.append((a.key(), s2.hq.get(opp)))
+            chain.append({"gain": round(gain, 2), "steps": steps})
+        if chain:
+            self.probe["lethal_chain"] = chain
+        ex = getattr(self, "_hq_expect", None)
+        if ex and ex.get("turn") == getattr(self._st, "turn", None):
+            self.probe["hq_check"] = {"act": ex["act"], "hq_before": ex["before"], "hq_pred_after": ex["pred"],
+                                      "hq_real_now": sim.hq.get(opp),
+                                      "shortfall": (sim.hq.get(opp) or 0) - (ex["pred"] or 0)}
+
+    def _note_hq_expect(self, sim, act, seq, ehq, st) -> None:
+        """选定了一步打总部 ⇒ 记下 sim 预测的打后总部防御；下一次决策拿实读值对账（`probe.hq_check`）。"""
+        self._hq_expect = None
+        if act.get("kind") != "attack" or ehq is None or act.get("target") != ehq.obj.CardID or not seq:
+            return
+        try:
+            self._hq_expect = {"turn": getattr(st, "turn", None), "act": act.get("note", "")[:60],
+                               "before": sim.hq.get(sim.opp), "pred": _en.apply(sim, seq[0]).hq.get(sim.opp)}
+        except Exception:                                         # noqa: BLE001
+            self._hq_expect = None
+
     # ------------------------------------------------------------ 主相位
     def _confirm(self, act: dict, st) -> bool:
         """问游戏自己；None（不知道）放行。"""
         s, k = self.sess, act["kind"]
-        by_id = {c.card_id: c for c in st.cards}
+        by_id = {c.obj.CardID: c for c in st.cards}
         try:
             if k == "attack":
                 r = s.can_attack(by_id[act["card"]], by_id[act["target"]])
@@ -2373,7 +3118,7 @@ class RuleV2(StrategicRule):
         return r.get("can") is not False
 
     def choose_main(self, st, exclude_cards=None) -> dict:
-        kred = int((st.kredits or {}).get(LOCAL) or 0)
+        kred = int((st.kredits or {}).get(st.my_side) or 0)
         me, foes, ehq = self._split(st)
         ex = set(exclude_cards or ())
         if self.P["search"]:
@@ -2398,8 +3143,8 @@ class RuleV2(StrategicRule):
             n_cands = max(n_cands, len(cands))
             self.probe = {"kred": kred, "n": len(cands),
                           "hand": [(h.name, getattr(h, "kredit_cost", None),
-                                    self._act_cache.get(("playable", h.card_id, self._epoch)))
-                                   for h in st.hand(LOCAL)],
+                                    self._act_cache.get(("playable", h.obj.CardID, self._epoch)))
+                                   for h in st.hand()],
                           "top": [(round(c[0], 2), c[3]["note"]) for c in cands[:6]]}
             if not cands:
                 break
@@ -2461,8 +3206,8 @@ class RuleV2(StrategicRule):
             st = self._st
             r = EV.enumerate_effects(
                 km, ptr, 0, False, hook=None,
-                my_side=getattr(st, "my_side_raw", None),
-                read_hooks=EV.make_read_hooks(st, getattr(st, "my_side_raw", None)),
+                my_side=st.my_side,
+                read_hooks=EV.make_read_hooks(st, st.my_side),
                 slots=dict(getattr(st, "slots", None) or {}),
                 rng_seed=self._rng_seed(), budget_s=2.0)
         except Exception:                                        # noqa: BLE001
@@ -2480,9 +3225,9 @@ class RuleV2(StrategicRule):
         v, hit = 0.0, False
         b = e.get("buff")
         if isinstance(b, (list, tuple)) and len(b) == 2:
-            v += BE.W["w_atk"] * float(b[0] or 0) + BE.W["w_def"] * float(b[1] or 0)
+            v += _W["w_atk"] * float(b[0] or 0) + _W["w_def"] * float(b[1] or 0)
             if trig is not None and self._actionable(st, trig):
-                v += BE.W["act_w"] * max(float(b[0] or 0), 0.0)   # 本回合能打：+攻马上有用
+                v += _W["act_w"] * max(float(b[0] or 0), 0.0)   # 本回合能打：+攻马上有用
             hit = True
         if "opcost" in e:
             op = _n(getattr(trig, "operation_cost", 0)) if trig is not None else 0.0
@@ -2498,7 +3243,7 @@ class RuleV2(StrategicRule):
         失败才退回选项文字；返回 `(value, src)`，都不认 ⇒ `(None, None)`。"""
         trig = None
         if st is not None and row.get("trigger_id") is not None:
-            trig = next((c for c in st.cards if c.card_id == row.get("trigger_id")), None)
+            trig = next((c for c in st.cards if c.obj.CardID == row.get("trigger_id")), None)
         effs = self._vm_choice_outcomes(trig)
         idx = row.get("index")
         if effs and idx is not None and 0 <= int(idx) < len(effs):
@@ -2527,11 +3272,11 @@ class RuleV2(StrategicRule):
         low = lab.lower().replace(" ", "")
         trig = None
         if st is not None and row.get("trigger_id") is not None:
-            trig = next((c for c in st.cards if c.card_id == row.get("trigger_id")), None)
+            trig = next((c for c in st.cards if c.obj.CardID == row.get("trigger_id")), None)
         if "+4+4" in low:
-            v = (BE.W["w_atk"] + BE.W["w_def"]) * 4.0
+            v = (_W["w_atk"] + _W["w_def"]) * 4.0
             if trig is not None and self._actionable(st, trig):
-                v += BE.W["act_w"] * 4.0          # 本回合还能动：+4 攻能马上用来打
+                v += _W["act_w"] * 4.0          # 本回合还能动：+4 攻能马上用来打
             return v
         if "operationcost" in low and "0" in low:
             op = _n(getattr(trig, "operation_cost", 0)) if trig is not None else 0.0
@@ -2583,7 +3328,7 @@ class RuleV2(StrategicRule):
                 if tsrc:
                     opt_src = tsrc
             if r.get("needs_target") and st is not None:
-                trig = next((c for c in st.cards if c.card_id == r.get("trigger_id")), None)
+                trig = next((c for c in st.cards if c.obj.CardID == r.get("trigger_id")), None)
                 if self._best_target_for(st, trig, self.plan(trig) if trig else Plan(None)) is None:
                     s -= 5.0                                      # 选了没法指向：沉底
             if s > best_s:
@@ -2683,10 +3428,10 @@ class RuleV2(StrategicRule):
         act = {"kind": "pick", "index": row.get("index"), "score": round(best_s, 3),
                "meta": meta, "note": "规则2：三选一/二选一 → %s" % (row.get("label") or row.get("name"))}
         if row.get("needs_target") and st is not None:
-            trig = next((c for c in st.cards if c.card_id == row.get("trigger_id")), None)
+            trig = next((c for c in st.cards if c.obj.CardID == row.get("trigger_id")), None)
             tg = self._best_target_for(st, trig, self.plan(trig)) if trig is not None else None
             if tg is not None:
-                act["target"] = tg.card_id
+                act["target"] = tg.obj.CardID
         return act
 
     def _pick_from_plan(self, row: dict, path, st=None) -> dict:
@@ -2696,10 +3441,10 @@ class RuleV2(StrategicRule):
                         "pick_eval_src": "plan", "plan": list(path)},
                "note": "规则2：按搜索路径 %s → %s" % (list(path), row.get("label") or row.get("name"))}
         if row.get("needs_target") and st is not None:
-            trig = next((c for c in st.cards if c.card_id == row.get("trigger_id")), None)
+            trig = next((c for c in st.cards if c.obj.CardID == row.get("trigger_id")), None)
             tg = self._best_target_for(st, trig, self.plan(trig)) if trig is not None else None
             if tg is not None:
-                act["target"] = tg.card_id
+                act["target"] = tg.obj.CardID
         return act
 
     def _spawn_stat(self, name):
@@ -2717,7 +3462,7 @@ class RuleV2(StrategicRule):
     def _spawn_cands(self, st, card_id) -> list:
         """某张手牌的"三选一加入手牌"候选 `[{"name","atk","dfn","cost","typ"}]`（`semantics/choosespawn.py`：跑这张牌自己的
         `GetChooseSpawnCards` + 活种子洗牌，随机已被算成确定结果）。读不出 ⇒ []，记缺口（不编候选）。按 (卡, 种子) 缓存。"""
-        card = next((c for c in st.cards if c.card_id == card_id), None)
+        card = next((c for c in st.cards if c.obj.CardID == card_id), None)
         ptr = (getattr(card, "raw", None) or {}).get("ptr") if card is not None else None
         km, seed = self._km(), self._rng_seed()
         if not (ptr and km is not None and seed is not None):
@@ -2752,14 +3497,14 @@ class RuleV2(StrategicRule):
         try:
             ht = (pending or {}).get("hand_target") or {}
             inst_id = ht.get("card_being_played")
-            inst = next((c for c in st.cards if c.card_id == inst_id), None)
+            inst = next((c for c in st.cards if c.obj.CardID == inst_id), None)
             ptr = (getattr(inst, "raw", None) or {}).get("ptr") if inst is not None else None
             km = self._km()
             if not (ptr and km and self.P.get("use_vm", True)):
                 return False
             r = EV.record_effects(km, ptr, 0, False, hook="OnHandTargetSelected",
-                                  my_side=getattr(st, "my_side_raw", None),
-                                  args={"handTargetCardID": cand.card_id, "instigatorID": inst_id},
+                                  my_side=st.my_side,
+                                  args={"handTargetCardID": cand.obj.CardID, "instigatorID": inst_id},
                                   timeout_s=1.5)
             return bool((r or {}).get("eff", {}).get("to_deck"))
         except Exception:                                         # noqa: BLE001
@@ -2770,26 +3515,26 @@ class RuleV2(StrategicRule):
         （VM，游戏自己的字节码）。取不到/空 ⇒ 该候选不进表。"""
         out = {}
         km = self._km()
-        inst = next((c for c in st.cards if c.card_id == inst_id), None)
+        inst = next((c for c in st.cards if c.obj.CardID == inst_id), None)
         ptr = (getattr(inst, "raw", None) or {}).get("ptr") if inst is not None else None
         if not (km and ptr and self.P.get("use_vm", True)):
             return out
         for x in cands:
             try:
                 r = EV.record_effects(km, ptr, 0, False, hook="OnHandTargetSelected",
-                                      my_side=getattr(st, "my_side_raw", None),
-                                      args={"handTargetCardID": x.card_id, "instigatorID": inst_id},
+                                      my_side=st.my_side,
+                                      args={"handTargetCardID": x.obj.CardID, "instigatorID": inst_id},
                                       timeout_s=1.5, rng_seed=self._rng_seed())
             except Exception:                                     # noqa: BLE001
                 continue
             eff = dict((r or {}).get("eff") or {})
             eff.pop("uncertain", None)
             if eff:
-                out[x.card_id] = eff
+                out[x.obj.CardID] = eff
         return out
 
     def choose_hand_target(self, st, pending=None):
-        legal = [c for c in st.hand(LOCAL)
+        legal = [c for c in st.hand()
                  if self.sess.hand_target_legal(c).get("can") is not False]
         if not legal:
             return None
@@ -2798,46 +3543,51 @@ class RuleV2(StrategicRule):
         #   旧启发式（放回类 = 最用不上的；其它 = 最值钱的）只在建不出候选表/模拟时兜底。
         inst_id = ((pending or {}).get("hand_target") or {}).get("card_being_played")
         from policy import answer as PA
-        cid_plan = PA.plan_hand_target([c.card_id for c in legal], self.__dict__.get("_plan") or {}, inst_id)
+        cid_plan = PA.plan_hand_target([c.obj.CardID for c in legal], self.__dict__.get("_plan") or {}, inst_id)
         if cid_plan is not None:                                   # 搜索时已定好的路径（我们的动作引发的提示）
-            c = next(c for c in legal if c.card_id == cid_plan)
-            return {"kind": "hand_target", "card": c.card_id, "note": "规则2：手牌目标（按搜索路径）%s" % c.name,
+            c = next(c for c in legal if c.obj.CardID == cid_plan)
+            return {"kind": "hand_target", "card": c.obj.CardID, "note": "规则2：手牌目标（按搜索路径）%s" % c.name,
                     "meta": {"hand_target_mode": "plan", "plan": [cid_plan]}}
         try:
             fx = self._hand_target_fx_for(st, inst_id, legal) if inst_id is not None else {}
             if fx:
                 from policy import forced as PF
-                kred = int((st.kredits or {}).get(LOCAL) or 0)
+                kred = int((st.kredits or {}).get(st.my_side) or 0)
                 _me, _foes, ehq = self._split(st)
                 sim = self._search_sim(st, kred, ehq)
                 sim.hand_target_fx = {inst_id: fx}
                 ans = PF.answer_hand_target(sim, inst_id, self._W)
                 if ans:
                     cid, scored = ans
-                    name = next((c.name for c in legal if c.card_id == cid), cid)
+                    name = next((c.name for c in legal if c.obj.CardID == cid), cid)
                     return {"kind": "hand_target", "card": cid, "note": "规则2：手牌目标（模拟评估）%s" % name,
                             "meta": {"hand_target_mode": "sim",
                                      "scores": [(round(v, 3), k) for v, k in scored]}}
         except Exception:                                         # noqa: BLE001
             pass
         if self._hand_target_puts_back(st, pending, legal[0]):
-            kred = int((st.kredits or {}).get(LOCAL) or 0)
+            kred = int((st.kredits or {}).get(st.my_side) or 0)
             c = min(legal, key=lambda x: (0 if _n(getattr(x, "kredit_cost", 0)) > kred else 1, self.worth(x)))
-            return {"kind": "hand_target", "card": c.card_id,
+            return {"kind": "hand_target", "card": c.obj.CardID,
                     "note": "规则2：手牌目标（放回牌库顶）%s" % c.name, "meta": {"hand_target_mode": "put_back"}}
         c = max(legal, key=self.worth)
-        return {"kind": "hand_target", "card": c.card_id,
+        return {"kind": "hand_target", "card": c.obj.CardID,
                 "note": "规则2：手牌目标 %s" % c.name}
 
     def choose_board_target(self, st, instigator: int):
-        trig = next((c for c in st.cards if c.card_id == instigator), None)
+        trig = next((c for c in st.cards if c.obj.CardID == instigator), None)
         tg = self._best_target_for(st, trig, self.plan(trig)) if trig is not None else None
         if tg is None:
             return super().choose_board_target(st, instigator)
-        return {"kind": "board_target", "card": instigator, "target": tg.card_id,
+        return {"kind": "board_target", "card": instigator, "target": tg.obj.CardID,
                 "note": "规则2：待点目标 → %s" % tg.name}
 
     def decide(self, st, phase: str, pend=None, exclude_cards=None):
+        if phase != "mulligan" and getattr(st, "my_side", None) is None:
+            # 本地座位读不出（mySide 为空）：不知道哪些牌是我方的，**本步不决策**（返回 None = 不发动作），
+            # 记缺口；绝不默认按 1 号座位/按我方算。
+            self.gaps["my_side"] = "本地座位读不出（st.my_side=None）：本步不决策"
+            return None
         turn = getattr(st, "turn", None)
         if turn != self._turn:
             self._turn = turn
@@ -2846,7 +3596,9 @@ class RuleV2(StrategicRule):
             self._bad.clear()
             self.__dict__["_plan"] = __import__("policy.plan", fromlist=["PlanStore"]).PlanStore()
             self._act_cache.clear()
+            self.__dict__.get("_xcache", {}).clear()
             self._eff_cache.clear()
+            self.__dict__.setdefault("_fightfx_tbl", {}).clear()
             self._pick_seen.clear()
             self._last_n = 0
             self._epoch += 1
@@ -2883,26 +3635,44 @@ class RuleV2(StrategicRule):
 # ---------------------------------------------------------------------------
 # 离线自检（不碰游戏）
 # ---------------------------------------------------------------------------
-class _C:
-    def __init__(self, side, loc, cid, name="X", atk=0, dfn=0, cost=0, typ=None,
-                 guarded=False, enter=None, kw=None):
-        self.side, self.location, self.card_id, self.name = side, loc, cid, name
-        self.attack, self.defense, self.kredit_cost = atk, dfn, cost
-        self.card_type, self.is_being_guarded = typ, guarded
-        self.enter_play_on_turn, self.fname = enter, None
-        self.operation_cost, self.can_act, self.is_suppressed = 1, None, False
-        self.is_revealed, self.keywords, self.raw, self.uid = True, kw or [], {}, "0x%X" % cid
-        self.needs_hand_target = False
-        self.faction_enum = None
+# 自检用的座位：本地玩家固定 left、对方 right（和 tests/_cards.py 一致）。真实对局里 `st.my_side` 每局读一次。
+ME, OPP = ESide.left, ESide.right
 
 
-class _S:
-    def __init__(self, cards, kredits=5, turn=6, fl=None):
-        self.cards, self.turn, self.frontline_owner = cards, turn, fl
-        self.kredits = {"local": kredits, "enemy": 3}
+def _C(side, loc, cid, name="X", atk=0, dfn=0, cost=0, typ=None, guarded=False, enter=None, kw=None,
+       need_target=False, faction=None, cipher=None, opc=1, can_act=None, raw=None):
+    """自检假卡：产出和线上一致的 `kardsmem.board.Card`（带原版 `BaseCardObject`）。`side` 是 `ESide`；
+    `loc` 只是造牌用的简写（hand/frontline/back/hq），落成 `ECardLocation`。"""
+    if loc == "hand":
+        where = _GM.HAND_OF[side]
+    elif loc == "frontline":
+        where = _GM.ECardLocation.Board_Frontline
+    elif loc in ("back", "hq"):
+        where = _GM.SUPPORT_OF[side]
+    else:
+        raise ValueError(loc)
+    typ_ = _GM.EType["location"] if loc == "hq" else (_GM.EType[typ] if typ else _GM.EType.NotAvailable)
+    o = _GM.BaseCardObject(
+        CardID=cid, Type=typ_, Location=where, side=side, attack=atk, attackBuff=0, defense=dfn,
+        kredits=cost, kreditsBuff=0, operationCost=opc, operationCostBuff=0, enterPlayOnTurn=enter,
+        isSuppressed=False, isBeingGuarded=guarded, isRevealed=True, gotchaActivated=0,
+        selectTargetOnPlayedFromHand=need_target, cipher=cipher, title=name,
+        faction=_GM.enum_or_none(_GM.EFaction, faction))
+    if can_act is not None:
+        o.attackLeft, o.hasAttackedThisTurn = (1 if can_act else 0), False
+    for k in (kw or ()):
+        setattr(o, "has" + k.capitalize(), True)
+    return _BoardCard(uid="0x%X" % cid, obj=o, raw=dict(raw or {}))
 
-    def hand(self, side):
-        return [c for c in self.cards if c.side == side and c.location == "hand"]
+
+def _S(cards, kredits=5, turn=6, fl=None):
+    """自检假盘面：真正的 `BoardState`（本地 = left）。"""
+    from kardsmem.board import BoardState
+    st = BoardState(source="selftest", turn=turn, our_turn=True, my_side=ME, frontline_owner=fl,
+                    cards=list(cards))
+    st.kredits = {ME: kredits, OPP: 3}
+    st.game = _GM.GameState(mySide=ME)
+    return st
 
 
 class _Sess:
@@ -2910,13 +3680,13 @@ class _Sess:
         self.deny, self.asked, self.kred = set(deny), [], kred
 
     def can_attack(self, a, t):
-        self.asked.append(("atk", a.card_id, t.card_id))
-        return {"can": (a.card_id, t.card_id) not in self.deny}
+        self.asked.append(("atk", a.obj.CardID, t.obj.CardID))
+        return {"can": (a.obj.CardID, t.obj.CardID) not in self.deny}
 
     def can_play(self, c, target=None):
-        if (c.kredit_cost or 0) > self.kred:          # 假游戏：指挥点不够就说不行
+        if (c.obj.getTotalKredits() or 0) > self.kred:          # 假游戏：指挥点不够就说不行
             return {"can": False}
-        return {"can": (c.card_id, getattr(target, "card_id", None)) not in self.deny}
+        return {"can": (c.obj.CardID, getattr(target, "card_id", None)) not in self.deny}
 
     def can_move(self, u):
         return {"can": True}
@@ -2946,32 +3716,32 @@ def selftest() -> int:
         return pol, pol.decide(_S(cards, kred, turn, fl), "main")
 
     # 1 致命：两个单位合力能打死总部，先出手
-    pol, a = run([_C(LOCAL, "frontline", 1, "A", 3, 3, 3, "infantry"),
-                  _C(LOCAL, "frontline", 2, "B", 3, 3, 3, "infantry"),
-                  _C(ENEMY, "hq", 9, "HQ", 0, 6, 0)])
+    pol, a = run([_C(ME, "frontline", 1, "A", 3, 3, 3, "infantry"),
+                  _C(ME, "frontline", 2, "B", 3, 3, 3, "infantry"),
+                  _C(OPP, "hq", 9, "HQ", 0, 6, 0)])
     chk("致命一击优先", a["kind"] == "attack" and a["target"] == 9, a.get("note", ""))
 
     # 2 被守护的总部不打
-    pol, a = run([_C(LOCAL, "frontline", 1, "A", 5, 3, 3, "infantry"),
-                  _C(ENEMY, "hq", 9, "HQ", 0, 20, 0, guarded=True)])
+    pol, a = run([_C(ME, "frontline", 1, "A", 5, 3, 3, "infantry"),
+                  _C(OPP, "hq", 9, "HQ", 0, 20, 0, guarded=True)])
     chk("被守护的目标不打", a["kind"] == "end", a.get("note", ""))
 
     # 3 炮兵免反击：4/1 炮兵打 3/3 敌兵不死不亏，应该出手；同样数值的步兵会阵亡→不打
-    art = [_C(LOCAL, "back", 1, "ART", 3, 1, 3, "artillery"),
-           _C(ENEMY, "frontline", 5, "E", 3, 3, 2, "infantry")]
+    art = [_C(ME, "back", 1, "ART", 3, 1, 3, "artillery"),
+           _C(OPP, "frontline", 5, "E", 3, 3, 2, "infantry")]
     pol, a = run(art)
     chk("炮兵不吃反击 → 敢打", a["kind"] == "attack", a.get("note", ""))
-    inf = [_C(LOCAL, "back", 1, "INF", 3, 3, 3, "infantry"),      # 3/3 换 3/3：同归于尽，不赚
-           _C(ENEMY, "frontline", 5, "E", 3, 3, 2, "infantry")]
+    inf = [_C(ME, "back", 1, "INF", 3, 3, 3, "infantry"),      # 3/3 换 3/3：同归于尽，不赚
+           _C(OPP, "frontline", 5, "E", 3, 3, 2, "infantry")]
     pol, a = run(inf)
     cs_ = pol._attack_cands(_S(inf, 5, 6), *pol._split(_S(inf, 5, 6)), 5)
     chk("同归于尽的平换 → 收益很小（只剩清掉对方前线威胁那一点）",
         all(c[1] < 1.0 for c in cs_), str([round(c[1], 2) for c in cs_]))
 
     # 4 同一动作每回合只试一次；被闸门拒的换下一个
-    cs = [_C(LOCAL, "back", 1, "ART", 5, 2, 3, "artillery"),
-          _C(ENEMY, "frontline", 5, "E1", 2, 2, 2, "infantry"),
-          _C(ENEMY, "frontline", 6, "E2", 2, 2, 2, "infantry")]
+    cs = [_C(ME, "back", 1, "ART", 5, 2, 3, "artillery"),
+          _C(OPP, "frontline", 5, "E1", 2, 2, 2, "infantry"),
+          _C(OPP, "frontline", 6, "E2", 2, 2, 2, "infantry")]
     pol = RuleV2(_Sess(deny=[(1, 5), (1, 6)]), table=table)
     a = pol.decide(_S(cs), "main")
     chk("闸门全拒 → 结束（不死循环）", a["kind"] == "end", a.get("note", ""))
@@ -2983,8 +3753,8 @@ def selftest() -> int:
         "%s | %s" % (a1.get("note"), a2.get("note")))
 
     # 5 单位能不能动：问游戏（act_fn），不看闪击/进场回合
-    cs5 = [_C(LOCAL, "back", 1, "NEW", 5, 5, 3, "artillery"),
-           _C(ENEMY, "frontline", 5, "E", 1, 1, 1, "infantry")]
+    cs5 = [_C(ME, "back", 1, "NEW", 5, 5, 3, "artillery"),
+           _C(OPP, "frontline", 5, "E", 1, 1, 1, "infantry")]
     pol = RuleV2(_Sess(), table=table, act_fn=lambda u: False)
     a = pol.decide(_S(cs5), "main")
     chk("游戏说不能动 → 不打", a["kind"] != "attack", a.get("note", ""))
@@ -2993,14 +3763,14 @@ def selftest() -> int:
     chk("游戏说能动 → 打（哪怕刚部署/无闪击）", a["kind"] == "attack", a.get("note", ""))
 
     # 6 出牌：有钱时部署单位，付不起的不出
-    pol, a = run([_C(LOCAL, "hand", 20, "UNIT2", 2, 3, 2, "infantry"),
-                  _C(LOCAL, "hand", 21, "UNIT9", 9, 9, 9, "infantry")], kred=3)
+    pol, a = run([_C(ME, "hand", 20, "UNIT2", 2, 3, 2, "infantry"),
+                  _C(ME, "hand", 21, "UNIT9", 9, 9, 9, "infantry")], kred=3)
     chk("部署付得起的", a["kind"] == "play_unit" and a["card"] == 20, a.get("note", ""))
 
     # 7 先打后花钱：1 点指挥点时，好交换胜过部署（收益÷花费）
-    pol, a = run([_C(LOCAL, "back", 1, "ART", 4, 2, 3, "artillery"),
-                  _C(ENEMY, "frontline", 5, "E", 2, 2, 3, "infantry"),
-                  _C(LOCAL, "hand", 20, "UNIT1", 1, 1, 1, "infantry")], kred=1)
+    pol, a = run([_C(ME, "back", 1, "ART", 4, 2, 3, "artillery"),
+                  _C(OPP, "frontline", 5, "E", 2, 2, 3, "infantry"),
+                  _C(ME, "hand", 20, "UNIT1", 1, 1, 1, "infantry")], kred=1)
     chk("有利交换优先于平价部署", a["kind"] == "attack", a.get("note", ""))
 
     # 8 指令：入口是运行时旗标 needs_hand_target；侧倾向只影响排序；合法性问游戏
@@ -3008,8 +3778,8 @@ def selftest() -> int:
     dmg = cardprobe.summarize({"ok": True, "verbs": {"GetTargetedCard", "DamageCard"}, "damage": 4})
     buff = cardprobe.summarize({"ok": True, "verbs": {"GiveBlitz", "FullyHealCard"}})
     unk = cardprobe.summarize({"ok": True, "verbs": {"ChangeAttack"}})
-    chk("倾向：伤害类偏敌方", dmg["side"] == "enemy" and dmg["damage"] == 4)
-    chk("倾向：增益类偏我方", buff["side"] == "friend")
+    chk("倾向：伤害类偏敌方", dmg["side"] == REL_FOE and dmg["damage"] == 4)
+    chk("倾向：增益类偏我方", buff["side"] == REL_FRIEND)
     chk("倾向：两可动词 → 不下结论", unk["side"] is None)
 
     def with_probe(summ, cards, deny=(), kred=5):
@@ -3017,11 +3787,10 @@ def selftest() -> int:
                      act_fn=lambda u: True)
         return pol, pol.decide(_S(cards, kred), "main")
 
-    board = [_C(LOCAL, "back", 1, "MINE", 0, 2, 2, "infantry"),   # 攻击力 0：排除顺手攻击
-             _C(ENEMY, "frontline", 5, "BIG", 5, 4, 5, "tank"),
-             _C(ENEMY, "frontline", 6, "SMALL", 1, 1, 1, "infantry")]
-    order = _C(LOCAL, "hand", 30, "SHELL", 0, 0, 3, "order")
-    order.needs_hand_target = True                                # 运行时旗标
+    board = [_C(ME, "back", 1, "MINE", 0, 2, 2, "infantry"),   # 攻击力 0：排除顺手攻击
+             _C(OPP, "frontline", 5, "BIG", 5, 4, 5, "tank"),
+             _C(OPP, "frontline", 6, "SMALL", 1, 1, 1, "infantry")]
+    order = _C(ME, "hand", 30, "SHELL", 0, 0, 3, "order", need_target=True)   # 运行时旗标
     pol, a = with_probe(dmg, board + [order])
     chk("伤害指令 → 打敌方最值钱且能打死的", a.get("kind") == "play_event_target" and a["target"] == 5,
         a.get("note", ""))
@@ -3035,14 +3804,13 @@ def selftest() -> int:
     pol, a = with_probe(buff_eff, board + [order])
     chk("增益指令 → 偏我方单位", a.get("kind") == "play_event_target" and a["target"] == 1,
         a.get("note", ""))
-    noflag = _C(LOCAL, "hand", 31, "PLAIN", 0, 0, 2, "order")     # 没旗标：不带目标出
+    noflag = _C(ME, "hand", 31, "PLAIN", 0, 0, 2, "order")     # 没旗标：不带目标出
     pol, a = with_probe({"known": True, "effects": {"draw": 1}}, board + [noflag])
     chk("没有运行时旗标 → 直接出，不硬凑目标", a.get("kind") == "play_event", a.get("note", ""))
     pol, a = with_probe(dmg, board + [noflag])                    # 目标类效果 + 没旗标
     chk("没旗标 + 目标类效果 ⇒ 不硬凑目标（宁可不打）",
         a.get("kind") != "play_event_target", a.get("note", ""))
-    unit = _C(LOCAL, "hand", 32, "DEPLOYER", 2, 2, 2, "infantry")
-    unit.needs_hand_target = True
+    unit = _C(ME, "hand", 32, "DEPLOYER", 2, 2, 2, "infantry", need_target=True)
     pol, a = with_probe(dmg, board + [unit], deny=[(32, 5), (32, 6), (32, 1)])
     chk("部署效果目标全被拒 → 退回无目标部署", a.get("kind") == "play_unit", a.get("note", ""))
 
@@ -3060,10 +3828,9 @@ def selftest() -> int:
         return pol
 
     # 贴闪击：本回合刚部署的炮兵（sick）+ 「给友方闪击」的指令 ⇒ 先贴再打
-    sickart = _C(LOCAL, "back", 1, "NEWART", 4, 3, 3, "artillery", enter=6)
-    giveb = _C(LOCAL, "hand", 30, "GIVEBLITZ", 0, 0, 1, "order")
-    giveb.needs_hand_target = True
-    foe = _C(ENEMY, "frontline", 5, "FOE", 2, 2, 2, "infantry")
+    sickart = _C(ME, "back", 1, "NEWART", 4, 3, 3, "artillery", enter=6)
+    giveb = _C(ME, "hand", 30, "GIVEBLITZ", 0, 0, 1, "order", need_target=True)
+    foe = _C(OPP, "frontline", 5, "FOE", 2, 2, 2, "infantry")
     pol = eff_pol({"GIVEBLITZ": {"give": ["blitz"], "target": "friend"}},
                   act=lambda u: False)                     # 游戏：新部署的它现在不能动
     a = pol.decide(_S([sickart, giveb, foe], 5, 6), "main")
@@ -3072,8 +3839,8 @@ def selftest() -> int:
         a.get("note", ""))
 
     # 生产：差 1 点买不起 4 费 5/5 ⇒ 先打 0 费「+1 指挥点」
-    prod = _C(LOCAL, "hand", 40, "PRODUCTION", 0, 0, 0, "order")
-    big = _C(LOCAL, "hand", 41, "BIGUNIT", 5, 5, 4, "infantry")
+    prod = _C(ME, "hand", 40, "PRODUCTION", 0, 0, 0, "order")
+    big = _C(ME, "hand", 41, "BIGUNIT", 5, 5, 4, "infantry")
     pol = eff_pol({"PRODUCTION": {"kredit": 1}})
     sess_k = pol.sess
     a = pol.decide(_S([prod, big], 3, 6), "main")
@@ -3081,10 +3848,9 @@ def selftest() -> int:
     chk("搜索·生产：预算差 1 点时先打生产", a.get("card") == 40, a.get("note", ""))
 
     # 逐对目标：游戏否掉一个，就在另一个上出手
-    shell = _C(LOCAL, "hand", 50, "SHELL2", 0, 0, 2, "order")
-    shell.needs_hand_target = True
-    e1 = _C(ENEMY, "frontline", 5, "E5", 3, 3, 3, "infantry")
-    e2 = _C(ENEMY, "frontline", 6, "E6", 3, 3, 3, "infantry")
+    shell = _C(ME, "hand", 50, "SHELL2", 0, 0, 2, "order", need_target=True)
+    e1 = _C(OPP, "frontline", 5, "E5", 3, 3, 3, "infantry")
+    e2 = _C(OPP, "frontline", 6, "E6", 3, 3, 3, "infantry")
     pol = eff_pol({"SHELL2": {"damage": 3, "target": "enemy"}}, deny=[(50, 5)])
     a = pol.decide(_S([shell, e1, e2], 5, 6), "main")
     chk("搜索·逐对目标：游戏否掉 5 号，改指 6 号", a.get("kind") == "play_event_target" and a.get("target") == 6,
@@ -3093,14 +3859,14 @@ def selftest() -> int:
     # 覆盖缺口：效果摘要为空的指令 ⇒ 记入 gaps（不悄悄猜），且**不编造价值**
     # （用户 2026-10-02："指令的评估有问题。6费空打+3+2" —— 旧默认 order_mult*cost 给
     #  6 费牌 +5.4，扣掉手牌持有价值 2.16 仍是 +3.24 ⇒ 空打被当正收益）
-    mystery = _C(LOCAL, "hand", 60, "MYSTERY", 0, 0, 2, "order")
+    mystery = _C(ME, "hand", 60, "MYSTERY", 0, 0, 2, "order")
     pol = eff_pol({})
     a = pol.decide(_S([mystery], 5, 6), "main")
     chk("覆盖缺口被记录", "MYSTERY" in pol.gaps, str(pol.gaps))
     chk("未知效果的指令不再被当成正收益（宁可不打）", a.get("kind") == "end", a.get("note", ""))
-    mystery6 = _C(LOCAL, "hand", 61, "MYSTERY6", 0, 0, 6, "order")
-    inf = _C(LOCAL, "back", 1, "INF", 3, 3, 2, "infantry")        # 后排步兵打敌方前线才合法
-    e1 = _C(ENEMY, "frontline", 5, "E5", 1, 1, 2, "infantry")
+    mystery6 = _C(ME, "hand", 61, "MYSTERY6", 0, 0, 6, "order")
+    inf = _C(ME, "back", 1, "INF", 3, 3, 2, "infantry")        # 后排步兵打敌方前线才合法
+    e1 = _C(OPP, "frontline", 5, "E5", 1, 1, 2, "infantry")
     pol = eff_pol({})
     a = pol.decide(_S([mystery6, inf, e1], 10, 6), "main")
     chk("6 费未知指令不再压过能打的攻击（不空打）",
@@ -3115,8 +3881,7 @@ def selftest() -> int:
         return {"outcomes": [], "stopped": "这张牌没有 OnPlayedFromHand 覆写",
                 "complete": False, "nodes": [], "runs": 1}
 
-    plain = _C(LOCAL, "back", 1, "PLAIN UNIT", 3, 3, 2, "infantry")
-    plain.raw = {"ptr": 0x1234}
+    plain = _C(ME, "back", 1, "PLAIN UNIT", 3, 3, 2, "infantry", raw={"ptr": 0x1234})
     pol = eff_pol({})
     pol.P = dict(pol.P, use_vm=True)     # 离线：这一段要走到 VM 分支（eff_pol 默认把 VM 关了）
     pol._km = lambda: object()          # 离线：绕过"没进程 ⇒ 直接返回 None"的早退，走到 stopped 分支
@@ -3134,8 +3899,7 @@ def selftest() -> int:
         return {"outcomes": [], "stopped": "Unimplemented @0x12 LocalFinalFunction: '…'",
                 "complete": False, "nodes": [], "runs": 1}
 
-    hard = _C(LOCAL, "back", 2, "HARD CARD", 3, 3, 2, "infantry")
-    hard.raw = {"ptr": 0x5678}
+    hard = _C(ME, "back", 2, "HARD CARD", 3, 3, 2, "infantry", raw={"ptr": 0x5678})
     pol2 = eff_pol({})
     pol2.P = dict(pol2.P, use_vm=True)
     pol2._km = lambda: object()
@@ -3151,10 +3915,8 @@ def selftest() -> int:
 
     # 部署抉择（5th RANGERS 那类）：候选是**文字**不是卡 ⇒ 按文字对触发单位估值；
     # 用户 2026-10-02："游骑兵，脚本还是不选+4+4"（旧逻辑永远点第一个 = 行动费归零）
-    rgr = _C(LOCAL, "hand", 75, "5th RANGERS", 4, 4, 4, "infantry")
-    rgr.operation_cost = 4
-    rgr.can_act = True
-    st_rgr = _S([rgr, _C(ENEMY, "frontline", 5, "E5", 1, 1, 2, "infantry")], 6, 6)
+    rgr = _C(ME, "hand", 75, "5th RANGERS", 4, 4, 4, "infantry", opc=4, can_act=True)
+    st_rgr = _S([rgr, _C(OPP, "frontline", 5, "E5", 1, 1, 2, "infantry")], 6, 6)
     rgr_cands = [
         {"kind": "choose_one", "index": 0, "label": "Set operation cost to 0.", "trigger_id": 75},
         {"kind": "choose_one", "index": 1, "label": "Give this unit +4+4.", "trigger_id": 75}]
@@ -3179,36 +3941,53 @@ def selftest() -> int:
         str(row and row.get("meta")))
 
     # 协力（Bond）：打出时「回合开始时场上没有同国友方单位」⇒ 总部吃一次疲劳伤害
-    bond_card = _C(LOCAL, "hand", 80, "BOND CARD", 0, 0, 2, "order")
-    bond_card.faction_enum = 7
-    bond_st = _S([bond_card, _C(LOCAL, "frontline", 1, "A", 2, 2, 2, "infantry"),
-                  _C(ENEMY, "hq", 9, "HQ", 0, 20, 0)], 5, 4)
+    #（2026-10-06：不再是效果字典里的 `bond_fatigue` 键，而是 sim 里 `CardPlayedFromHand` 的原生一步——
+    #  这里只验 rule 把 `bond`/`faction`/`activeBondFactions` 正确喂进 Sim；扣血本身见 tests/test_bond_native.py）
+    bond_card = _C(ME, "hand", 80, "BOND CARD", 0, 0, 2, "order", faction=7)
+    bond_st = _S([bond_card, _C(ME, "frontline", 1, "A", 2, 2, 2, "infantry"),
+                  _C(OPP, "hq", 9, "HQ", 0, 20, 0)], 5, 4)
     pol = eff_pol({})
     pol._has_bond = lambda c: True
     pol._bond_factions = lambda st: set()            # 回合开始时场上没有同国单位
     sim_b = pol._search_sim(bond_st, 5, bond_st.cards[-1])
-    chk("协力未满足 ⇒ 手牌效果带 bond_fatigue",
-        sim_b.hand[80].eff.get("bond_fatigue") is True, str(sim_b.hand[80].eff))
+    chk("协力牌进 Sim：bond=True、faction=7、集合为空",
+        sim_b.hand[80].bond is True and sim_b.hand[80].faction == 7 and sim_b.bond_factions == set(),
+        str((sim_b.hand[80].bond, sim_b.hand[80].faction, sim_b.bond_factions)))
+    hq0 = sim_b.hq[sim_b.me]
+    after_b = _en.sim_order(sim_b, 80)
+    chk("协力未满足 ⇒ 打出时总部吃一次疲劳伤害（计数 +1）",
+        after_b.hq[sim_b.me] == hq0 - sim_b.fatigue and after_b.fatigue == sim_b.fatigue + 1
+        and "bond_fatigue" not in sim_b.hand[80].eff, str((hq0, after_b.hq[sim_b.me], after_b.fatigue)))
     pol._bond_factions = lambda st: {7}              # 回合开始时有同国单位
     sim_b2 = pol._search_sim(bond_st, 5, bond_st.cards[-1])
-    chk("协力已满足（faction 7 在集合里）⇒ 无 bond_fatigue",
-        "bond_fatigue" not in sim_b2.hand[80].eff, str(sim_b2.hand[80].eff))
+    chk("协力已满足（faction 7 在集合里）⇒ 打出不扣总部",
+        _en.sim_order(sim_b2, 80).hq[sim_b2.me] == sim_b2.hq[sim_b2.me])
     pol2 = eff_pol({})                               # 不是 bond 牌（默认 _has_bond 读不到 = False）
     sim_b3 = pol2._search_sim(bond_st, 5, bond_st.cards[-1])
-    chk("非协力牌 ⇒ 无 bond_fatigue", "bond_fatigue" not in sim_b3.hand[80].eff)
+    chk("非协力牌 ⇒ bond=False、打出不扣总部",
+        sim_b3.hand[80].bond is False and _en.sim_order(sim_b3, 80).hq[sim_b3.me] == sim_b3.hq[sim_b3.me])
 
     # 情报触发（0x1C）：条件判据（cipher>0）；离线无进程 ⇒ 安全返回 []
     pol_i = eff_pol({})
-    c_no = _C(LOCAL, "hand", 90, "INTEL0", 0, 0, 1, "order")
-    c_no.cipher = 0
+    c_no = _C(ME, "hand", 90, "INTEL0", 0, 0, 1, "order", cipher=0)
     chk("情报触发：cipher=0 ⇒ 不触发", pol_i._intel_triggers(_S([c_no]), c_no) == [])
-    c_yes = _C(LOCAL, "hand", 91, "INTEL2", 0, 0, 1, "order")
-    c_yes.cipher = 2
-    c_yes.raw = {}                                   # 让 ptr=0 ⇒ 不进入 VM，安全返回 []
+    c_yes = _C(ME, "hand", 91, "INTEL2", 0, 0, 1, "order", cipher=2)   # raw 为空：ptr=0 ⇒ 不进入 VM，安全返回 []
     chk("情报触发：离线（无 ptr/无进程）⇒ 安全返回 []",
         pol_i._intel_triggers(_S([c_yes]), c_yes) == [])
     chk("死亡触发：离线（无进程）⇒ 安全返回 {}",
         pol_i._death_fx(_S([c_no])) == {})
+
+    # 座位读不出：不默认按 1 / 不按我方算 —— 协力返回 None 并记缺口；decide 本步不决策
+    st_none = _S([bond_card])
+    st_none.my_side = None
+    pol_n = eff_pol({})
+    chk("座位读不出 ⇒ _bond_factions 返回 None + 缺口", pol_n._bond_factions(st_none) is None
+        and "bond_factions" in pol_n.gaps, str(pol_n.gaps))
+    chk("座位读不出 ⇒ decide(main) 不决策（None）+ 缺口", pol_n.decide(st_none, "main") is None
+        and "my_side" in pol_n.gaps)
+    st_nt = _S([bond_card])
+    st_nt.our_turn = None
+    chk("读不到 our_turn ⇒ 行动方不明 ⇒ None（不按我方算）", eff_pol({})._bond_factions(st_nt) is None)
     return fails
 
 

@@ -14,14 +14,20 @@ import time
 from . import autoplay as AP
 from . import control as C
 
-PS_QUERY = ("Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'live_session[.]py' } "
+# 窗口子系统的 exe（打包版面板）每次轮询都起 powershell：不加 CREATE_NO_WINDOW 会闪黑窗并抢游戏焦点。
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+# 两种监听器命令行：开发布局 `python …\live_session.py`；冻结包 `kards-agent.exe --listener`。
+# 正则写成 `[.]` / `[-]-` 的形式，是为了让 PowerShell 自己的命令行（含这段正则原文）匹配不上自己。
+PS_QUERY = ("Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'live_session[.]py|[-]-listener( |$)' } "
             "| Select-Object -ExpandProperty ProcessId")
 
 
 def pids() -> list:
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command", PS_QUERY],
-                             capture_output=True, text=True, timeout=10).stdout
+                             capture_output=True, text=True, timeout=10,
+                             creationflags=_NO_WINDOW).stdout
         return [int(x) for x in out.split() if x.isdigit()]
     except Exception:                                         # noqa: BLE001
         return []
@@ -53,7 +59,8 @@ def force_kill(pids_fn=pids, killer=None) -> list:
         if killer is not None:
             killer(p)
         else:
-            subprocess.run(["taskkill", "/PID", str(p), "/F"], capture_output=True, timeout=15)
+            subprocess.run(["taskkill", "/PID", str(p), "/F"], capture_output=True, timeout=15,
+                           creationflags=_NO_WINDOW)
         killed.append(p)
     if killed:
         C.log_event("面板：强杀监听器 %s" % killed)
@@ -78,15 +85,18 @@ def launch_state(log_path: str, offset: int) -> str:
     return "pending"
 
 
-# ---------------------------------------------------------------- 运行中游戏的版本 → 构建
+# ---------------------------------------------------------------- 运行中游戏的版本（只作身份/显示）
 def detect_version(pids_fn=None, read_fn=None):
-    """从**运行中游戏进程内存**读 `版本号.分支`，再按 `VERSION_TO_BUILD` 得到 RVA 表构建键。
-    → `{"version", "build", "pid", "why"}`。没有游戏/多个进程/认不出/版本未登记 ⇒ build=None + 原因（不猜）。
-    不看 exe 大小，也不看安装树（见 `kardsmem/version.py`）。"""
-    from kardsmem import version as V
+    """从**运行中游戏进程内存**读 `版本号.分支`（只读）。→ `{"version", "build", "source", "pid", "why"}`。
+
+    ★ 2026-10-03 P7：版本号**不是放行条件**。`build` = 种子表里登记过这个版本的键（没登记 ⇒ None，只表示“不在种子表”）；
+    `source` = RVA 预期来源 `seed|cache|scan`（只看文件，不碰进程：种子表登记过 ⇒ seed；用户缓存里有 ⇒ cache；
+    否则首次 attach 会扫描一次并写缓存）。真正的复验/扫描在监听器 attach 时做（`kardsmem.build.resolve`）。
+    没有游戏/多个进程/认不出版本 ⇒ version=None + 原因。不看 exe 大小，也不看安装树（见 `kardsmem/version.py`）。"""
+    from kardsmem import version as V, build as B
     pids_fn = pids_fn or V.game_pids
     read_fn = read_fn or V.read_game_version
-    out = {"version": None, "build": None, "pid": None, "why": ""}
+    out = {"version": None, "build": None, "source": None, "pid": None, "why": ""}
     pids_ = pids_fn()
     if not pids_:
         out["why"] = "没有找到 kards-Win64-Shipping 进程（游戏开了吗？）"
@@ -100,18 +110,29 @@ def detect_version(pids_fn=None, read_fn=None):
     if gv["version"] is None:
         out["why"] = gv["why"]
         return out
-    b = V.build_key_for_version(gv["version"])
-    if b is None:
-        out["why"] = "版本 %s（%s）没有登记 RVA 表（kardsmem/version.py::VERSION_TO_BUILD）" % (gv["version"], gv["why"])
-        return out
+    b = B.seed_for_display(gv["version"])
     out["build"] = b
-    out["why"] = "进程内存里的版本串 %s（%s）→ RVA 表 %s" % (gv["version"], gv["why"], b)
+    if b:
+        out["source"] = "seed"
+        out["why"] = "进程内存里的版本串 %s（%s）→ 种子表 %s（attach 时仍会对进程复验）" % (gv["version"], gv["why"], b)
+    else:
+        out["source"] = "cache" if _has_rva_cache(gv["version"]) else "scan"
+        out["why"] = ("进程内存里的版本串 %s（%s）；种子表没有这个版本，%s" % (
+            gv["version"], gv["why"], "用户缓存里有" if out["source"] == "cache" else "首次 attach 会扫描一次 RVA（只读，约十几秒）并写缓存"))
     return out
+
+
+def _has_rva_cache(version) -> bool:
+    try:
+        from kardsmem import rvascan
+        return os.path.exists(rvascan.cache_path(version))
+    except Exception:                                         # noqa: BLE001
+        return False
 
 
 def describe(info: dict) -> str:
     if info.get("version") and info.get("build"):
-        return "游戏版本 %s（RVA 表 %s）" % (info["version"], info["build"])
+        return "游戏版本 %s（种子表 %s）" % (info["version"], info["build"])
     if info.get("version"):
         return "游戏版本 %s；%s" % (info["version"], info.get("why"))
     return info.get("why") or "未识别"

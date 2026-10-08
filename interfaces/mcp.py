@@ -52,7 +52,7 @@ TOOLS = [
                 "这是知道对手做了什么的唯一途径。",
      {"type": "object", "properties": {
          "tail": {"type": "integer", "description": "只看最后 N 条，默认 20"},
-         "side": {"type": "string", "enum": ["me", "enemy", "both"],
+         "side": {"type": "string", "enum": ["me", "opp", "both"],
                   "description": "默认 both"}},
       "required": []}, False),
     ("can_attack", "某个我方单位现在能打谁。三态：能打 / 不能打（给理由）/ 不知道。"
@@ -156,7 +156,7 @@ TOOLS = [
       "required": ["spec"]}, False),
     ("pick_target", "给\"要选一个敌方目标\"的动作启发式挑一个（不算判据）。",
      {"type": "object", "properties": {
-         "side": {"type": "string", "description": "默认 enemy"}},
+         "side": {"type": "string", "description": "me / opp / left / right / 1 / 2，默认 opp（对方）"}},
       "required": []}, False),
     ("card_totals", "游戏本体的显示值（攻/防/费/行动费/重甲），与卡面 UI 同源，"
                     "被贴膜/减费时比\"分量相加\"准。",
@@ -201,8 +201,16 @@ class Server:
         return r["text"] if r.get("ok") else r["error"]
 
     def t_history(self, tail=20, side="both"):
-        mine = {"me": True, "enemy": False}.get(side)
-        r = self.session().history(tail=int(tail), mine=mine)
+        from agent import view
+        a = self.session()
+        # 输入入口一次性解析成 ESide（both => None）；之后只传 ESide
+        if side in (None, "both"):
+            esd = None
+        else:
+            if a.st is None:
+                a.snapshot()
+            esd = view.parse_side(side, a.st.my_side)
+        r = a.history(tail=int(tail), side=esd)
         if not r.get("ok"):
             return r["error"]
         return "共 %d 条，显示后 %d 条：\n%s" % (r["total"], len(r["rows"]), r["text"])
@@ -212,7 +220,7 @@ class Server:
         c = a.resolve(str(unit))
         if c is None:
             return "认不出 %r —— 先用 board 看短号" % unit
-        if c.side != "local":
+        if not a.is_mine(c):
             return "%s 不是我方单位" % unit
         return a.attack_targets(c)["text"]
 
@@ -271,7 +279,7 @@ class Server:
         from agent.session import ACTION_TYPES
         a = self.session()
         c = a.resolve(str(card))
-        if c is None or c.side != "local" or c.location != "hand":
+        if c is None or not a.is_mine(c) or not c.obj.InHand():
             return "%r 不是我方手牌" % card
         tid = None
         tcard = None
@@ -279,9 +287,9 @@ class Server:
             t = a.resolve(str(target))
             if t is None:
                 return "认不出目标 %r" % target
-            tid = t.card_id
+            tid = t.obj.CardID
             tcard = t
-        elif c.needs_hand_target:
+        elif c.obj.selectTargetOnPlayedFromHand:
             return "%s 需要指向目标，请给 target" % a.tr(c.name)
         note = ""
         if not force:
@@ -304,13 +312,13 @@ class Server:
             return a.play_card_event_with_target(cid, tg)
 
         return note + self._act("出牌 " + (a.tr(c.name) or "?"), _play,
-                                ACTION_TYPES["play"], c.card_id, tid, bool(force))
+                                ACTION_TYPES["play"], c.obj.CardID, tid, bool(force))
 
     def t_attack(self, unit, target, force=False):
         from agent.session import ACTION_TYPES
         a = self.session()
         c = a.resolve(str(unit))
-        if c is None or c.side != "local":
+        if c is None or not a.is_mine(c):
             return "%r 不是我方单位" % unit
         tgt = a.resolve(str(target))
         # 预检：**只挑不判**。算不出来一律放行（§7.6f）
@@ -332,7 +340,7 @@ class Server:
         #   踩过同一个坑，见 §11.2 那次 force 参数修复）。
         return note + self._act("攻击 " + str(target),
                                 lambda cid, tg: a.attack(cid, tg, force=bool(force)),
-                                ACTION_TYPES["attack"], c.card_id, spec)
+                                ACTION_TYPES["attack"], c.obj.CardID, spec)
 
     @staticmethod
     def _attack_spec(a, tgt, token):
@@ -341,18 +349,20 @@ class Server:
         if tgt is None:
             return token if token == "hq" or token.startswith(
                 ("front", "back", "guard")) else None
-        if tgt.location == "hq":
+        from agent import view
+        trow = view.row_of(tgt)
+        if trow == "hq":
             return "hq"
-        if tgt.location not in ("frontline", "back"):
+        if trow not in ("frontline", "back"):
             return None
         row = sorted([x for x in a.st.cards
-                      if x.side == tgt.side and x.location == tgt.location],
+                      if x.side == tgt.side and view.row_of(x) == trow],
                      key=lambda x: (x.slot if x.slot is not None else 99))
         try:
             i = [x.uid for x in row].index(tgt.uid)
         except ValueError:
             return None
-        return ("front%d" if tgt.location == "frontline" else "back%d") % i
+        return ("front%d" if trow == "frontline" else "back%d") % i
 
     def t_move(self, unit, force=False):
         """把我方支援阵线单位移到前线。★ 2026-09-24 F10b：跟 `t_attack` 同一套
@@ -365,7 +375,7 @@ class Server:
         from agent.session import ACTION_TYPES
         a = self.session()
         c = a.resolve(str(unit))
-        if c is None or c.side != "local":
+        if c is None or not a.is_mine(c):
             return "%r 不是我方单位" % unit
         note = ""
         if not force:
@@ -378,7 +388,7 @@ class Server:
                 note = "（判据没算出来：%s —— 照发）\n" % (r.get("stopped") or "")[:60]
         return note + self._act("把 %s 移到前线" % a.tr(c.name),
                                 lambda cid: a.move_up(cid, force=bool(force)),
-                                ACTION_TYPES["move"], c.card_id)
+                                ACTION_TYPES["move"], c.obj.CardID)
 
     def t_end_turn(self):
         from agent.session import ACTION_TYPES
@@ -436,7 +446,7 @@ class Server:
             t = a.resolve(str(target))
             if t is None:
                 return "认不出目标 %r" % target
-            r = a.choose_one_with_target(int(index), t.card_id, trigger=trig)
+            r = a.choose_one_with_target(int(index), t.obj.CardID, trigger=trig)
         else:
             r = a.choose_one(int(index), trigger=trig)
         a.snapshot()
@@ -454,9 +464,9 @@ class Server:
     def t_mulligan_mark(self, card):
         a = self.session()
         c = a.resolve(str(card))
-        if c is None or c.side != "local":
+        if c is None or not a.is_mine(c):
             return "%r 不是我方手牌" % card
-        r = a.mulligan_mark(c.card_id)
+        r = a.mulligan_mark(c.obj.CardID)
         a.snapshot()
         return self._fmt_choice(r)
 
@@ -469,9 +479,9 @@ class Server:
     def t_select_hand_target(self, card):
         a = self.session()
         c = a.resolve(str(card))
-        if c is None or c.side != "local":
+        if c is None or not a.is_mine(c):
             return "%r 不是我方手牌" % card
-        r = a.select_hand_target(c.card_id)
+        r = a.select_hand_target(c.obj.CardID)
         a.snapshot()
         return self._fmt_choice(r)
 
@@ -490,11 +500,11 @@ class Server:
             return "认不出目标 %r" % target
         if card:
             c = a.resolve(str(card))
-            if c is None or c.side != "local":
+            if c is None or not a.is_mine(c):
                 return "%r 不是我方的卡" % card
-            r = a.select_unit_target(c.card_id, t.card_id)
+            r = a.select_unit_target(c.obj.CardID, t.obj.CardID)
         else:
-            r = a.select_target(t.card_id)
+            r = a.select_target(t.obj.CardID)
         a.snapshot()
         return self._fmt_choice(r)
 
@@ -507,14 +517,14 @@ class Server:
     def t_hand_target_legal(self, card):
         a = self.session()
         c = a.resolve(str(card))
-        if c is None or c.side != "local":
+        if c is None or not a.is_mine(c):
             return "%r 不是我方手牌" % card
-        return str(a.hand_target_legal(c.card_id))
+        return str(a.hand_target_legal(c.obj.CardID))
 
     def t_can_play(self, card, target=None):
         a = self.session()
         c = a.resolve(str(card))
-        if c is None or c.side != "local":
+        if c is None or not a.is_mine(c):
             return "%r 不是我方手牌" % card
         t = a.resolve(str(target)) if target else None
         if target and t is None:
@@ -528,7 +538,7 @@ class Server:
     def t_can_move(self, unit):
         a = self.session()
         c = a.resolve(str(unit))
-        if c is None or c.side != "local":
+        if c is None or not a.is_mine(c):
             return "%r 不是我方单位" % unit
         r = a.can_move(c)
         note = ""
@@ -542,29 +552,36 @@ class Server:
     def t_can_act_now(self, unit):
         a = self.session()
         c = a.resolve(str(unit))
-        if c is None or c.side != "local":
+        if c is None or not a.is_mine(c):
             return "%r 不是我方单位" % unit
-        return str(a.can_act_now(c.card_id))
+        return str(a.can_act_now(c.obj.CardID))
 
     def t_is_pinned(self, card):
         a = self.session()
         c = a.resolve(str(card))
         if c is None:
             return "认不出 %r" % card
-        return str(a.is_pinned(c.card_id))
+        return str(a.is_pinned(c.obj.CardID))
 
     def t_resolve_target(self, spec):
         return str(self.session().resolve_target(str(spec)))
 
-    def t_pick_target(self, side="enemy"):
-        return str(self.session().pick_target(side=str(side)))
+    def t_pick_target(self, side=None):
+        from agent import view
+        a = self.session()
+        esd = None
+        if side:                         # 输入入口一次性解析成 ESide；缺省 = 对方（session 里按 my_side 算）
+            if a.st is None:
+                a.snapshot()
+            esd = view.parse_side(side, a.st.my_side)
+        return str(a.pick_target(side=esd))
 
     def t_card_totals(self, card):
         a = self.session()
         c = a.resolve(str(card))
         if c is None:
             return "认不出 %r" % card
-        return str(a.card_totals(c.card_id))
+        return str(a.card_totals(c.obj.CardID))
 
     def t_notify_texts(self, limit=4):
         texts = self.session().notify_texts(limit=int(limit)) or []
@@ -577,7 +594,7 @@ class Server:
             c = a.resolve(str(card))
             if c is None:
                 return "认不出 %r" % card
-            cid = c.card_id
+            cid = c.obj.CardID
         return str(a.preflight(cid, target=target))
 
     def t_pick_layers(self, index, kind=None):

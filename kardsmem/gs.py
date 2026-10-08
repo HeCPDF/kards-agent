@@ -22,6 +22,7 @@ import struct
 from typing import Optional
 
 from . import build as B
+from .gamemodel import ESide
 from .proc import board_api
 from .world import Locator
 
@@ -81,7 +82,7 @@ class GameState:
         if not self.in_battle:
             return False
         k = self.kredits()
-        return k.get("local") is not None or k.get("enemy") is not None
+        return any(v is not None for v in k.values())
 
     @property
     def kind(self) -> str:
@@ -100,11 +101,12 @@ class GameState:
     def side_block(self) -> dict:
         """`gs+0x330..0x390` 一次原子读 + 解密。
 
-        返回 {key, tamper_flag, kredits:{local,enemy}, slots:{local,enemy}, raw_ok}。
+        返回 {key, tamper_flag, kredits:{ESide:int|None}, slots:{ESide:int|None}, raw_ok}（键是座位 `ESide`，
+        不再有 local/enemy；要“我方”的值用 `kredits()[gs.my_side]`）。
         任何一条解不出来就是 None —— **不猜**（旧报告里"上限每回合+1"就是因为猜）。
         """
-        out = {"key": None, "tamper_flag": None, "kredits": {"local": None, "enemy": None},
-               "slots": {"local": None, "enemy": None}, "raw_ok": False}
+        out = {"key": None, "tamper_flag": None, "kredits": {ESide.left: None, ESide.right: None},
+               "slots": {ESide.left: None, ESide.right: None}, "raw_ok": False}
         if not self.addr:
             return out
         blk = self.mem.atomic(self.addr + GS_SIDE_BLOCK_OFF, GS_SIDE_BLOCK_LEN)
@@ -113,11 +115,10 @@ class GameState:
         out["raw_ok"] = True
         out["tamper_flag"] = self._i32_at(blk, 0x330 - GS_SIDE_BLOCK_OFF)
         out["key"] = self._i32_at(blk, OFF_AGS_KEY - GS_SIDE_BLOCK_OFF)
-        by_lr = self.side_lr_map()
         for (kind, lr), off in AGS_SIDES.items():
             X, Y, _Z, enc, _frame = struct.unpack_from("<5i", blk, off - GS_SIDE_BLOCK_OFF)
             v = _decrypt(out["key"], X, Y, enc)
-            (out["kredits"] if kind == "kredit" else out["slots"])[by_lr[lr]] = v
+            (out["kredits"] if kind == "kredit" else out["slots"])[ESide.left if lr == "left" else ESide.right] = v
         return out
 
     # -- 指挥点上限（不是槽数！） ----------------------------------------
@@ -140,10 +141,6 @@ class GameState:
         """
         return board_api.read_my_side(self.mem, self.addr)
 
-    def side_lr_map(self) -> dict:
-        """{'left'/'right' → 'local'/'enemy'}。my_side 读不出时退回历史默认 1=local。"""
-        return board_api.side_maps(self.my_side)[1]
-
     @staticmethod
     def _i32_at(blk: bytes, off: int) -> Optional[int]:
         if off + 4 > len(blk):
@@ -157,7 +154,15 @@ class GameState:
         return self.side_block()["slots"]
 
     # -- ★ 物理牌库（board_api 未展开） ---------------------------------
-    def deck_tarray_raw(self, side: str = "local") -> dict:
+    def _seat(self, side: Optional[ESide]) -> ESide:
+        """side 缺省 = 我方（`my_side`）；读不出 my_side 就抛 ValueError，**不默认 1**。"""
+        if side is None:
+            side = self.my_side
+            if side is None:
+                raise ValueError("本地座位读不出（mySide 为空）：不能按『我方』取牌库")
+        return ESide(side)
+
+    def deck_tarray_raw(self, side: Optional[ESide] = None) -> dict:
         """`DeckCardIDs_Left(0x4A0) / Right(0x490)` 的 TArray 头 + 前若干元素。
 
         AllCardsInBattle 的 key 是**运行时 CardID**（同名牌会塌缩），所以"牌库里
@@ -166,8 +171,7 @@ class GameState:
         每个 id 都能在 `AllCardsInBattle` 里找到对应卡（本局 22/22、23/23 全部命中）；
         `as_ptr` 只是留一份对照，不是别的解读。
         """
-        by_lr = self.side_lr_map()
-        off = (OFF_DECK_IDS_LEFT if by_lr["left"] == side else OFF_DECK_IDS_RIGHT)
+        off = OFF_DECK_IDS_LEFT if self._seat(side) == ESide.left else OFF_DECK_IDS_RIGHT
         if not self.addr:
             return {"off": off, "available": False}
         p, num, mx = _tarray(self.mem, self.addr + off)
@@ -182,7 +186,7 @@ class GameState:
                                  struct.unpack_from("<%dQ" % min(num, 16), b8)]
         return out
 
-    def deck_ids(self, side: str = "local") -> Optional[list]:
+    def deck_ids(self, side: Optional[ESide] = None) -> Optional[list]:
         """i32 解读下的整条牌库 id 列表（不确定元素类型时返回 None）。"""
         raw = self.deck_tarray_raw(side)
         p, num = raw.get("ptr"), raw.get("num")
@@ -231,6 +235,7 @@ class GameState:
             "kind": self.kind,
             "in_battle": self.in_battle,
             "match_active": self.match_active,
+            "my_side": None if self.my_side is None else int(self.my_side),
             "u8": b,
             "i32": i,
             "hq_ptr": {k: ("0x%X" % self.p(o) if self.p(o) else None)
@@ -240,8 +245,8 @@ class GameState:
             "tamper_flag": self.side_block()["tamper_flag"],
         }
         if self.in_battle:
-            d["deck_left"] = self.deck_tarray_raw("local")
-            d["deck_right"] = self.deck_tarray_raw("enemy")
+            d["deck_left"] = self.deck_tarray_raw(ESide.left)
+            d["deck_right"] = self.deck_tarray_raw(ESide.right)
             d["static_cards"] = self.static_card_table()
             d["hidden_kredits"] = self.hidden_kredits_map()
         return d
@@ -313,7 +318,9 @@ def make_static_card_provider(session):
         return dbghelp_cache[cptr]
 
     static_card.names = frozenset(table)
+    static_card.ptr_of = lambda nm: table.get(str(nm).casefold())      # 静态卡对象指针（合成句柄的字段读取兜底用）
     static_card.table_size = len(table)
+    static_card._session = session
     _STATIC_PROV_CACHE[key] = static_card
     return static_card
 

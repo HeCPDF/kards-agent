@@ -11,8 +11,9 @@ from kardsmem.kismetlib import Unimplemented
 class B:
     def __init__(self, our_turn=True, kredits=None, slots=None, max_kredits=None):
         self.our_turn = our_turn
-        self.kredits = kredits or {"local": 5, "enemy": 3}
-        self.slots = slots or {"local": 7, "enemy": 4}
+        # 座位迁移：BoardState.kredits / slots 的键是 ESide（绝对座位 1/2），不是 local/enemy
+        self.kredits = kredits or {1: 5, 2: 3}
+        self.slots = slots or {1: 7, 2: 4}
         self.max_possible_kredits = max_kredits      # None = 快照没读到（应抛）
 
 
@@ -55,8 +56,9 @@ def main():
     # ---- 指挥点：换 side / 换局面 ----
     chk("getKreditBySide(1) seat=1", call("getKreditBySide", 1), 5)
     chk("getKreditBySide(2) seat=1", call("getKreditBySide", 2), 3)
-    chk("getKreditBySide(1) seat=2",
-        CardNatives(B(), my_seat=2).call("getKreditBySide", None, 1), 3)
+    # 绝对座位：my_seat 换了，side=1 的指挥点不变（以前 local/enemy 时会跟着翻）
+    chk("getKreditBySide(1) seat=2（与 my_seat 无关）",
+        CardNatives(B(), my_seat=2).call("getKreditBySide", None, 1), 5)
     chk("getKreditBySide(0) => -100", call("getKreditBySide", 0), -100)
     chk("getKreditSlotBySide(1)", call("getKreditSlotBySide", 1), 7)
     chk("getKreditSlotBySide(2)", call("getKreditSlotBySide", 2), 4)
@@ -89,7 +91,7 @@ def main():
     chk("CanEndTurn 登记为近似", "CanEndTurn" in APPROX, True)
     chk("arity CanEndTurn()", CardNatives.arity("CanEndTurn"), 0)
     chk("换局面 getKreditBySide",
-        CardNatives(B(kredits={"local": 9, "enemy": 1}), my_seat=1).call("getKreditBySide", None, 2), 1)
+        CardNatives(B(kredits={1: 9, 2: 1}), my_seat=1).call("getKreditBySide", None, 2), 1)
     # ---- GetOppositeSide：换卡的座位 ----
     for raw, w in ((1, 2), (2, 1), (0, 0)):
         chk("GetOppositeSide(side_enum=%d)" % raw, cn.call("GetOppositeSide", {"side_enum": raw}), w)

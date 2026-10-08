@@ -22,8 +22,11 @@ def _live_hand() -> int:
     from agent import session as _session
     sess = _session.AgentSession(translate=False, warm=False)
     km, st = sess._kardsmem(), sess.snapshot()
-    side = getattr(st, "my_side_raw", None)
-    for c in st.hand("local"):
+    side = st.my_side
+    if side is None:
+        print("本地座位 mySide 读不出（不在对局里？）—— 不能按『我方手牌』取牌，退出")
+        return 1
+    for c in st.hand():
         ptr = (getattr(c, "raw", None) or {}).get("ptr")
         if not ptr:
             print("%-26s (没有对象指针)" % c.name)

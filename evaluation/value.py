@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from sim.state import (ENEMY, GROUND, LOCAL, NO_RETALIATION, UNIT_TYPES, H, Sim, U)
+from sim.state import (GROUND, NO_RETALIATION, UNIT_TYPES, H, Sim, U)
 
 DEFAULT_WEIGHTS = None            # 见文件末：= W
 
@@ -34,6 +34,10 @@ W = {
     "slot_w": 2.0,          # 1 个指挥点槽（每回合多 1 点，剩余若干回合）
     "kred_w": 0.0,          # 剩余指挥点计入场面（方案 B）；搜索终局默认 0（用不完作废）
     "hand_cap": 9,
+    # ★ 延迟/常驻效果（2026-10-07，`engine/deferred.py`）：事件由**对方**发起的钩子（ECHELON："你的某个单位被攻击时其余单位 +1+1"）在我方回合的
+    #   搜索里不会自己发生。`armed_enemy_hits` = **预期被打次数**（敌方回合里打到我方单位的攻击数）。缺省 0 = **不估值**（不编造次数；
+    #   rule 会为这类牌记缺口 `#deferred_val`）。这是**用户拍板项**：要让 bot 为 ECHELON 付费，就在这里给一个有依据的数。
+    "armed_enemy_hits": 0.0,
 }
 KW_SCORE = {"guard": "kw_guard", "smokescreen": "kw_smoke", "ambush": "kw_ambush",
             "shock": "kw_shock", "blitz": "kw_other", "fury": "kw_other", "pincer": "kw_other"}
@@ -130,19 +134,45 @@ def pending_value(sim: Sim, w: dict = W) -> float:
     return v
 
 
+def armed_value(sim: Sim, w: dict = W) -> float:
+    """已布防的**对方事件**钩子（`Sim.armed`，`engine.deferred`）的期望价值：`armed_enemy_hits` × 各候选被打主体上预计算桶的平均身体增益。
+
+    只估 `buff_ids`（攻/防）这一种后果——其它后果形状（抽牌/伤害…）没有统一尺度 ⇒ 不估、不编（rule 的缺口里写着）。
+    桶来自 VM 空跑（`event_fx["armed"]`），按**我方**每个在场单位当"被打的牌"各取一份再平均（敌方选谁打是未知的，均匀是最少假设）。
+    """
+    n = float(w.get("armed_enemy_hits", 0.0) or 0.0)
+    if n <= 0.0 or not getattr(sim, "armed", None):
+        return 0.0
+    efx = (getattr(sim, "event_fx", None) or {}).get("armed") or {}
+    subs = [uid for uid, u in sim.units.items() if u.side == sim.me]
+    tot = 0.0
+    for a in sim.armed:
+        if a.side != sim.me or not a.enemy_event or not subs:
+            continue
+        vals = []
+        for sid in subs:
+            b = efx.get((a.src, a.hook, sid)) or {}
+            vals.append(sum(w["w_atk"] * da + w["w_def"] * dd
+                            for cid, (da, dd) in (b.get("buff_ids") or {}).items()
+                            if cid in sim.units and sim.units[cid].side == sim.me and cid != sid))
+        tot += sum(vals) / len(vals)
+    return n * tot
+
+
 def evaluate(sim: Sim, w: dict = W) -> float:
-    if sim.hq.get(ENEMY, 1) <= 0:
+    if sim.hq.get(sim.opp, 1) <= 0:
         return w["lethal"]
-    if sim.hq.get(LOCAL, 1) <= 0:
+    if sim.hq.get(sim.me, 1) <= 0:
         return -w["lethal"]
     e = 0.0
     for u in sim.units.values():
-        s = 1.0 if u.side == LOCAL else -1.0
+        s = 1.0 if u.side == sim.me else -1.0
         e += s * (unit_value(u, w) + activity_value(u, w) + w["thr_w"] * _threat(u))
-    e += _hq_val(sim.hq.get(LOCAL, 0), w) - _hq_val(sim.hq.get(ENEMY, 0), w)
+    e += _hq_val(sim.hq.get(sim.me, 0), w) - _hq_val(sim.hq.get(sim.opp, 0), w)
     e += w.get("kred_w", 0.0) * sim.kredits
     e += sum(hold_value(c, w) for c in sim.hand.values())
     e += pending_value(sim, w)
+    e += armed_value(sim, w)
     e += w["slot_w"] * sim.slots
     e -= w.get("kred_w", 0.0) * sim.opp_kredits + w["slot_w"] * sim.opp_slots     # 对手的指挥点/槽变化
     e -= w["hold_phi"] * w["draw_v"] * sim.opp_cards          # §15.5：对手多抽的牌（对我们不利）

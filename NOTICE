@@ -7,17 +7,28 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.  See LICENSE for the full text.
 
 --------------------------------------------------------------------------
-Derived from
+Acknowledgements / origin
 --------------------------------------------------------------------------
 
-KARDS AUTO
-Copyright (C) 2026 yumehanab1
-https://github.com/yumehanab1/OCR-Kards-Auto
-GPL-3.0
+This project started (2026-09) as a fork of
 
-The files under vendor/ are taken from that project (see the header of each
-file).  vendor/handedge.py additionally extracts four functions from its
-src/hand_calibrate.py.  config/ and ui_templates/ are derived from its
-configuration and template images.
+    KARDS AUTO
+    Copyright (C) 2026 yumehanab1
+    https://github.com/yumehanab1/OCR-Kards-Auto
+    GPL-3.0
 
-Everything else in this repository is original work.
+and, like that project, is licensed under GPL-3.0.  The early versions carried
+a small set of its window / template-matching / hand-fan edge-detection
+primitives under vendor/, plus its UI templates and coordinate tables.  Those
+files have since been removed from this repository (the board is now read from
+process memory and input is synthesized inside the game process), and the git
+history before that point still contains them with their original headers.
+
+Thanks to the upstream author for the original idea and for the groundwork on
+automating KARDS.
+
+Everything currently in this repository is original work of the kards-agent
+authors, released under the same GPL-3.0 terms.
+
+KARDS is a trademark of its respective owners; this project is not affiliated
+with or endorsed by them.

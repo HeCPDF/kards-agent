@@ -223,7 +223,7 @@ if __name__ == "__main__":
     a = ap.parse_args()
     sess = _session.AgentSession(translate=False, warm=False)
     km, st = sess._kardsmem(), sess.snapshot()
-    cards = st.cards if a.all else st.hand("local")
+    cards = st.cards if a.all else st.hand()
     for c in cards:
         s = summarize(profile(km, c))
         print("%-24s type=%-9s target=%-5s hand=%-5s pick=%-5s side=%-6s dmg=%s\n    %s"

@@ -38,14 +38,14 @@ def main(argv=None) -> int:
             time.sleep(0.2)
             continue
         st = BA.open_source("mem").snapshot()
-        rows = [{"card_id": c.card_id, "name": c.name, "side": c.side,
-                 "location": c.location, "slot": c.slot, "type": c.card_type,
-                 "cost": c.kredit_cost} for c in st.cards]
+        rows = [{"card_id": c.obj.CardID, "name": c.name, "side": (None if c.side is None else int(c.side)),
+                 "location": getattr(c.obj.Location, "name", None), "slot": c.slot, "type": c.card_type,
+                 "cost": c.obj.getTotalKredits()} for c in st.cards]
         big = [r for r in rows if (r["card_id"] or 0) >= 4000]
         tag = time.strftime("%Y%m%d-%H%M%S") + "-dump"
         os.makedirs(OUT, exist_ok=True)
         rec = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "pick_state": ps,
-               "turn": st.turn, "n_cards": len(rows),
+               "turn": st.turn, "my_side": st.my_side_raw, "n_cards": len(rows),
                "by_loc": {"%s/%s" % k: v for k, v in
                           collections.Counter((r["side"], r["location"]) for r in rows).items()},
                "id_ge_4000": big, "cards": rows}

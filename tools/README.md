@@ -14,6 +14,7 @@
 | `mem_find.py` | 进程内字节特征搜索（定位 FNamePool 之类） |
 | `mdmp.py` | 最小 minidump 解析：`Memory64ListStream` → VA→文件偏移表 |
 | `dumpmem.py` | 把 minidump 当成一个**只读内存源**挂进 `kardsmem`（进程没了也能分析） |
+| `reconcile_batch.py` | **P5 影子对账的离线批量版**：整进程转储（`kards-data/crashdumps/*.dmp`）当内存后端，VM/盘面/RNG 全离线可跑；每转储 × 4 种盘面变体 × 每张指令牌做 A/B/C 对账，按牌出 same/diff_ab/diff_bc/skipped 表 + JSON 报告（`docs/RECONCILE-BATCH-REPORT.json`）。`python tools/reconcile_batch.py --all`；测试 `tests/test_reconcile_batch.py` |
 | `mulliganprobe.py` | 换牌勾选位的内存 diff 定位（基数/差分两趟） |
 | `mulverify.py` | 用两份 minidump 核对 `BP_HandCard_C::shouldDiscard`（三条判据） |
 | `pickdump.py` | 选择界面一开就把**完整卡表**打下来（挑 `pick_candidates` 的空档） |

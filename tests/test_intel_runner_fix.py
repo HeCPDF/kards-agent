@@ -19,6 +19,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _cards import ME, OPP, mk_card                               # noqa: E402
 import player.rule as R                                          # noqa: E402
 from kardsmem import kismet as K                                # noqa: E402
 from kardsmem import objects as O                               # noqa: E402
@@ -33,21 +35,16 @@ def chk(name, ok, extra=""):
         fails += 1
 
 
-class _Card:
-    def __init__(self, name, cid, loc, side, ptr, **kw):
-        self.name, self.card_id = name, cid
-        self.location, self.side = loc, side
-        self.raw = {"ptr": ptr}
-        self.cipher = kw.get("cipher", 0)
-        self.fname = kw.get("fname")
-        self.attack = kw.get("attack", 1)
-        self.defense = kw.get("defense", 1)
-        self.keywords = []
+def _Card(name, cid, loc, side, ptr, **kw):
+    return mk_card(cid, side, loc, "infantry", kw.get("attack", 1), kw.get("defense", 1), 1, 1, name,
+                   ptr=ptr, cipher=kw.get("cipher", 0), fname=kw.get("fname"))
 
 
 class _St:
     def __init__(self, cards, seat=1):
         self.cards, self.my_side_raw, self.turn = cards, seat, 3
+        self.my_side = ME if seat == 1 else OPP
+        self.other_side = OPP if seat == 1 else ME
         self.slots = {}
 
 
@@ -80,8 +77,8 @@ def mk_pol(outcomes):
 
 
 def main():
-    src = _Card("CRUISER SCOUTS", 11, "hand", "local", 0x1001, cipher=3)
-    trig = _Card("NAKAJIMA B5N2", 12, "frontline", "local", 0x1002)
+    src = _Card("CRUISER SCOUTS", 11, "hand", ME, 0x1001, cipher=3)
+    trig = _Card("NAKAJIMA B5N2", 12, "frontline", ME, 0x1002)
     st = _St([src, trig])
 
     pol = mk_pol([(1.0, {"attack": 1, "defense": 1})])

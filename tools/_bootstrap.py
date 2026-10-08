@@ -22,9 +22,12 @@ import sys
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT_ROOT = os.path.dirname(TOOLS_DIR)
 
-for _p in (AGENT_ROOT,):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+# 冻结的 exe 包（PyInstaller）里模块全在内置导入器里，`__file__` 也不指向真实目录：不要往 sys.path 塞东西
+# （这里算出来的 AGENT_ROOT 会是 exe 目录的上一层）。
+if not getattr(sys, "frozen", False):
+    for _p in (AGENT_ROOT,):
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
 
 
 

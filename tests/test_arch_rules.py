@@ -6,10 +6,10 @@
   * `sim/`（L2 规则）**不得** import `evaluation` / `policy` / `player.rule`；
   * `evaluation/`（L3 价值）只许依赖 `sim.state` 的**数据结构**，
     不得 import `sim` 的规则模块，也不得 import `policy` / `player.rule`；
-  * `policy/boardeval.py` 是过渡期实现，`sim` / `evaluation` 通过**白名单**转调它 ——
-    白名单写死在本文件里，**加一条就得改这个测试**（不允许悄悄长出来）。
+  * `policy/boardeval.py` 门面**已删**（真实现在 `sim/` / `evaluation/` / `policy/`）——
+    `sim` / `evaluation` 不得回头依赖它；过渡期桥白名单写死在本文件里，加一条就得改这个测试。
 
-再跑一遍真实 import：两个包没有循环依赖、转调结果与 boardeval 一致（行为不变）。
+再跑一遍真实 import：`sim` / `engine` / `evaluation` / `policy.search` 没有循环依赖。
 """
 import ast
 import os
@@ -76,9 +76,10 @@ def hits(imps, prefixes):
 LAYERS = {
     "base": set(),
     "kardsmem": {"base"},
+    "engine": {"base", "kardsmem"},
     "ops": {"base", "kardsmem"},
-    "semantics": {"base", "kardsmem"},
-    "sim": {"base", "kardsmem"},
+    "semantics": {"base", "kardsmem", "engine"},
+    "sim": {"base", "kardsmem", "engine"},
     "evaluation": {"sim"},
     "policy": {"sim", "evaluation", "kardsmem", "base"},
     "learn": {"base"},
@@ -165,19 +166,44 @@ def main():
     # 真实 import（循环依赖会在这里炸）
     sys.path.insert(0, ROOT)
     try:
-        import policy.boardeval as B
+        import engine.state                                    # noqa: F401
         import evaluation
+        import evaluation.value                                # noqa: F401
+        import policy.search                                   # noqa: F401
         import sim
-        chk("import sim / evaluation / policy.boardeval 都能过", True)
+        import sim.engine                                      # noqa: F401
+        chk("import sim / engine / evaluation / policy.search 都能过（无循环依赖）", True)
     except Exception as e:                                     # noqa: BLE001
-        chk("import sim / evaluation / policy.boardeval 都能过", False, repr(e))
+        chk("import sim / engine / evaluation / policy.search 都能过（无循环依赖）", False, repr(e))
         print("\n结论：FAIL（%d 项失败）" % fails)
         return 1
 
-    st = sim.State({}, {"local": 20, "enemy": 20}, 5.0)
-    chk("sim.State 是 sim.state.Sim 的子类，且门面 boardeval.Sim 就是它", isinstance(st, B.Sim) and B.Sim.__module__ == "sim.state")
-    chk("evaluation.value ≡ boardeval.evaluate（行为不变）",
-        evaluation.value(st) == B.evaluate(st))
+    from kardsmem.gamemodel import ESide                    # noqa: E402
+    from engine.state import Sim as _EnSim                  # noqa: E402  真家（P2：状态已端口进 engine，sim.state 只是壳）
+    from evaluation.value import evaluate as _evaluate      # noqa: E402  真家（`evaluation.value` 包属性被同名函数遮住，别用 `import a.b as c`）
+    st = sim.State({}, {ESide.left: 20, ESide.right: 20}, 5.0, my_side=ESide.left)
+    chk("sim.State 是 engine.state.Sim 的子类（sim.state 只是壳；P2：状态已端口进 engine）",
+        isinstance(st, _EnSim) and _EnSim.__module__ == "engine.state")
+    try:
+        import engine.triggers as _E
+        import semantics.triggers as _S
+        chk("semantics.triggers 是 engine.triggers 的兼容别名（同一模块对象；P2 触发分发端口）", _S is _E)
+        import engine.effectvm as _E2
+        import semantics.effectvm as _S2
+        chk("semantics.effectvm 是 engine.effectvm 的兼容别名（同一模块对象；P2 录制 VM 端口）", _S2 is _E2)
+    except Exception as e:                                     # noqa: BLE001
+        chk("semantics.triggers 是 engine.triggers 的兼容别名（同一模块对象；P2 触发分发端口）", False, repr(e))
+    try:
+        import engine.adapter as _EA
+        import sim.adapter as _SA
+        chk("sim.adapter.from_cards is engine.adapter.from_cards（P2 第十刀：适配器端口进 engine，壳不另留实现）",
+            _SA.from_cards is _EA.from_cards and _EA.from_cards.__module__ == "engine.adapter")
+    except Exception as e:                                     # noqa: BLE001
+        chk("sim.adapter.from_cards is engine.adapter.from_cards（P2 第十刀：适配器端口进 engine，壳不另留实现）",
+            False, repr(e))
+    chk("evaluation.value(st) == evaluation.value.evaluate 同值（`value()` 是默认权重 W 的包装 ⇒ 与底层真实现同值；"
+        "门面删掉后这条钉的是「公开入口 vs 真实现」）",
+        evaluation.value(st) == _evaluate(st))
     print("\n结论：%s（%d 项失败）" % ("PASS" if not fails else "FAIL", fails))
     return 0 if not fails else 1
 

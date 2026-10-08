@@ -4,7 +4,10 @@
 
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-from policy import boardeval as BE
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from _cards import ME, OPP
+from engine.state import H, Sim, U
+from sim.engine import _apply_eff
 from semantics import effectvm as EV
 from kardsmem import cardnatives as CN
 
@@ -41,19 +44,31 @@ chk("读侧：影子 120 ⇒ clamp 99",
     cn.call("getTotalDefense", dict(c, shadow_stats={"defense": 120})) == 99)
 
 # ---- 3) 模拟消费 ----
-s = BE.Sim({1: BE.U(1, "local", "back", 2, 2, 2, "infantry")},
-           {"local": 20, "enemy": 20}, 5.0, {10: BE.H(10, "O", 3, "order")})
-BE._apply_eff(s, {"set_defense": {1: 5}}, None)
+s = Sim({1: U(1, ME, "back", 2, 2, 2, "infantry")},
+           {ME: 20, OPP: 20}, 5.0, {10: H(10, "O", 3, "order")}, my_side=ME)
+_apply_eff(s, {"set_defense": {1: 5}}, None)
 chk("模拟：set_defense 落到单位（2 → 5）", s.units[1].dfn == 5, str(s.units[1].dfn))
-BE._apply_eff(s, {"set_attack": {1: 120}}, None)
+_apply_eff(s, {"set_attack": {1: 120}}, None)
 chk("模拟：set_attack 夹到 99", s.units[1].atk == 99, str(s.units[1].atk))
-BE._apply_eff(s, {"set_attack": {1: -5}}, None)
+_apply_eff(s, {"set_attack": {1: -5}}, None)
 chk("模拟：set_attack 夹到 0", s.units[1].atk == 0, str(s.units[1].atk))
-BE._apply_eff(s, {"set_kredit": {10: 7}}, None)
+_apply_eff(s, {"set_kredit": {10: 7}}, None)
 chk("模拟：set_kredit 落到手牌费用（3 → 7）", s.hand[10].cost == 7, str(s.hand[10].cost))
-BE._apply_eff(s, {"set_attack_buff": {1: 3}}, None)
-chk("模拟：set_attack_buff 记缺口、不硬塞总量",
-    any("set_attack_buff" in g for g in s.gaps), str(s.gaps))
+_apply_eff(s, {"set_attack_buff": {1: 3}}, None)
+chk("模拟：set_attack_buff 写『buff 累加器』（不再记缺口），总量 = clamp(基础 + buff)",
+    s.units[1].atk_buff == 3 and s.units[1].atk == 3 and not any("set_attack_buff" in g for g in s.gaps),
+    "atk=%s buff=%s gaps=%s" % (s.units[1].atk, s.units[1].atk_buff, s.gaps))
+# ★ P3 R3/R10：`set_attack` 写的是**基础值**，独立的 buff 累加器**不动** ⇒
+#   「设为 2」在一张挂着 3 点 buff 的牌上 = 总攻 clamp(2+3)=5（不是 2）。
+_apply_eff(s, {"set_attack": {1: 2}}, None)
+chk("模拟：SetValue 只改基础值、buff 留着（设成 2 + buff 3 ⇒ 总攻 5）",
+    s.units[1].atk == 5 and s.units[1].atk_buff == 3,
+    "atk=%s buff=%s" % (s.units[1].atk, s.units[1].atk_buff))
+_apply_eff(s, {"set_kredit_buff": {10: 2}}, None)
+_apply_eff(s, {"set_kredit": {10: 4}}, None)
+chk("模拟：手牌同构（费用 = clamp(基础 4 + buff 2) = 6）",
+    s.hand[10].cost == 6 and s.hand[10].cost_buff == 2,
+    "cost=%s buff=%s" % (s.hand[10].cost, s.hand[10].cost_buff))
 
 print("失败 %d 项" % fails)
 raise SystemExit(1 if fails else 0)

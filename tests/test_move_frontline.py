@@ -16,9 +16,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
 import semantics.triggers as TR                                    # noqa: E402
-from policy.boardeval import U                                  # noqa: E402
+from engine.state import EVENT_FX_KINDS, H, Sim, U                 # noqa: E402
+from sim.engine import sim_move                                    # noqa: E402
 
 fails = 0
 
@@ -35,6 +36,8 @@ class _C:
     def __init__(self, name, loc, p, side="local", typ="infantry", gotcha=0, raw=None, sup=False):
         self.name, self.location, self.side, self.card_type = name, loc, side, typ
         self.gotcha_activated = gotcha
+        import types
+        self.obj = types.SimpleNamespace(gotchaActivated=gotcha)   # 引擎读原版字段 obj.gotchaActivated
         self.is_suppressed = sup
         self.raw = {"ptr": p}
         if raw:
@@ -131,32 +134,32 @@ def main():
         calls5 == [("OnMoveToFrontline", "A")], str(calls5))
 
     # ---------------- 效果落地：Sim.move_fx + sim_move ----------------
-    base = B.Sim({1: U(1, "local", "back", 2, 2, 2, "infantry")},
-                 {"local": 20, "enemy": 20}, 5.0, {}, event_fx={"move": {1: {"buff": [2, 0]}}})
-    after = B.sim_move(base, 1)
+    base = Sim({1: U(1, ME, "back", 2, 2, 2, "infantry")},
+                 {ME: 20, OPP: 20}, 5.0, {}, event_fx={"move": {1: {"buff": [2, 0]}}}, my_side=ME)
+    after = sim_move(base, 1)
     u = after.units[1]
     chk("上线：位置变前线 + 支付行动费 + 触发效果（+2 攻）",
         u.row == "frontline" and after.kredits == 4.0 and u.atk == 4,
         "atk=%s kred=%s（行动费 opc=1）" % (u.atk, after.kredits))
     chk("没有 move_fx 的同类局面 ⇒ 只有位移，没有加成",
-        B.sim_move(B.Sim({1: U(1, "local", "back", 2, 2, 2, "infantry")},
-                         {"local": 20, "enemy": 20}, 5.0), 1).units[1].atk == 2)
+        sim_move(Sim({1: U(1, ME, "back", 2, 2, 2, "infantry")},
+                         {ME: 20, OPP: 20}, 5.0, my_side=ME), 1).units[1].atk == 2)
     chk("换数据答案要变：+2/+0 vs +0/+0", after.units[1].atk == 4 and
-        B.sim_move(B.Sim({1: U(1, "local", "back", 2, 2, 2, "infantry")},
-                         {"local": 20, "enemy": 20}, 5.0, {}, event_fx={"move": {1: {}}}), 1).units[1].atk == 2)
+        sim_move(Sim({1: U(1, ME, "back", 2, 2, 2, "infantry")},
+                         {ME: 20, OPP: 20}, 5.0, {}, event_fx={"move": {1: {}}}, my_side=ME), 1).units[1].atk == 2)
     chk("move_fx 只作用于对应的那张牌",
-        B.Sim({1: U(1, "local", "back", 2, 2, 2, "infantry"),
-               2: U(2, "local", "back", 2, 2, 2, "infantry")},
-              {"local": 20, "enemy": 20}, 5.0, {}, event_fx={"move": {2: {"buff": [3, 0]}}}).units[1].atk == 2)
+        Sim({1: U(1, ME, "back", 2, 2, 2, "infantry"),
+               2: U(2, ME, "back", 2, 2, 2, "infantry")},
+              {ME: 20, OPP: 20}, 5.0, {}, event_fx={"move": {2: {"buff": [3, 0]}}}, my_side=ME).units[1].atk == 2)
     chk("copy() 带 event_fx（move）",
         base.copy().event_fx["move"] == {1: {"buff": [2, 0]}})
 
     # 全局效果（抽牌）也走同一条路
-    top = B.H(9, "TOP", 1, "order", eff={"_hold": 3.0})
-    st = B.Sim({1: U(1, "local", "back", 2, 2, 2, "infantry")}, {"local": 20, "enemy": 20}, 5.0, {},
-               deck=[9], deck_cards={9: top}, event_fx={"move": {1: {"draw": 1}}})
+    top = H(9, "TOP", 1, "order", eff={"_hold": 3.0})
+    st = Sim({1: U(1, ME, "back", 2, 2, 2, "infantry")}, {ME: 20, OPP: 20}, 5.0, {},
+               deck=[9], deck_cards={9: top}, event_fx={"move": {1: {"draw": 1}}}, my_side=ME)
     chk("上线触发的全局效果（抽 1 张）也结算",
-        len(B.sim_move(st, 1).hand) == 1)
+        len(sim_move(st, 1).hand) == 1)
 
     # ---------------- 常量/规格 ----------------
     chk("触发号 0x32 登记在规格里", TR.MOVE_HOOK_SPECS["OnOtherCardMoveToFrontline"]["trigger"] == 0x32)
@@ -166,11 +169,11 @@ def main():
         and TR.MOVE_HOOKS["OnMoveToFrontline"] == ("forceMove", "moveCost"))
     # event_fx 的键必须登记在册（拼错名字不许静默无效）
     try:
-        B.Sim({}, {"local": 20, "enemy": 20}, 5.0, {}, event_fx={"moves": {1: {}}})
+        Sim({}, {ME: 20, OPP: 20}, 5.0, {}, event_fx={"moves": {1: {}}}, my_side=ME)
         chk("未登记的 event_fx 种类必须报错", False, "静默通过了")
     except ValueError as e:
         chk("未登记的 event_fx 种类必须报错", True, str(e)[:30] + "…")
-    chk("已登记的两种在册", set(B.EVENT_FX_KINDS) >= {"move", "draw"}, str(B.EVENT_FX_KINDS))
+    chk("已登记的两种在册", set(EVENT_FX_KINDS) >= {"move", "draw"}, str(EVENT_FX_KINDS))
 
     print("\n结论：%s（%d 项失败）" % ("PASS" if not fails else "FAIL", fails))
     return 0 if not fails else 1

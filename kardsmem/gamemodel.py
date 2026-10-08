@@ -202,17 +202,64 @@ class BaseCardObject:
     def IsLocatedOnBoard(self) -> Optional[bool]:
         return None if self.Location is None else self.Location in BOARD_LOCATIONS
 
+    # ---- 位置谓词（原版没有这几个名字；它们只是 Location/Type 的组合，集中写一处）----
+    def GetOppositeSide(self) -> Optional[ESide]:
+        """`UBaseCardObject::GetOppositeSide`（IDA 0x144AF7700）：side==left→right，==right→left；
+        side 不是 1/2（静态卡 NotAvailable）时**不写出参**⇒ 调用方得到 0。这里返回 None 表示该情形。"""
+        if self.side not in (ESide.left, ESide.right):
+            return None
+        return ESide.right if self.side == ESide.left else ESide.left
+
+    def InHand(self) -> bool:
+        return self.Location in (ECardLocation.Hand_Left, ECardLocation.Hand_Right)
+
+    def InFrontline(self) -> bool:
+        return self.Location == ECardLocation.Board_Frontline
+
+    def InSupportLine(self) -> bool:
+        """支援线（含 HQ 卡本身）。"""
+        return self.Location in (ECardLocation.Board_HQLeft, ECardLocation.Board_HQRight)
+
+    def IsHQ(self) -> bool:
+        return self.InSupportLine() and self.Type == EType.location
+
+    def IsFieldUnit(self) -> bool:
+        """真正在场的单位：前线 + 支援线（不含 HQ 卡）。"""
+        return self.InFrontline() or (self.InSupportLine() and self.Type != EType.location)
+
+    def InDiscard(self) -> bool:
+        return self.Location == ECardLocation.Discard
+
     def getTotalAttack(self) -> Optional[int]:
-        return None if self.attack is None else self.attack + (self.attackBuff or 0)
+        return None if self.attack is None else _clamp_total(self.attack + (self.attackBuff or 0))
 
     def getTotalKredits(self) -> Optional[int]:
         if self.kredits is None and self.kreditsBuff is None:
             return None
-        return (self.kredits or 0) + (self.kreditsBuff or 0)
+        return _clamp_total((self.kredits or 0) + (self.kreditsBuff or 0))
 
     def getTotalOperationCost(self) -> Optional[int]:
-        return None if self.operationCost is None else self.operationCost + (self.operationCostBuff or 0)
+        return None if self.operationCost is None else _clamp_total(self.operationCost + (self.operationCostBuff or 0))
 
+
+# 原版：三个"总量" getter 都夹到 `[0,99]` —— `getTotalAttack`（IDA 0x144B14E90）、
+#   `getTotalKredits`（0x144B15020）、`getTotalOperationCost`（0x144B15200）；
+#   见 `NATIVE-COVERAGE-1.60.md` §14.2 #5/#6/#14 与 `kardsmem/cards.py` 的 `total_*`（那边一直夹）。
+# ★ 2026-10-03（P3 R13）：这里以前**不夹** ⇒ 同一条读数在两条读侧路径上不一致：
+#   `cardnatives`/`cards.read_raw` 走夹过的值，而 `sim`（经 `engine.adapter` → 本方法）走**没夹**的
+#   ⇒ 90 攻 + 50 buff 会被读成 **140**（游戏里是 99），把伤害/威胁算高。
+_TOTAL_MAX = 99
+
+
+def _clamp_total(v: Optional[int]) -> Optional[int]:
+    """原版 `clamp(0, 99)`（写法同 `BP_CardFunctions` 的 `((v<0)?0:((v>99)?99:v))`）。"""
+    if v is None:
+        return None
+    return 0 if v < 0 else (_TOTAL_MAX if v > _TOTAL_MAX else v)
+
+
+def other_side(side: ESide) -> ESide:
+    return ESide.right if side == ESide.left else ESide.left
 
 # ------------------------------------------------------------------ ABP_GameState_Battle_C
 @dataclass
@@ -243,7 +290,27 @@ class GameState:
 
     # ---- 本地 / 对方（游戏里没有这个概念，由 mySide 决定）----
     def other_side(self, side: ESide) -> ESide:
-        return ESide.right if side == ESide.left else ESide.left
+        return other_side(side)
+
+    # ---- 原版 `ABP_GameState_Battle_C` 的座位函数（`BP_CardFunctions::GetClientSide/GetOpponentSide/GetPlayingSide`
+    #      只是转调 `GameStateRef->…`，卡牌脚本和 Action/通知/钩子调度层都用它们）----
+    def GetClientSide(self) -> Optional[ESide]:
+        """本地客户端的座位 = `mySide`。"""
+        return self.mySide
+
+    def GetOpponentSide(self) -> Optional[ESide]:
+        return None if self.mySide is None else other_side(self.mySide)
+
+    def GetPlayingSide(self) -> Optional[ESide]:
+        """此刻该行动的一方：`startingSide` 在奇数回合，另一方在偶数回合（`BoardState` 里 `read_my_side` 用的同一条推导）。
+        读不出 `startingSide`/`currentTurn` ⇒ None。"""
+        if self.startingSide not in (ESide.left, ESide.right) or not self.currentTurn or self.currentTurn < 1:
+            return None
+        return self.startingSide if self.currentTurn % 2 == 1 else other_side(self.startingSide)
+
+    def IsClientPlaying(self) -> Optional[bool]:
+        p = self.GetPlayingSide()
+        return None if p is None or self.mySide is None else p == self.mySide
 
     def is_mine(self, card: BaseCardObject) -> Optional[bool]:
         if self.mySide is None or card.side is None:

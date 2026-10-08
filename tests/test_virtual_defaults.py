@@ -13,7 +13,6 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 import sys
 import types
 
-sys.path.insert(0, r"D:\Kards\kards-agent")
 
 from kardsmem import vm as vm_mod                                  # noqa: E402
 from kardsmem.kismetlib import Unimplemented                       # noqa: E402

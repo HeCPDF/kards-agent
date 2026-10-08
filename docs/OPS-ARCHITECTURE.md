@@ -7,6 +7,8 @@ OPS = `ops/inject.py` 及其周边（frida 管道、游戏线程调度、手势�
 > **旧文档说明**：先前的 OPS 文档（`reverse-data/reports/report/OPS-INJECT-HANDOFF.md` 等）已严重过期，**以本文为准**；旧文档只可当历史记录，其中的函数名/流程/偏移结论使用前需对照当前代码与 `CLAUDE.md`。
 
 ## 0. 现状与问题（事实）
+> ★ **2026-10-04 状态**：本节第 1 条描述的是**迁移前**的单文件（6885 行）；实际进度见 §7 末尾的
+> 「已完成到第几步」（步骤 0–4 已完成，`ops/inject.py` 现为 **144 行门面** + `ops/` 下 **14 个 `.py`**）。
 - `ops/inject.py` 单文件 **6885 行、约 423 KB、184 个函数**，只有一个 `Injector` 类（`class Injector` @924）；约 600 行 JS/CModule 以字符串内嵌在 Python 里（`JS = r"""` @329）。传输、反射缓存、手势、动词、菜单流程、诊断混在一起。
 - 已被事故证明必须靠纪律才不出错的点：跨线程调用蓝图崩游戏（#30）、失焦降帧吞输入（#29）、旁证混进成败判据（#22/#28）、"只读"查询偷偷写字段（#23）、提交口选错（#17/#19/#21）、`__WorldContext` 传 0（#18）、每次 attach 泄漏 43 MB Temp（#41）、陈旧指针（`obj_alive`）。这些现在散落在代码注释和 CLAUDE.md，**没有被架构强制**。
 - 前端层 `agent/session.py`（795 行）已是较干净的命令层；`agent/nn.py`（1226 行）是循环与策略胶水。
@@ -65,6 +67,7 @@ L0 传输（frida attach、JS/CModule、游戏线程调度器、RPC、重连/清
 
 ## 5. 可维护性标准
 1. **拆文件**：`ops/` 包，目标单文件 ≤ 800 行：`transport.py`（+ `agent.js`、`cmodule.c/.js` 独立文件，不再内嵌字符串）、`reflect.py`（类/函数/偏移缓存与跨脚本缓存）、`primitives.py`、`gestures/*.py`、`verbs/*.py`、`menu.py`、`queries.py`（只读）、`diag.py`。`ops/inject.py` 保留为**兼容门面**（`Injector` 的公共方法转发），迁移期不破坏 `agent/` 与脚本的调用。
+   > ★ 2026-10-04 实际落地的名字：单文件按**职责**拆成 `conn.py`（传输+反射缓存+连接）、`world.py`、`gesture.py`、`query.py`（**只读查询**，即本条的 `queries.py`）、`diag.py`（**写型诊断**）、`play.py`、`choices.py`、`flow.py`、`cli.py`，外加 `primitives.py`（L1）、`consts.py` / `support.py`。单文件上限由 `tests/test_ops_rules.py` 的棘轮把关（当前 1500 行，§5 的 800 行是**目标**、尚未达到：`flow.py` 1060 / `query.py` 1008 / `play.py` 996 行是下一步的活）。
 2. **JS 单独成文件并可测**：JS/CModule 抽出为独立文件，带最小的离线语法/接口检查；Python 与 JS 之间的 RPC 方法表集中声明（名称、参数、是否需游戏线程），自动生成 Python 端 stub。
 3. **公共接口小而稳**：对上只暴露动词与查询；内部原语/手势不得被 `agent/` 直接 import。
 4. **配置集中**：环境变量与参数（`SETTLE_*`、`KARDS_*`）集中在 `ops/config.py` 一处，带默认值与说明。
@@ -90,6 +93,24 @@ L0 传输（frida attach、JS/CModule、游戏线程调度器、RPC、重连/清
 6. **动词与菜单流程**按状态机迁移，补离线测试。
 7. 保留 `ops/inject.py` 门面至少一个版本周期，最后再决定是否移除。
 每步完成标准 = 离线测试全过 + 实机冒烟矩阵不退化 + 回执台账登记。
+
+### 已完成到第几步（事实，2026-10-04）
+| 步骤 | 状态 | 落地 | 判据 |
+|---|---|---|---|
+| 0 `Result.prompt` + `observe_prompt/answer_prompt` | ✅ | `agent/ops_result.py`、`agent/promptinfo.py` | `tests/test_ops_rules.py`（Result/PromptInfo 段） |
+| 1 架构规则 lint + `Result` 类型（不改行为） | ✅ | 同上 | `tests/test_ops_rules.py`（sleep/except 棘轮 + Result） |
+| 2 JS/CModule 抽成独立文件 + RPC 表 | ✅ | `ops/agent.js.tpl` + `ops/consts.render_js()`（attach 期渲染） | `test_ops_rules.py`（模板占位符、无 import 期烤 JS） |
+| 3 抽 **L1 原语**为独立模块 | ✅ | `ops/primitives.py`（读 12 / 写 7 个原语，**只有它**发写类 RPC）；`conn/world/gesture/play/flow/query` 改为调用它 | `tests/test_ops_primitives.py`（RPC 名与编码逐字对比）+ `test_ops_rules.py`（写 RPC 只在 primitives.py、RPC 名必须真有 JS 导出） |
+| 4 **查询模块分离**、移除其写字段能力 | ✅ | 只读查询在 `ops/query.py`（从 `primitives` 只 import 只读原语）；写型诊断（`simulate_drag`、`probe_canplay_targeted`）搬到 `ops/diag.py` | `tests/test_ops_diag.py` + `test_ops_rules.py`（AST 判定：query.py 代码里无写原语、不 import diag） |
+| 5 手势配方化（hover/click_actor/drag_release → 攻击 → 其余） | ⬜ 未开始 | — | — |
+| 6 动词与菜单流程按状态机迁移 + 离线测试 | ⬜ 未开始 | — | — |
+| 7 门面去留 | ⬜ 保留中 | `ops/inject.py` = 144 行门面 | `test_ops_rules.py`（门面导出 + 「Injector 方法全部来自 mixin」） |
+
+★ 步骤 3/4 的**实机冒烟矩阵尚未复跑**（本轮只做离线验证）："离线测试全过"这一半达到了，
+「实机冒烟不退化 + 回执台账登记」那一半仍待有游戏时补（见 §6.3）。
+★ 如实记一条**拆分前就存在**的坏调用（本轮**未**修，见 `tests/test_ops_rules.py::KNOWN_BROKEN_RPC`）：
+`ops/gesture.py` 的 `self.api().call_raw_writes(...)` 在 JS 侧没有对应导出（写型只有 `writeCallRaw`）
+⇒ 每次必然抛进 `except`、`consumed` 恒 `None`，实际走的是"没被消费"的兜底分支。
 
 ## 8. 与其它层的接口
 - **向 eval/sim**：OPS 不依赖它们；只提供只读状态读取（经 `kardsmem`）与合法性查询（`Can*`，仅排序用）。

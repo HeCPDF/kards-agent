@@ -37,8 +37,20 @@ def main():
     chk("ETypeEnum 4 ⇒ fighter", got == "fighter", repr(got))
     got = fn(vm, None, None, ["ETypeEnum", 0], None)
     chk("ETypeEnum 0 ⇒ NotAvailable", got == "NotAvailable", repr(got))
+    # 2026-10-06：原生枚举 ECardLocationEnum / EFactionEnum 也认（CONFUSION / PARTISANS / SECOND FRONT 写 customJson 用）
+    got = fn(vm, None, None, ["EFactionEnum", 1], None)
+    chk("EFactionEnum 1 ⇒ Germany", got == "Germany", repr(got))
+    got = fn(vm, None, None, ["ECardLocationEnum", 3], None)
+    chk("ECardLocationEnum 3 ⇒ Hand_Left", got == "Hand_Left", repr(got))
+    got = fn(vm, None, None, ["ECardLocationEnum", 9], None)
+    chk("ECardLocationEnum 9 ⇒ Deck", got == "Deck", repr(got))
     try:
-        fn(vm, None, None, ["EFactionEnum", 1], None)
+        fn(vm, None, None, ["ECardLocationEnum", 10], None)
+        chk("ECardLocationEnum 越界 ⇒ 抛", False, "没抛")
+    except Unimplemented as exc:
+        chk("ECardLocationEnum 越界 ⇒ 抛", "0..9" in str(exc), str(exc)[:60])
+    try:
+        fn(vm, None, None, ["ERarityEnum", 1], None)
         chk("别的枚举 ⇒ 抛 Unimplemented", False, "没抛")
     except Unimplemented as exc:
         chk("别的枚举 ⇒ 抛 Unimplemented", "ETypeEnum" in str(exc), str(exc)[:60])

@@ -11,9 +11,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
 import semantics.effectvm as EV                                    # noqa: E402
-from policy.boardeval import U                                  # noqa: E402
+from engine.state import Sim, U                                    # noqa: E402
+from sim.engine import _apply_eff                                  # noqa: E402
 
 fails = 0
 
@@ -26,22 +27,22 @@ def chk(name, ok, extra=""):
 
 
 def mk(units=(), kred=5.0, hq=(20, 20), **kw):
-    return B.Sim({u.id: u for u in units}, {"local": hq[0], "enemy": hq[1]}, kred, {}, **kw)
+    return Sim({u.id: u for u in units}, {ME: hq[0], OPP: hq[1]}, kred, {}, **kw, my_side=ME)
 
 
 def main():
-    st = mk([U(1, "local", "frontline", 2, 2, 2, "infantry"),
-             U(2, "local", "back", 1, 1, 1, "infantry"),
-             U(3, "enemy", "frontline", 2, 2, 2, "infantry")])
+    st = mk([U(1, ME, "frontline", 2, 2, 2, "infantry"),
+             U(2, ME, "back", 1, 1, 1, "infantry"),
+             U(3, OPP, "frontline", 2, 2, 2, "infantry")])
     eff = {"buff": [6, 4], "buff_ids": {1: [3, 2], 2: [3, 2]}}
-    B._apply_eff(st, eff, None)
+    _apply_eff(st, eff, None)
     chk("群体 buff：两张我方单位各 +3/+2", (st.units[1].atk, st.units[1].dfn) == (5, 4)
         and (st.units[2].atk, st.units[2].dfn) == (4, 3), str({k: (u.atk, u.dfn) for k, u in st.units.items()}))
     chk("群体 buff：敌方单位不动", (st.units[3].atk, st.units[3].dfn) == (2, 2))
 
     # 带目标的单体 buff 老路径不变（只有一张）
-    st2 = mk([U(1, "local", "frontline", 2, 2, 2, "infantry"), U(2, "local", "back", 1, 1, 1, "infantry")])
-    B._apply_eff(st2, {"buff": [2, 2], "buff_ids": {1: [2, 2]}}, 1)
+    st2 = mk([U(1, ME, "frontline", 2, 2, 2, "infantry"), U(2, ME, "back", 1, 1, 1, "infantry")])
+    _apply_eff(st2, {"buff": [2, 2], "buff_ids": {1: [2, 2]}}, 1)
     chk("单体 buff：只加在目标上", (st2.units[1].atk, st2.units[2].atk) == (4, 1))
 
     # to_effects：每次 ChangeAttack/Defense 按目标卡指针记账
@@ -79,8 +80,8 @@ def main():
     rec4.records.append({"verb": "MakeCardRetreat", "args": [[0x999], 9], "tainted": False})
     e4 = EV.to_effects(rec4, my_side=1)
     chk("换不出 id ⇒ 不产出撤退效果、记缺口（不兜底成整排撤退）", "retreat_ids" not in e4 and any("MakeCardRetreat" in g for g in rec4.gaps), str(e4))
-    sx = mk([U(3, "enemy", "frontline", 2, 2, 2, "infantry"), U(4, "enemy", "frontline", 2, 2, 2, "infantry")])
-    B._apply_eff(sx, e3, None)
+    sx = mk([U(3, OPP, "frontline", 2, 2, 2, "infantry"), U(4, OPP, "frontline", 2, 2, 2, "infantry")])
+    _apply_eff(sx, e3, None)
     chk("sim 只撤被点名的那一张", 3 not in sx.units and 4 in sx.units, str(list(sx.units)))
     # 群体撤退（DELAYING TACTICS：前线所有单位撤退，敌我都有）⇒ 数组里的每一张都结算，后排的不动
     rec5 = EV.Recorder()
@@ -88,9 +89,9 @@ def main():
         rec5.ptr_ids[p_] = i_
     rec5.records.append({"verb": "MakeCardRetreat", "args": [[0x501, 0x502, 0x503], 9], "tainted": False})
     e5 = EV.to_effects(rec5, my_side=1)
-    sy = mk([U(5, "local", "frontline", 2, 2, 2, "infantry"), U(6, "enemy", "frontline", 2, 2, 2, "infantry"),
-             U(7, "enemy", "frontline", 2, 2, 2, "infantry"), U(8, "enemy", "back", 2, 2, 2, "infantry")])
-    B._apply_eff(sy, e5, None)
+    sy = mk([U(5, ME, "frontline", 2, 2, 2, "infantry"), U(6, OPP, "frontline", 2, 2, 2, "infantry"),
+             U(7, OPP, "frontline", 2, 2, 2, "infantry"), U(8, OPP, "back", 2, 2, 2, "infantry")])
+    _apply_eff(sy, e5, None)
     chk("群体撤退：数组里的 3 张（敌我前线）都撤，后排的 8 不动", e5.get("retreat_ids") == [5, 6, 7] and list(sy.units) == [8],
         "%s %s" % (e5, list(sy.units)))
     print("失败 %d 项" % fails)

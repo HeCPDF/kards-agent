@@ -1,5 +1,5 @@
 {
-  "_note": "由 kardsmem.buildsrc 从 SDK dump + exe 生成；别手改 —— 重跑生成器",
+  "_note": "随包种子表：已发布版本的 RVA 真值 + 构建身份。运行时只作种子（加载前对进程复验，见 kardsmem.build.resolve）；RVA 由 kardsmem.buildsrc 从 SDK dump + exe 生成，其余字段（身份/versions/备注）人工登记，重新生成时原样保留。",
   "builds": {
     "current": {
       "key": "current",
@@ -23,7 +23,13 @@
         "GWorld": "sdk:1.60.27292.Steam/Dumpspace/OffsetsInfo.json",
         "FNamePool": "exe:AppendString+lea r8,[rip+…]"
       },
-      "notes": []
+      "notes": [],
+      "module": "kards-Win64-Shipping.exe",
+      "path_hint": "D:\\SteamLibrary\\steamapps\\common\\KARDS\\kards\\Binaries\\Win64",
+      "ue": "5.6.1-44394996 Shipping / ++UE5+Release-5.6-Fork-kards",
+      "versions": [
+        "1.60.27292.Steam"
+      ]
     },
     "launcher_default": {
       "key": "launcher_default",
@@ -49,6 +55,14 @@
       },
       "notes": [
         "GWorld 由实机 .data 扫描得到（dump 里是 0）"
+      ],
+      "module": "kards-Win64-Shipping.exe",
+      "path_hint": "D:\\Kards\\game-installs\\1.60.27292.launcher\\kards\\Binaries\\Win64\\kards-Win64-Shipping.exe",
+      "ue": "5.6.1 / **launcher 渠道**（与 Steam 的 1.60.27292 同版本号、不同二进制）",
+      "_note": "★ **同一个 exe 横跨两个版本号**：1.58.27125.launcher 与 1.60.27292.launcher 的 md5、大小、SizeOfImage 完全相同（launcher 渠道 1.58→1.60 只换了 pak，7,937,841,342 → 7,937,814,718）⇒ 两份的 RVA 也完全相同。dump 用的是 `sdk\\1.60.27292.launcher\\`（2026-09-25 做的）。★ 2026-09-21：`1.58.27125.launcher\\` 整棵树**复制**进 game-installs；`…\\Games\\KARDS\\default\\` **原地那份保留不删**（Xsolla launcher 的注册表 `HKCU\\SOFTWARE\\XSOLLA\\…\\default :: prefix` 指着它）—— 2026-09-25 19:19 它被更新到 1.60.27292，于是又复制了一份 `1.60.27292.launcher\\`。⇒ 同一份被扫到两次，正常。⚠ 目录名 `default` 是 Xsolla 的**分支名**，不是版本号。",
+      "versions": [
+        "1.58.27125.launcher",
+        "1.60.27292.launcher"
       ]
     },
     "launcher_157_orig": {
@@ -73,7 +87,14 @@
         "GWorld": "sdk:1.57.26586.launcher/Dumpspace/OffsetsInfo.json",
         "FNamePool": "exe:AppendString+lea r8,[rip+…]"
       },
-      "notes": []
+      "notes": [],
+      "module": "kards-Win64-Shipping.exe",
+      "path_hint": "D:\\Kards\\game-installs\\1.57.26586.launcher\\kards\\Binaries\\Win64\\kards-Win64-Shipping.exe",
+      "ue": "5.6.1（另一个游戏版本 1.57.26586，launcher 渠道）",
+      "_note": "这份**原件**就是 IDA 那个 2 GB `.i64` 分析的构建 —— 不是「缺失的第 4 个构建」。★ 2026-09-21：整棵树搬到 `D:\\Kards\\game-installs\\1.57.26586.launcher\\`；正名留给原版（另一份被本地改动过的同名副本已删除）。`.i64` 跟着树一起搬，就在同目录。★ 2026-09-25 更正路径：收编后的树**没有 `game\\` 那一层**（`<版本目录>\\kards\\Binaries\\Win64\\…`）。",
+      "versions": [
+        "1.57.26586.launcher"
+      ]
     }
   }
 }

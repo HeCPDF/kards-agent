@@ -31,8 +31,7 @@ from typing import Optional
 from kardsmem import board as BA  # noqa: E402
 
 from agent import view  # noqa: E402
-
-LOCAL, ENEMY = "local", "enemy"
+from kardsmem.gamemodel import ESide  # noqa: E402
 
 # 动作类型 → 动作流里的 action_type（回执用）
 ACTION_TYPES = {
@@ -108,8 +107,16 @@ class AgentSession:
 
     def snapshot(self):
         self.st = self.src.snapshot()
-        self.handles = view.Handles(self.st)
+        # my_side 读不出 => 不发短号（Handles 需要知道谁是我方；st.unknown 里已记缺口），不默认按 1 号座位
+        self.handles = view.Handles(self.st) if self.st.my_side is not None else None
         return self.st
+
+    def peek_turn_state(self, my_side=None):
+        """轻量读（毫秒级）：回合号 / ActionProcess / 我方指挥点与槽数；不建整张快照。后端不支持 ⇒ None。"""
+        fn = getattr(self.src, "peek_turn_state", None)
+        if fn is None:
+            return None
+        return fn(my_side)
 
     # ---------------------------------------------------------------- 看
     def board(self, full: bool = False, pins: bool = False) -> dict:
@@ -151,7 +158,7 @@ class AgentSession:
         from kardsmem import cards as C
         out = {}
         for c in (self.st or self.snapshot()).cards:
-            if c.location not in view.UNIT_ROWS:
+            if not c.obj.IsFieldUnit():
                 continue
             ptr = (c.raw or {}).get("ptr")
             if not ptr:
@@ -196,14 +203,14 @@ class AgentSession:
         if hover:
             from agent import precheck
             fn = None
-            if c.location in ("frontline", "back"):
+            if c.obj.IsFieldUnit():
                 fn = "hover_board_card"
-            elif c.location == "hand" and c.side == "local":
+            elif c.obj.InHand() and self.st.my_side is not None and c.side == self.st.my_side:
                 fn = "hover_hand_card"
             if fn:
                 kw = {} if hover_seconds is None else {"seconds": float(hover_seconds)}
                 try:
-                    hover_res = precheck.call_write(fn, c.card_id, **kw)
+                    hover_res = precheck.call_write(fn, c.obj.CardID, **kw)
                 except Exception as e:                           # noqa: BLE001
                     hover_res = {"ok": False, "error": str(e)}
         from kardsmem import cards as C
@@ -232,7 +239,7 @@ class AgentSession:
             #   取回来，渲染时以它为准。取不到就退回分量（并在文本里标明来源）。
             try:
                 from agent import precheck
-                d["totals"] = precheck.call_read("card_totals", c.card_id)
+                d["totals"] = precheck.call_read("card_totals", c.obj.CardID)
             except Exception as e:                           # noqa: BLE001
                 d["totals"] = {"ok": False, "stopped": str(e)}
         d["faction"] = view.FACTION_ZH.get((c.raw or {}).get("faction_enum"))
@@ -243,7 +250,13 @@ class AgentSession:
         return d
 
     # ---------------------------------------------------------------- 历史
-    def history(self, tail: int = 20, mine: Optional[bool] = None) -> dict:
+    def is_mine(self, card) -> bool:
+        """`card.side == st.my_side`（最近一次快照）。my_side 读不出 => ValueError。"""
+        if self.st is None:
+            self.snapshot()
+        return view.is_mine(self.st, card)
+
+    def history(self, tail: int = 20, side: Optional[ESide] = None) -> dict:
         """对局历史 —— **双方**每个动作（§7.6g）。
 
         ★ 这是目前唯一能知道"对手做了什么"的来源。`AllMatchActions` 是累积的，
@@ -253,6 +266,11 @@ class AgentSession:
             return {"ok": False, "error": "读不到动作流（不在对局里？）", "rows": []}
         rows = self.log.all()
         me = self._my_player_id(rows)
+        mine = None
+        if side is not None:                  # 只看哪一方的动作：side 是 ESide；『我方』= side == my_side
+            if self.st is None:
+                self.snapshot()
+            mine = (side == self.st.seat())
         if mine is True:
             rows = [r for r in rows if r.get("player_id") == me]
         elif mine is False:
@@ -337,7 +355,10 @@ class AgentSession:
     def can_attack(self, attacker, defender) -> dict:
         g = self._gate()
         if g is not None:
-            r = g.can_attack(attacker, defender)
+            try:
+                r = g.can_attack(attacker, defender, snapshot=self.st)       # 复用本次决策的快照（每次重新快照 4–6 s）
+            except TypeError:                                                # 旧接口 / 测试替身没有 snapshot 参数
+                r = g.can_attack(attacker, defender)
             if r.get("ok"):
                 reason = r.get("fail_reason") or ""
                 out = self._from_game(r, reason)
@@ -457,7 +478,7 @@ class AgentSession:
             return int(cid)
         if isinstance(who, str):
             c = self.resolve(who)
-            return int(c.card_id) if c is not None else None
+            return int(c.obj.CardID) if c is not None else None
         return None
 
     def _inj(self, fn: str, *args, **kw) -> dict:
@@ -487,6 +508,13 @@ class AgentSession:
                "hand_target": _timed("hand_target_pending", verbose=False),
                "arrows": _timed("arrow_target_by_logic")}
         self.last_pending_timing = tm
+        # ★ 幽灵提示（ops 读到 widget 已在拆/候选全不合法）⇒ 同源的 pick_pending（chooseOneActive 与
+        #   isSelectingHandTarget 是同一对旗标、同一处置位/复位）也是幽灵；没有真候选行时一并摘掉。
+        ht = out.get("hand_target")
+        pp = out.get("pick_pending")
+        if (isinstance(ht, dict) and ht.get("ghost") and isinstance(pp, dict) and pp.get("pending")
+                and not (out.get("choose_one") or [])):
+            out["pick_pending"] = dict(pp, pending=False, stale=ht.get("ghost"))
         out["waiting"] = bool((out["choose_one"] or [])
                               or (out["pick_pending"] or {}).get("pending")
                               or out["board_target"]
@@ -595,7 +623,12 @@ class AgentSession:
         if cid is None:
             return {"ok": False, "error": "认不出 %r" % (card,)}
         from agent import precheck
-        return precheck.call_read("hand_target_legal", cid)
+        r = precheck.call_read("hand_target_legal", cid)
+        # ★ ops 返回的是 `is_valid`，而策略层读的是 `can`（None=问不到，不拦）。以前没翻译 ⇒ 过滤形同虚设
+        #   （2026-10-06 审计）。游戏明说不合法（ok 且 is_valid=False）⇒ can=False。
+        if isinstance(r, dict) and "can" not in r and r.get("ok") and r.get("is_valid") is not None:
+            r = dict(r, can=bool(r["is_valid"]))
+        return r
 
     def select_hand_target(self, card, confirm: bool = True) -> dict:
         """**点一张手牌当目标**（悬停 → 真点击 → 核对 → 点确认按钮）。
@@ -608,7 +641,7 @@ class AgentSession:
             return {"ok": False, "error": "认不出 %r" % (card,)}
         return self._inj("select_hand_target", cid, confirm=bool(confirm))
 
-    def attack(self, attacker, target, force: bool = False, retry=True) -> dict:
+    def attack(self, attacker, target, force: bool = False, retry=True, snapshot=None) -> dict:
         """攻击（合成"起拖→悬停目标→写箭头目标+搬头部平面→落地"）。
 
         `target` 可以是短号/card_id，也可以是**目标规格串**（`"hq"` / `"front0"` /
@@ -624,6 +657,8 @@ class AgentSession:
                 t = target.strip().lower()          # 规格串：注入侧解析
             else:
                 return {"ok": False, "error": "认不出 target %r" % (target,)}
+        if snapshot is not None:       # 发出前刚拍的盘面：给注入侧的 CanAttack 闸门复用（省一次 4–6 s 全量快照）
+            return self._inj("attack_card", a, t, force=bool(force), retry=retry, snapshot=snapshot)
         return self._inj("attack_card", a, t, force=bool(force), retry=retry)
 
     def move_up(self, card, slot: Optional[int] = None, force: bool = False) -> dict:
@@ -769,8 +804,16 @@ class AgentSession:
         from agent import precheck
         return precheck.call_read("resolve_target", spec)
 
-    def pick_target(self, exclude=(), side: str = "enemy", prefer_frontline: bool = True) -> dict:
-        """只读：给"要选一个敌方目标"的动作**挑**一个目标（启发式，不算判据）。"""
+    def pick_target(self, exclude=(), side: Optional[ESide] = None, prefer_frontline: bool = True) -> dict:
+        """只读：给"要选一个敌方目标"的动作**挑**一个目标（启发式，不算判据）。
+
+        `side` 是 `ESide`；缺省 = 对方（`st.other_side`），本地座位读不出 => ValueError（不默认按 1）。
+        """
+        if side is None:
+            st = self.st or self.snapshot()
+            if st.other_side is None:
+                raise ValueError("本地座位 mySide 读不出：无法确定『对方』")
+            side = st.other_side
         from agent import precheck
         return precheck.call_read("pick_target", exclude=exclude, side=side,
                                   prefer_frontline=prefer_frontline)
@@ -786,9 +829,11 @@ class AgentSession:
         from agent import precheck
         return precheck.call_read("preflight", cid, target=target, action=action)
 
-    def wait_our_turn(self, limit: float = 300.0) -> bool:
+    def wait_our_turn(self, limit: float = 300.0, poll: float = None) -> bool:
         """只读：等我方回合（每 1s 采一次快照）。对局结束 / 超时都回 False。"""
         from agent import precheck
+        if poll is not None:
+            return bool(precheck.call_read("wait_our_turn", limit=limit, verbose=False, poll=poll))
         return bool(precheck.call_read("wait_our_turn", limit=limit, verbose=False))
 
     def activate_countermeasure(self, card) -> dict:

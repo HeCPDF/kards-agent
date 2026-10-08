@@ -300,7 +300,7 @@ class Legality:
         """
         out = []
         for c in st.cards:
-            if c.side != defender.side or c.location != defender.location:
+            if c.obj.side != defender.obj.side or c.obj.Location != defender.obj.Location:
                 continue
             ptr = (c.raw or {}).get("ptr")
             if ptr:
@@ -323,7 +323,7 @@ class Legality:
             return {"ok": False, "stopped": "卡对象指针读不到",
                     "can": None, "reason": None, "reason_zh": None}
         self._board = st            # 给 CardNatives 用（盘面级原语）
-        kred = (st.kredits or {}).get(attacker.side)
+        kred = (st.kredits or {}).get(attacker.obj.side)
         # ★ `VM.run` 的 args 是 **dict**（局部变量名 -> 值），不是位置参数列表。
         #   名字取自 SDK 的 cardsCheckFunctions_C_CanAttack 参数结构。
         args = {"attackerCard": ap, "defenderCard": dp,
@@ -434,7 +434,7 @@ class Legality:
         这时 `can` 是 None——当作"不知道"，不是"不合法"（§7.6f，只挑不判）。
         """
         probe = next((c for c in st.cards
-                      if c.side != unit.side and c.location in ("frontline", "back", "hq")),
+                      if c.obj.side != unit.obj.side and c.obj.IsLocatedOnBoard()),
                      None)
         if probe is None:
             return {"ok": False, "stopped": "场上没有敌方单位可用来探测（CanAttack 需要一个 defender）",
@@ -510,9 +510,9 @@ class Legality:
         """
         out = []
         for c in st.cards:
-            if c.side == attacker.side:
+            if c.obj.side == attacker.obj.side:
                 continue
-            if c.location not in ("frontline", "back", "hq"):
+            if not c.obj.IsLocatedOnBoard():
                 continue
             out.append((c, self.can_attack(st, attacker, c)))
         out.sort(key=lambda t: (0 if t[1].get("can") else

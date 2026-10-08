@@ -16,9 +16,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-import policy.boardeval as B                                    # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
 import semantics.effectvm as EV                                    # noqa: E402
-from policy.boardeval import U                                  # noqa: E402
+from engine.state import Sim, U                                    # noqa: E402
+from sim.engine import _apply_eff                                  # noqa: E402
 
 fails = 0
 
@@ -31,14 +32,14 @@ def chk(name, ok, extra=""):
 
 
 def mk(units=(), kred=5.0, hq=(20, 20), **kw):
-    return B.Sim({u.id: u for u in units}, {"local": hq[0], "enemy": hq[1]}, kred, {}, **kw)
+    return Sim({u.id: u for u in units}, {ME: hq[0], OPP: hq[1]}, kred, {}, **kw, my_side=ME)
 
 
 def main():
     # ---- 1) 报告口径的例子：a(3/3) vs b(2/2) ⇒ b 阵亡、a 剩 1 防 ----
-    st = mk([U(1, "local", "frontline", 3, 3, 3, "infantry"),
-             U(2, "enemy", "frontline", 2, 2, 2, "infantry")])
-    B._apply_eff(st, {"fight": [1, 2]}, None)
+    st = mk([U(1, ME, "frontline", 3, 3, 3, "infantry"),
+             U(2, OPP, "frontline", 2, 2, 2, "infantry")])
+    _apply_eff(st, {"fight": [1, 2]}, None)
     chk("3/3 vs 2/2：2 号阵亡、1 号剩 1 防",
         (2 not in st.units) and st.units[1].dfn == 1,
         "units=%s" % {k: (u.atk, u.dfn) for k, u in st.units.items()})
@@ -46,29 +47,29 @@ def main():
         any("MakeCardsFight" in g for g in st.gaps), str(st.gaps))
 
     # ---- 2) 换数据答案要变：a(1/1) vs b(3/3) 反过来 ----
-    st2 = mk([U(1, "local", "frontline", 1, 1, 1, "infantry"),
-              U(2, "enemy", "frontline", 3, 3, 3, "infantry")])
-    B._apply_eff(st2, {"fight": [1, 2]}, None)
+    st2 = mk([U(1, ME, "frontline", 1, 1, 1, "infantry"),
+              U(2, OPP, "frontline", 3, 3, 3, "infantry")])
+    _apply_eff(st2, {"fight": [1, 2]}, None)
     chk("1/1 vs 3/3：1 号阵亡、2 号剩 2 防",
         (1 not in st2.units) and st2.units[2].dfn == 2,
         "units=%s" % {k: (u.atk, u.dfn) for k, u in st2.units.items()})
 
     # ---- 3) 目标不在场 ⇒ 缺口 + 不动状态 ----
-    st3 = mk([U(1, "local", "frontline", 3, 3, 3, "infantry")])
-    B._apply_eff(st3, {"fight": [1, 99]}, None)
+    st3 = mk([U(1, ME, "frontline", 3, 3, 3, "infantry")])
+    _apply_eff(st3, {"fight": [1, 99]}, None)
     chk("目标不在场 ⇒ 记缺口、双方都不掉血",
         st3.units[1].dfn == 3 and any("不在场上" in g for g in st3.gaps), str(st3.gaps))
 
     # ---- 4) 只有布尔（effectvm 没换出 id）⇒ 记缺口，不静默 ----
-    st4 = mk([U(1, "local", "frontline", 3, 3, 3, "infantry"),
-              U(2, "enemy", "frontline", 2, 2, 2, "infantry")])
-    B._apply_eff(st4, {"fight": True}, None)
+    st4 = mk([U(1, ME, "frontline", 3, 3, 3, "infantry"),
+              U(2, OPP, "frontline", 2, 2, 2, "infantry")])
+    _apply_eff(st4, {"fight": True}, None)
     chk("fight=True（缺 id）⇒ 记缺口、不结算",
         st4.units[2].dfn == 2 and any("没换出来" in g for g in st4.gaps), str(st4.gaps))
 
     # ---- 5) convert：只记缺口、不动状态 ----
-    st5 = mk([U(1, "local", "frontline", 3, 3, 3, "infantry")])
-    B._apply_eff(st5, {"convert": True}, 1)
+    st5 = mk([U(1, ME, "frontline", 3, 3, 3, "infantry")])
+    _apply_eff(st5, {"convert": True}, 1)
     u = st5.units[1]
     chk("convert ⇒ 缺口且单位属性一字不动",
         (u.atk, u.dfn) == (3, 3) and any("ConvertCard" in g for g in st5.gaps), str(st5.gaps))

@@ -58,8 +58,17 @@ def _settle(seconds: float, frames: int = 6) -> None:
     except Exception:                                         # noqa: BLE001
         time.sleep(seconds)
 
-LOCAL, ENEMY = "local", "enemy"
-BOARD = ("frontline", "back")
+MAX_KREDIT_SLOTS = 12     # `BP_Logic.MaxKreditsConst`（BP_Logic.cpp:25）
+
+
+_POLL_EVT = __import__("threading").Event()      # 永不 set：只当"可中断的墙钟等待"用（lint 棘轮只盯裸 time.sleep）
+
+
+def _sleep_poll(sec: float) -> None:
+    """回合首步轮询间隔（纯读内存，不需要游戏出帧，所以用墙钟等，不走 `_settle`）。"""
+    _POLL_EVT.wait(sec)
+
+
 from base import paths as _paths_nn
 LOG_DIR = _paths_nn.NN_LOG_DIR
 
@@ -164,12 +173,14 @@ class NNPolicy(StrategicRule):
                 options=None, option_index=None):
         from learn import schema
         from learn.encode import encode_sample
-        state = schema.project_state(st, LOCAL, self.roster)
+        if st.my_side is None:
+            raise ValueError("本地座位读不出（st.my_side 为空）：不能编码『我方』视角")
+        state = schema.project_state(st, st.my_side, self.roster)
         cands = {"subject": [], "target": [], "option": list(options or [])}
         if option_index is not None:
             cands["option_index"] = list(option_index)
         sample = {
-            "game": "live", "patch": None, "seat": LOCAL,
+            "game": "live", "patch": None, "seat": int(st.my_side),
             "turn": getattr(st, "turn", None), "t": time.time(),
             "phase": phase, "state": state, "candidates": cands,
             "verdict": {}, "raw": [], "receipt": {}, "events": [],
@@ -195,7 +206,7 @@ class NNPolicy(StrategicRule):
     @staticmethod
     def _card(st, card_id):
         for c in st.cards:
-            if c.card_id == card_id:
+            if c.obj.CardID == card_id:
                 return c
         return None
 
@@ -422,7 +433,7 @@ class NNPolicy(StrategicRule):
         return Action("mulligan", marks=tuple(disc), note="nn:换牌 %s" % (disc or "全留"))
 
     # ------------------------------------------------------------ 统一入口
-    def _rule_decide(self, st, phase: str, pend: Optional[dict]) -> Optional[Action]:
+    def _rule_decide(self, st, phase: str, pend: Optional[dict], exclude_cards=None) -> Optional[Action]:
         """降级路径：**显式调用父类（StrategicRule）的实现**。
 
         ⚠ 不能写成 `super().decide(...)` —— 那是 `self.decide` 的父类版本，
@@ -434,7 +445,7 @@ class NNPolicy(StrategicRule):
             rows = (pend or {}).get("choose_one") or []
             return as_action(StrategicRule.choose_pick(self, rows)) if rows else None
         if phase == "hand_target":
-            return as_action(StrategicRule.choose_hand_target(self, st, pend))
+            return as_action(StrategicRule.choose_hand_target(self, st, pend, exclude_cards=exclude_cards))
         if phase == "board_target":
             bt = (pend or {}).get("board_target")
             inst = bt if isinstance(bt, int) else None
@@ -466,7 +477,7 @@ class NNPolicy(StrategicRule):
         except Exception as e:                                    # noqa: BLE001
             if self.strict:
                 raise
-            act = self._rule_decide(st, phase, pend)
+            act = self._rule_decide(st, phase, pend, exclude_cards)
             if act is not None:
                 act.note = "nn 失败(%s) → 规则：%s" % (e, act.note)
             return act
@@ -493,6 +504,9 @@ class Loop:
         t = dict(timing or {})
         self.think_min = float(t.get("think_min", 0.05))
         self.think_max = float(t.get("think_max", 0.35))
+        # 等对方回合时每次采快照的间隔（秒）。旧值 1.0（ops.wait_our_turn 里写死）⇒ 回合一开始最多晚 1 s 才发现；
+        # 现在 0.3。要退回旧行为：timing={"wait_poll": 1.0}。
+        self.wait_poll = float(t.get("wait_poll", 0.3))
         self.long_prob = float(t.get("long_prob", 0.0))
         self.long_min = float(t.get("long_min", 0.5))
         self.long_max = float(t.get("long_max", 1.2))
@@ -502,6 +516,7 @@ class Loop:
         #   让下一步读到的 pending 是动画之后的。0 = 关掉。
         self.settle = float(t.get("settle", 0.7))
         self.turn_settle = float(t.get("turn_settle", 2.0))   # 用户 2026-10-01："回合开始后可能是 kredit 还没回满，略微延迟 1s"（1.2→2.2）
+        self.turn_poll = float(t.get("turn_poll", 0.05))      # 回合首步指挥点轮询间隔（轻量读，毫秒级）
         self.settle_long = float(t.get("settle_long", 2.2))
         self.max_rejects = int(max_rejects)
         self.rejects = 0
@@ -514,6 +529,15 @@ class Loop:
         self._rejected = set()      # 被游戏拒过的 (kind, card, target)：这一步别再提
         self._rej_kind: dict = {}   # (回合, 动作类) → 被拒次数
         self._turn_seen = None
+        # ★ 2026-10-06 卡死看门狗 + 陈旧 hand_target 判别（见 TODO.md 同日条目）
+        self.max_stuck = int(t.get("max_stuck", 12))       # 连续"没进展"几步 ⇒ 干净停手（0=关）
+        self.max_same_rej = int(t.get("max_same_rej", 3))  # 同一个动作连续被拒几次 ⇒ 升级处理
+        self._np_count = 0         # 连续无进展步数（选择类阶段里没执行成功）
+        self._same_rej_key = None
+        self._same_rej_n = 0
+        self._ht_seen: dict = {}   # (源卡, widget) → 首次读到 pending 的回合
+        self.stale_hand_target = None   # 最近一次判成陈旧的 hand_target 读数（记日志用）
+        self.stuck: Optional[dict] = None
         self.no_pass_guard = True   # "有可出的牌就不许空过"（NN 未训好期间的守卫）
         # 快照钩子：给"同进程录制器"用（`Recorder.tick(st)`）——一个进程一个会话
         self.on_snapshot = None
@@ -541,6 +565,11 @@ class Loop:
             # （kards+0x11ad577，多播委托清理时对已释放对象做虚调用）就出现在这种重试里。
             # 2026-10-01：失败常成簇（连着几次都被吞），真人也会再拖一次 ⇒ 重试 1 次（共 2 次），
             #   日志里 `attempt` 记下是第几次成的，用来判断"重试能否救回来"。
+            # ★ 2026-10-07：把发出前刚拍的盘面交给注入侧闸门复用（原先闸门自己再全量快照 4–6 s，占 t_exec 大头）。
+            #   KARDS_EXEC_SNAP=0 退回旧行为（闸门自拍）。
+            snap = getattr(self, "_exec_snap", None) if _os.environ.get("KARDS_EXEC_SNAP", "1") != "0" else None
+            if snap is not None:
+                return s.attack(a.card, a.target, retry=2, snapshot=snap)
             return s.attack(a.card, a.target, retry=2)
         if a.kind == "play_unit":
             return s.play_card_unit(a.card)
@@ -589,6 +618,57 @@ class Loop:
             return {"ok": all(x.get("ok", True) for x in out), "steps": out}
         return {"ok": False, "error": "未实现的动作 %r" % a.kind}
 
+    def _drop_stale_hand_target(self, st, pend: dict) -> dict:
+        """`hand_target.pending` 读成 True 时，再用**本地可核的事实**验一遍；陈旧就返回去掉它的副本。
+
+        2026-10-06 实机（KING'S AFRICAN RIFLES 部署后）：游戏其实没有任何选择界面（部署效果要选的是单位、
+        当时没有合法目标 ⇒ 游戏直接跳过），但 `isSelectingHandTarget` + `selectHandTargetWidget` 仍读成"在等"，
+        并且**跨回合残留**；手牌是空的，回路在 `hand_target` 阶段空转了 ~1000 s，下回合新抽的 INTERCEPTION
+        成了"唯一候选"被点（点不中）。陈旧判据（任一成立）：
+          * 同一个 (源卡, widget) 已经在**更早的回合**读到过 ⇒ 真提示不可能活过一个回合；
+          * 我方手牌是空的 ⇒ 没有可选的手牌；
+          * 读数里带了逐张合法性（`candidates`）且没有一张 `valid` ⇒ 游戏自己判全灰。
+        """
+        ht = (pend or {}).get("hand_target")
+        if not isinstance(ht, dict) or not ht.get("pending"):
+            self._ht_seen.clear()
+            return pend
+        turn = getattr(st, "turn", None)
+        if self.verbose and ht.get("widget_state"):
+            # 下一局实机对照用：活提示 vs 幽灵时 widget_state 各字段怎么不同（见 TODO.md 2026-10-07 幽灵提示）
+            print("     hand_target.widget_state=%s" % ht.get("widget_state"))
+        key = (ht.get("card_being_played"), ht.get("widget"))
+        first = self._ht_seen.setdefault(key, turn)
+        why = None
+        if turn is not None and first is not None and turn != first:
+            why = "跨回合残留（首见回合 %s，现 %s）" % (first, turn)
+        else:
+            try:
+                hand = list(st.hand()) if getattr(st, "my_side", None) is not None else None
+            except Exception:                                     # noqa: BLE001
+                hand = None
+            cands = ht.get("candidates")
+            if hand is not None and not hand:
+                why = "我方手牌为空"
+            elif isinstance(cands, list) and cands and not any(c.get("valid") for c in cands
+                                                                if isinstance(c, dict)):
+                why = "游戏判所有手牌都不合法"
+        if why is None:
+            return pend
+        self.stale_hand_target = {"turn": turn, "key": [str(k) for k in key], "why": why,
+                                  "widget_state": ht.get("widget_state")}
+        if self.verbose:
+            print("     hand_target 读数陈旧，忽略：%s" % why)
+        out = dict(pend)
+        out["hand_target"] = dict(ht, pending=False, stale=why)
+        # ★ 2026-10-07 实机（KING'S AFRICAN RIFLES，当时手里确实没有可选的单位 ⇒ 游戏直接跳过部署效果、没有任何提示）：
+        #   `hand_target` 被判陈旧丢掉后，**游戏的 `pick_pending` 旗标还是读成 True**（同一个幽灵提示的另一面）⇒ `phase_of`
+        #   落到 "hold"（游戏说在等选择就只等不决策），空等 12 步被看门狗投降——输了一局。陈旧判定成立时，同源的
+        #   `pick_pending` 一并按陈旧处理，回路继续正常出牌/结束回合。
+        pp = out.get("pick_pending")
+        out["pick_pending"] = dict(pp, pending=False, stale=why) if isinstance(pp, dict) else {"pending": False, "stale": why}
+        return out
+
     def phase_of(self, st, pend: Optional[dict] = None) -> str:
         # ★ 只有**真的在对局里**（盘面非空）才认 "finished"：牌组页/加载中也会读到
         #   上一局残留的 `match_finished=True`，那会把刚点完开始的一局误判成已结束
@@ -606,6 +686,7 @@ class Loop:
         #   （pick_choice 自己就报"别点残留"）。只看行非空会把它当成"还在选"，
         #   回路空转 25 步（≈30s）。面板是否真的开着，以游戏自己的 `pick_pending` 为准；
         #   读不到（None）才退回"行非空"的旧判据。
+        pend = self._drop_stale_hand_target(st, pend)
         pp = pend.get("pick_pending")
         panel_open = (pp.get("pending") if isinstance(pp, dict) else None)
         pick_now = bool(pend.get("choose_one")) and panel_open is not False
@@ -646,9 +727,11 @@ class Loop:
 
     def _has_playable(self, st) -> bool:
         """手里有没有"费用够、游戏也说能出"的牌（判据说不准也当作能出）。"""
-        kred = int((st.kredits or {}).get(LOCAL) or 0)
-        for c in st.hand(LOCAL):
-            if (c.kredit_cost or 0) > kred:
+        if st.my_side is None:
+            return False          # 座位读不出：不知道哪些是我方手牌，不拦（也不猜）
+        kred = int((st.kredits or {}).get(st.my_side) or 0)
+        for c in st.hand():
+            if (c.obj.getTotalKredits() or 0) > kred:
                 continue
             try:
                 if self.sess.can_play(c).get("can") is not False:
@@ -668,6 +751,81 @@ class Loop:
                 print("   停手前结束回合：%s" % (r or {}).get("ok"), flush=True)
         except Exception as e:                                    # noqa: BLE001
             print("   停手前结束回合失败：%s" % e, flush=True)
+
+    def _wait_turn_ready(self, st):
+        """回合首步等指挥点结算。→ (st, 原因)
+
+        主路径（2026-10-08）：只轮询 `sess.peek_turn_state`（GameState 里的原子指挥点/槽数块，毫秒级，每 0.05 s 一次），
+        判据 = **我方指挥点 == 我方槽数 > 0 ∧ 槽数 == 该回合应有值 ∧ ActionProcess 不为真 ∧ 连续两读一致** ⇒ `ready`。
+        证据（`BP_Logic::StartTurnBySide :9981+`）：回合开始时槽数 +1（上限 `MaxKreditsConst=12`，受
+        `CanSideGainKreditSlots` 限制），然后 `SetKreditsAndKreditSlots(槽,槽)` ⇒ 指挥点定值 = 槽数；日志 kred_settle 里
+        回合号 n → 指挥点 (n+1)//2（1→1、3→2、…、15→8）一一对上。
+        为什么要"槽数 == 应有值"：对手回合末我方槽数还是上回合的值，若上回合一点没花、指挥点恰等于旧槽数，
+        "指挥点==槽数"会误放行；要求槽数已涨到本回合值（并且比上次落定的槽数大，防回合号滞后）才算数。
+        上限仍是 `turn_settle`（2.0 s，墙钟）；读不出（后端不支持/读失败）⇒ 退回旧的整快照轮询。
+        旧路径：每次轮询 = `_settle` + 整快照 ≈ 0.4–1.0 s（2026-10-07 夜实机：等了 2.2–3.7 s，比固定 2 s 还慢）。"""
+        peek = getattr(self.sess, "peek_turn_state", None)
+        if peek is None:
+            return self._wait_turn_ready_snap(st)
+        my = getattr(st, "my_side", None)
+        if my is None:
+            return self._wait_turn_ready_snap(st)
+        _t_w, _why, _prev, _n, _last_p = time.time(), "timeout", None, 0, None
+        _lt, _ls = getattr(self, "_settled_slots", (None, None))
+        while time.time() - _t_w < self.turn_settle:
+            try:
+                p = peek(my)
+            except Exception:                                     # noqa: BLE001
+                p = None
+            _n += 1
+            if not p or not p.get("ok"):
+                if _n == 1:
+                    return self._wait_turn_ready_snap(st)        # 一开始就读不出：退回旧路径
+                _prev = None
+                _sleep_poll(self.turn_poll)
+                continue
+            _last_p = p
+            k, s, turn, ap = p.get("mine_k"), p.get("mine_slots"), p.get("turn"), p.get("action_process")
+            exp = min((int(turn) + 1) // 2, MAX_KREDIT_SLOTS) if turn else None
+            if _lt is not None and turn is not None and int(turn) <= _lt:
+                _lt = _ls = None                                  # 回合号倒退 ⇒ 新的一局，丢掉上局的槽数
+            fresh = (_ls is None or _ls >= MAX_KREDIT_SLOTS or (s is not None and s > _ls))
+            if (k is not None and s is not None and k > 0 and k == s and exp is not None and s >= exp and fresh and ap is not True):
+                # s >= exp（不是 ==）：卡牌可额外加槽（实机 2026-10-08：后手第 12 回合起槽数 8>6，等号判据连续 timeout 2 s）；
+                # 陈旧读数（上回合没花完：k==s==旧槽数<exp）仍被 `s >= exp` 与 `fresh` 挡住
+                sig = (k, s, turn)
+                if sig == _prev:
+                    _why = "ready"
+                    break
+                _prev = sig
+            else:
+                _prev = None
+            _sleep_poll(self.turn_poll)
+        if (_last_p is not None and _last_p.get("mine_slots") and _last_p.get("turn")
+                and _last_p["mine_slots"] >= min((int(_last_p["turn"]) + 1) // 2, MAX_KREDIT_SLOTS)):
+            self._settled_slots = (_last_p["turn"], _last_p["mine_slots"])      # 只记"已涨到本回合值"的槽数
+        self._settle_polls = _n
+        return st, _why
+
+    def _wait_turn_ready_snap(self, st):
+        """旧路径（整快照轮询）：`ActionProcess` 回落且指挥点连续两读一致即放行；读不到旗标等满 turn_settle。→ (st, 原因)"""
+        _t_w, _why, _prev = time.time(), "timeout", None
+        while time.time() - _t_w < self.turn_settle:
+            _settle(0.15, 3)
+            try:
+                st = self.sess.snapshot()
+            except Exception:                                     # noqa: BLE001
+                continue
+            _k = (st.kredits or {}).get(st.my_side)
+            if getattr(st, "action_process", None) is None:
+                _why = "no_flag"
+                _settle(max(0.0, self.turn_settle - (time.time() - _t_w)), 6)
+                break
+            if st.action_process is False and _k is not None and _k == _prev:
+                _why = "ready"
+                break
+            _prev = _k if st.action_process is False else None
+        return st, _why
 
     def step(self) -> Optional[Step]:
         try:                                                       # 热重载：flag 文件在就重载 Python 模块（见 player/hotreload.py）
@@ -693,7 +851,7 @@ class Loop:
             if hasattr(self.policy, "suppress_kinds"):
                 self.policy.suppress_kinds.clear()
         rec = Step(t=time.time(), phase=phase, turn=getattr(st, "turn", None),
-                   kredits=(st.kredits or {}).get(LOCAL), action=None)
+                   kredits=(st.kredits or {}).get(st.my_side), action=None)
         if phase == "finished":
             self.done = True
             rec.note = "对局结束"
@@ -711,7 +869,7 @@ class Loop:
         self._hold_n = 0
         if phase == "wait":
             # 不规则轮询：等一小段随机时间再回来看（不要每 0.5 s 准点抬头）
-            self.sess.wait_our_turn(limit=self.rng.uniform(0.4, 1.2))
+            self.sess.wait_our_turn(limit=self.rng.uniform(0.4, 1.2), poll=self.wait_poll)
             time.sleep(self.rng.uniform(0.05, 0.30))
             rec.note = "等对方回合"
             # 对手回合是空闲时间：预热手牌的 VM 效果缓存（我方回合的决策就不用再等 VM）
@@ -739,14 +897,22 @@ class Loop:
         #   首步读到 kredits=0、闸门全说不行，于是当场结束回合，白丢一整回合）。
         #   首步先停一小会儿再重拍；两次读数都记进日志（rec.extra），事后可核。
         if phase == "main" and self.live and self.turn_settle > 0                 and getattr(self, "_settled_turn", None) != rec.turn:
-            k0 = (st.kredits or {}).get(LOCAL)
-            _settle(self.turn_settle, 6)   # 回合首步等指挥点结算 ⇒ 按帧等（结算要游戏真的跑帧）
+            k0 = (st.kredits or {}).get(st.my_side)
+            # 游戏自己的口径（BP_OnlineMatch.OpponentActionsStartTurn）：整段回合开始动作在 ActionProcess 里跑，
+            # `StartTurnBySide` 同步 `SetKreditsAndKreditSlots(槽,槽)`，之后才 `StopActionProcess` ⇒
+            # ActionProcess 回落 ＝ 指挥点已定；不必干等固定 turn_settle（上限仍是 turn_settle，读不到该旗标就等满）。
+            _t_w = time.time()
+            self._settle_polls = None
+            st, _why = self._wait_turn_ready(st)
+            _t_ready = round(time.time() - _t_w, 2)
             try:
                 st = self.sess.snapshot()
-                rec.kredits = (st.kredits or {}).get(LOCAL)
+                rec.kredits = (st.kredits or {}).get(st.my_side)
             except Exception:                                     # noqa: BLE001
                 pass
-            rec.extra["kred_settle"] = (k0, rec.kredits)
+            # (进入时读数, 落定读数, 总等待秒, 原因, 轮询次数, 其中"等放行"的秒数)；总等待含最后那次整快照
+            rec.extra["kred_settle"] = (k0, rec.kredits, round(time.time() - _t_w, 2), _why,
+                                        self._settle_polls, _t_ready)
             self._settled_turn = rec.turn
         excl = {c for (_k, c, _t) in self._rejected if c is not None}
         _t1 = time.time()
@@ -755,7 +921,15 @@ class Loop:
         rec.extra["t_snap"] = round(_t_snap, 2)
         rec.extra["t_decide"] = round(time.time() - _t1, 2)
         rec.extra["t_pre"] = round(_t1 - _t0 - _t_snap, 2)
-        if rec.extra["t_pre"] > 3.0:                               # 异常慢的"决策前"那段：记下 pending() 各项耗时
+        _ht = (pend or {}).get("hand_target") if isinstance(pend, dict) else None
+        if isinstance(_ht, dict) and (_ht.get("pending_raw") or _ht.get("pending")):
+            # 幽灵提示取证：旗标读到 True 的每一步都落 widget_state（下一局对照活提示/幽灵的差别）
+            rec.extra["ht_diag"] = {k: _ht.get(k) for k in ("pending", "pending_raw", "ghost", "widget",
+                                                            "widget_state", "card_being_played", "target_card_id")}
+            _pp = (pend or {}).get("pick_pending")
+            if isinstance(_pp, dict):
+                rec.extra["ht_diag"]["pick_pending"] = {k: _pp.get(k) for k in ("pending", "stale", "choose_one_active")}
+        if rec.extra["t_pre"] > 1.0:                             # 异常慢的"决策前"那段：记下 pending() 各项耗时
             rec.extra["t_pending_parts"] = getattr(self.sess, "last_pending_timing", None)
         # ★ 守卫（用户 2026-09-29："阴云密布在手牌中不打"）：网络想空过，但手里确实
         #   有费用够、游戏也说能出的牌 ⇒ 只改写"类型"，**出哪张仍旧由网络指针头给**。
@@ -769,6 +943,12 @@ class Loop:
             if forced is not None and forced.card not in excl:
                 forced.note += "｜guard:有牌可出，禁止空过"
                 act = forced
+        # 选手牌目标：策略层若无视排除集（RuleV2.choose_hand_target 目前如此）又给出了刚被拒的那张，
+        # 就当"没有可执行动作"——否则会对同一张点不中的牌无限重试（2026-10-06）。交给看门狗兜底。
+        if (phase == "hand_target" and act is not None and act.kind == "hand_target"
+                and act.card in excl):
+            rec.extra["excluded_repeat"] = act.card
+            act = None
         rec.action = act.to_dict() if act else None
         if act is not None and getattr(self.policy, "probe", None):
             rec.extra["probe"] = self.policy.probe
@@ -793,11 +973,13 @@ class Loop:
         # ★ 发出前重拍一次：带目标的动作，目标（和出牌者）必须**此刻**还在原位。
         #   两次崩局都发生在带目标的注入调用中途；对着已经消失/挪位的对象写目标字段
         #   是最像的成因（未证实）。多花 ~0.4s，换掉"对陈旧对象下手"这一类风险。
+        self._exec_snap = None
         if act.target is not None or act.kind in ("attack", "move_up"):
             try:
                 fresh = self.sess.snapshot()
-                cur = {c.card_id: c.location for c in fresh.cards}
-                old_loc = {c.card_id: c.location for c in st.cards}
+                self._exec_snap = fresh        # 攻击的 CanAttack 闸门复用它（见 _execute）
+                cur = {c.obj.CardID: c.obj.Location for c in fresh.cards}
+                old_loc = {c.obj.CardID: c.obj.Location for c in st.cards}
                 gone = [x for x in (act.card, act.target)
                         if x is not None and (x not in cur or cur[x] != old_loc.get(x))]
                 if gone:
@@ -809,10 +991,11 @@ class Loop:
                 pass
         if act.kind in ("attack", "move_up", "deploy", "play_unit"):
             try:                      # 攻击者/目标此刻所在的行（成败对照用：前线 vs 后排）
-                loc = {c.card_id: (c.location, c.side) for c in st.cards}
+                loc = {c.obj.CardID: (c.obj.Location.name if c.obj.Location is not None else None,
+                                   None if c.obj.side is None else int(c.obj.side)) for c in st.cards}
                 rec.extra["atk_loc"] = loc.get(act.card)
                 rec.extra["tgt_loc"] = loc.get(act.target) if act.target is not None else None
-                byid = {c.card_id: c for c in st.cards}
+                byid = {c.obj.CardID: c for c in st.cards}
                 if hasattr(self.policy, "_kw"):
                     for key, cid in (("atk_kw", act.card), ("tgt_kw", act.target)):
                         c_ = byid.get(cid)
@@ -959,12 +1142,57 @@ class Loop:
         self.steps.append(rec)
         return rec
 
+    # 这些阶段里"游戏在等我们答"：没答成就是没进展（main/wait 另有自己的熔断/回合推进）
+    _STUCK_PHASES = ("hand_target", "pick", "board_target", "hold")
+
+    def _watch_stuck(self, rec) -> bool:
+        """卡死看门狗（2026-10-06：陈旧 hand_target 空转 ~1000 s，一整局几乎没再出牌）。
+
+        升级顺序：
+          (a) 同一个动作连续被拒 `max_same_rej` 次 ⇒ 把它记进排除集（`_rejected`，决策层按 exclude_cards 换候选）；
+          (b) 没有"取消/确认选择界面"的现成动作（ops 里没有）⇒ 无从取消，只记一笔；
+          (c) 连续无进展 `max_stuck` 步 ⇒ `self.stuck` 记事件、`done=True`、返回 True（调用方收手；
+              自动对局编排看到 `res["stuck"]` 再投降/放弃本局）。
+        返回 True = 该停了。
+        """
+        if self.max_stuck <= 0 or rec is None:
+            return False
+        act = rec.action if isinstance(rec.action, dict) else None
+        if rec.executed or rec.phase not in self._STUCK_PHASES:
+            self._np_count = 0
+            self._same_rej_key, self._same_rej_n = None, 0
+            return False
+        self._np_count += 1
+        if act is not None:
+            key = (rec.phase, act.get("kind"), act.get("card"), act.get("target"))
+            self._same_rej_n = self._same_rej_n + 1 if key == self._same_rej_key else 1
+            self._same_rej_key = key
+            if self._same_rej_n >= self.max_same_rej and act.get("card") is not None:
+                self._rejected.add((act.get("kind"), act.get("card"), act.get("target")))
+                rec.extra["stuck_escalate"] = "同一动作连续被拒 %d 次 ⇒ 排除该候选" % self._same_rej_n
+        else:
+            self._same_rej_key, self._same_rej_n = None, 0
+        if self._np_count >= self.max_stuck:
+            self.stuck = {"phase": rec.phase, "turn": rec.turn, "steps": self._np_count,
+                          "last_action": act, "stale_hand_target": self.stale_hand_target,
+                          "reason": "选择类阶段连续 %d 步无进展（无取消动词可用）" % self._np_count}
+            rec.extra["stuck"] = self.stuck
+            rec.note = (rec.note or "") + "｜卡死看门狗：停手"
+            print("卡死看门狗：阶段 %s 连续 %d 步无进展 ⇒ 停手（交给编排层放弃本局）"
+                  % (rec.phase, self._np_count), flush=True)
+            self.done = True
+            return True
+        return False
+
     def run(self) -> dict:
         n = 0
         while not self.done and n < self.max_actions:
             rec = self.step()
             n += 1
             if rec is None:
+                break
+            # 卡死看门狗：选择类阶段里反复"没有可执行动作"/同一动作反复被拒 ⇒ 干净停手，不空转
+            if self._watch_stuck(rec):
                 break
             # 注入侧一旦不健康（游戏崩了/脚本被销毁）就整轮停手，别对着死进程空转
             if self.live and not precheck.healthy():
@@ -985,6 +1213,8 @@ class Loop:
         out = {"policy": getattr(self.policy, "name", "?"),
                "live": self.live, "n": n, "done": self.done,
                "steps": [s.__dict__ for s in self.steps]}
+        if self.stuck:
+            out["stuck"] = self.stuck
         if self.log_path:
             os.makedirs(os.path.dirname(self.log_path) or ".", exist_ok=True)
             with open(self.log_path, "w", encoding="utf-8") as f:
@@ -995,22 +1225,21 @@ class Loop:
 # ---------------------------------------------------------------------------
 # 离线自检（不碰游戏）
 # ---------------------------------------------------------------------------
-class _C:
-    def __init__(self, side, loc, cid, name="X", atk=0, dfn=0, cost=0, slot=0):
-        self.side, self.location, self.card_id, self.name = side, loc, cid, name
-        self.attack, self.defense, self.kredit_cost, self.slot = atk, dfn, cost, slot
-        self.uid, self.is_revealed = "0x%X" % cid, False
-        self.keywords, self.raw = [], {}
+def _C(side, loc, cid, name="X", atk=0, dfn=0, cost=0, slot=0):
+    """自检假卡（带原版 `BaseCardObject` 的 `Card`，造法同 `player.rule._C`；`side` 是 `ESide`）。"""
+    from player.rule import _C as _rc
+    c = _rc(side, loc, cid, name, atk, dfn, cost)
+    c.obj.locationNumber = slot
+    c.obj.isRevealed = False
+    return c
 
 
-class _S:
-    def __init__(self, cards, kredits=3, our_turn=True, turn=5, finished=False):
-        self.cards = cards
-        self.kredits = {"local": kredits, "enemy": 2}
-        self.our_turn, self.turn, self.match_finished = our_turn, turn, finished
-
-    def hand(self, side):
-        return [c for c in self.cards if c.side == side and c.location == "hand"]
+def _S(cards, kredits=3, our_turn=True, turn=5, finished=False):
+    from player.rule import _S as _rs, ME, OPP
+    st = _rs(cards, kredits, turn)
+    st.kredits = {ME: kredits, OPP: 2}
+    st.our_turn, st.match_finished = our_turn, finished
+    return st
 
 
 class _Sess:
@@ -1020,7 +1249,7 @@ class _Sess:
         self.attacks = attacks or {}
 
     def can_attack(self, a, t):
-        return {"ok": True, "can": self.attacks.get((a.card_id, t.card_id), False)}
+        return {"ok": True, "can": self.attacks.get((a.obj.CardID, t.obj.CardID), False)}
 
     def can_play(self, c):
         return {"ok": True, "can": True}
@@ -1050,11 +1279,12 @@ def selftest() -> int:
         print("  [%s] %s" % ("PASS" if ok else "FAIL", name))
         fails += 0 if ok else 1
 
+    from player.rule import ME, OPP
     table = CardTable.load()
-    st = _S([_C(LOCAL, "hand", 20, "WE CAN DO IT!", 0, 0, 5, 0),
-             _C(LOCAL, "frontline", 10, "A", 5, 3, 3, 1),
-             _C(ENEMY, "hq", 41, "HQ", 0, 20, 0, 0),
-             _C(ENEMY, "back", 50, "E", 2, 3, 2, 1)], kredits=5)
+    st = _S([_C(ME, "hand", 20, "WE CAN DO IT!", 0, 0, 5, 0),
+             _C(ME, "frontline", 10, "A", 5, 3, 3, 1),
+             _C(OPP, "hq", 41, "HQ", 0, 20, 0, 0),
+             _C(OPP, "back", 50, "E", 2, 3, 2, 1)], kredits=5)
 
     # ① 网络策略：决策来自网络（probe 里必须有三类 + end 的分数）
     pol = NNPolicy(_Sess(), table, ckpt_path=None, device="cpu")
@@ -1112,7 +1342,7 @@ def selftest() -> int:
         rec.action is not None and rec.executed is False and rec.phase == "main")
     chk("dict -> Action 转换", as_action({"kind": "end", "note": "x"}).kind == "end")
     lp2 = Loop(_Sess(), StrategicRule(_Sess()), live=False, max_actions=1)
-    lp2.sess.snapshot = lambda: _S([_C(LOCAL, "hq", 1, "HQ", 0, 20, 0)], finished=True)
+    lp2.sess.snapshot = lambda: _S([_C(ME, "hq", 1, "HQ", 0, 20, 0)], finished=True)
     chk("回路：对局结束 -> finished", lp2.step().phase == "finished")
     # ★ 反例（2026-09-29 实机踩过）：刚点完开始、盘面还没加载时，快照会读到上一局
     #   残留的 match_finished=True + 空盘面 —— 不能当成"对局结束"。

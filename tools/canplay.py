@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 import struct
 import sys
@@ -28,7 +29,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _bootstrap  # noqa: F401,E402
 
-from kardsmem import cards as CARDS, kismet, props        # noqa: E402
+from kardsmem import cards as CARDS, kismet, props, readscope as RS   # noqa: E402
 from kardsmem.cardnatives import CardNatives              # noqa: E402
 from kardsmem.kismetlib import Unimplemented              # noqa: E402
 from kardsmem.objects import ObjectArray                  # noqa: E402
@@ -53,10 +54,22 @@ def make_get_field(session):
         vk = (obj, name)
         if vk in vals:
             return vals[vk]
+        sc = RS.current()
+        shared = sc.table("container_field", session) if sc is not None else None
+        if shared is not None and vk in shared:
+            # 一次建 sim 里别的空跑已经整张读过这个容器字段 ⇒ 拷一份用（VM 里的数组/表操作可能就地改它，
+            # 所以共享表里只放原样的副本、每次命中都深拷，绝不把同一个对象交给两次空跑）
+            sc.note("container_field", True)
+            v = copy.deepcopy(shared[vk])
+            vals[vk] = v
+            return v
         v = _get_uncached(obj, name)
         p_ = cache.get((m.ptr_or_zero(obj + OFF_UOBJECT_CLASS), name))
         if p_ is not None and p_.get("type") in ("ArrayProperty", "MapProperty", "SetProperty"):
             vals[vk] = v
+            if shared is not None and v is not None:
+                sc.note("container_field", False)
+                shared[vk] = copy.deepcopy(v)
         return v
 
     def _get_uncached(obj, name):
@@ -117,6 +130,33 @@ def _align_up(x: int, a: int) -> int:
     return (x + a - 1) // a * a
 
 
+#: 只含一个 `TArray<int32>` 成员的结构体（0x10 字节）→ 成员名。SDK：`kards_structs.hpp:2046`（`FCardsGivingAbility.CardsGivingAbility`）、
+#: `:2055`（`FCardIDs.CardIDs`）。用于 `TMap<…, 这些结构体>` 的值（`cardsPlayedTurnMapped` / `receivedAbilitiesFromCards`）。
+_INT_ARRAY_STRUCTS = {"CardIDs": "CardIDs", "CardsGivingAbility": "CardsGivingAbility"}
+
+
+def _read_int32_array(m, a):
+    """内嵌 `TArray<int32>`（`{Data*, Num, Max}`）→ list；空 ⇒ []；头读不出/长度不合理 ⇒ 抛 `Unimplemented`（不编）。"""
+    head = m.read_exact(a, 0x10)
+    if not head:
+        raise Unimplemented("TArray<int32> 头读不出")
+    data, num, _mx = struct.unpack("<QiI", head)
+    if num == 0:
+        return []
+    if num < 0 or num > 4096 or not data:
+        raise Unimplemented("TArray<int32> 长度 %d 不合理" % num)
+    return [m.i32(data + i * 4) for i in range(num)]
+
+
+def _read_fstring(m, a):
+    """内嵌 `FString`（`{TCHAR* Data; int32 Num; int32 Max}`，Num 含结尾 0）→ str。"""
+    data, num = m.ptr_or_zero(a), m.i32(a + 8) or 0
+    if not data or num <= 1 or num > 4096:
+        return ""
+    raw = m.read(data, (num - 1) * 2)
+    return raw.decode("utf-16-le", "replace") if raw else ""
+
+
 def _read_map(session, m, addr, prop, name):
     """`TMap<K,V>` → `{key: value}`。**真正读 `AllocationFlags` 位图**（见
     `kardsmem.containers`），不是"当连续数组硬读+靠数据像不像筛"的近似——
@@ -155,20 +195,25 @@ def _read_map(session, m, addr, prop, name):
             return m.i32(a)
         if key_t in ("ObjectProperty", "ClassProperty", "SoftObjectProperty"):
             return m.ptr_or_zero(a)
+        if key_t == "StrProperty":                      # `receivedAbilitiesFromCards`：TMap<FString, FCardsGivingAbility>
+            return _read_fstring(m, a)
         raise Unimplemented("字段 %s：MapProperty 的 key 类型 %s 还没有读法" % (name, key_t))
 
     val_struct_name = None
     if val_t == "StructProperty":
         struct_ptr = m.ptr_or_zero(val_prop + OFF_STRUCTPROP_STRUCT)
         val_struct_name = pool.fname_of(struct_ptr) if struct_ptr else None
-        if val_struct_name != "integerSetStruct":
+        if val_struct_name not in ("integerSetStruct", *_INT_ARRAY_STRUCTS):
             raise Unimplemented("字段 %s：MapProperty 的 value 结构体 %r 还没有读法"
-                                "（目前只支持 integerSetStruct=TSet<int32>）"
-                                % (name, val_struct_name))
+                                "（目前只支持 integerSetStruct=TSet<int32> 与单成员 TArray<int32> 结构体 %s）"
+                                % (name, val_struct_name, "/".join(_INT_ARRAY_STRUCTS)))
 
     def read_value(a):
         if val_struct_name == "integerSetStruct":
             return CT.tset_int32_values(m, a)
+        if val_struct_name in _INT_ARRAY_STRUCTS:
+            # 结构体在 VM 里是 dict（成员名 → 值）：`{成员: [int32…]}`
+            return {_INT_ARRAY_STRUCTS[val_struct_name]: _read_int32_array(m, a)}
         if val_t in ("ObjectProperty", "ClassProperty", "SoftObjectProperty"):
             return m.ptr_or_zero(a)
         if val_t == "IntProperty":
@@ -251,7 +296,20 @@ def make_view(session):
 
     def view(ptr):
         if ptr not in c:
-            c[ptr] = CARDS.read_raw(session, ptr) or {}
+            # 一次建 sim 的作用域里（`kardsmem.readscope.build_scope`）所有空跑共用一份卡视图：
+            # `read_raw` 含 `atomic`（两次读 + sleep 1.5ms），同一张牌一次建 sim 会被读几十次。读失败不进共享表。
+            sc = RS.current()
+            shared = sc.table("view", session) if sc is not None else None
+            v = shared.get(ptr) if shared is not None else None
+            if v is None:
+                v = CARDS.read_raw(session, ptr)
+                if shared is not None:
+                    sc.note("view", False)
+                    if v:
+                        shared[ptr] = v
+            else:
+                sc.note("view", True)
+            c[ptr] = v or {}
         return c[ptr]
     return view
 

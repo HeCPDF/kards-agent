@@ -17,7 +17,7 @@ import sys
 import _bootstrap  # noqa: F401  —— 接上仓库根
 from kardsmem import board as BA  # noqa: E402
 
-KEYS = ("side", "location", "slot", "card_type", "kredit_cost", "operation_cost",
+KEYS = ("side", "slot", "card_type", "kredit_cost", "operation_cost",
         "attack", "attack_buff", "defense", "max_attack", "max_defense",
         "can_act", "needs_hand_target", "is_suppressed", "is_revealed",
         "is_being_guarded", "under_enemy_control", "enter_play_on_turn",
@@ -28,20 +28,25 @@ def main():
     args = [a for a in sys.argv[1:]]
     st = BA.open_source("mem").snapshot()
     if "--board" in args:
-        ids = [c.card_id for c in st.cards
-               if c.location in ("back", "frontline", "hq")]
+        ids = [c.obj.CardID for c in st.cards
+               if c.obj.IsFieldUnit() or c.obj.IsHQ()]
     elif not [a for a in args if a.lstrip("-").isdigit()]:
-        ids = [c.card_id for c in st.cards if c.side == "local" and c.location == "hand"]
+        if st.my_side is None:
+            print("本地座位 mySide 读不出（不在对局里？）—— 不能按『我方手牌』取牌；请显式给 card_id")
+            return 1
+        ids = [c.obj.CardID for c in st.hand()]
     else:
         ids = [int(a) for a in args if a.lstrip("-").isdigit()]
-    print("turn=%s our_turn=%s kredits=%s" % (st.turn, st.our_turn, st.kredits))
+    print("turn=%s our_turn=%s my_side=%s kredits=%s" % (
+        st.turn, st.our_turn, st.my_side_raw, {int(k): v for k, v in st.kredits.items()}))
     for cid in ids:
-        got = [c for c in st.cards if c.card_id == cid]
+        got = [c for c in st.cards if c.obj.CardID == cid]
         if not got:
             print("  [%s] 读不到（不在快照里）" % cid)
             continue
         for c in got:
-            print("  [%s] %s %s" % (c.card_id, c.name, c.card_type))
+            print("  [%s] %s %s" % (c.obj.CardID, c.name, c.card_type))
+            print("        %-24s %s" % ("location", getattr(c.obj.Location, "name", c.obj.Location)))
             for k in KEYS:
                 v = getattr(c, k, None)
                 if v not in (None, [], False):

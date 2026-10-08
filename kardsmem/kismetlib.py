@@ -71,6 +71,26 @@ def _many(prefix, table):
         PURE["%s::%s" % (prefix, k)] = fn
 
 
+class FallThrough:
+    """**软钩子**的"我不接管"返回值（2026-10-06）：`vm.hooks[名]` 返回 `FALLTHROUGH` ⇒ VM 当这个钩子不存在，
+    继续走后面的分派（游戏自有原语 / 通用原语 / 蓝图字节码 / 虚调用）。
+
+    为什么要有它：硬钩子（返回别的值）会**整个**接管同名函数；而有的原生函数只有**一部分调用**要我们接管
+    （例：`FetchCardFromCardID(id)`——脚本刚生成的新牌 id 要换成我们的卡句柄，真牌 id 照走游戏自己的字节码）。
+    热重载会让本模块里出现两个 `FallThrough` 类对象 ⇒ VM 按**类名**认（同 `NativeOut`）。"""
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "FALLTHROUGH"
+
+
+FALLTHROUGH = FallThrough()
+
+
+def is_fallthrough(v) -> bool:
+    return v is FALLTHROUGH or type(v).__name__ == "FallThrough"
+
+
 class NativeOut(tuple):
     """原生原语的"**返回值 + 出参**"约定：`NativeOut(ret, *outs)`。
 
@@ -462,14 +482,23 @@ def arity(name: str):
     fn = PURE.get(name)
     if fn is None:
         return None
+    hit = _ARITY_MEMO.get(name)
+    if hit is not None and hit[0] is fn:       # 按函数对象身份记（测试/热重载换了实现就自然失效）
+        return hit[1]
     try:
         import inspect
         sig = inspect.signature(fn)
         if any(p.kind is p.VAR_POSITIONAL for p in sig.parameters.values()):
-            return None                      # *args ⇒ 不切
-        return len(sig.parameters)
+            n = None                         # *args ⇒ 不切
+        else:
+            n = len(sig.parameters)
     except (TypeError, ValueError):           # pragma: no cover
         return None
+    _ARITY_MEMO[name] = (fn, n)               # `inspect.signature` 每次 ~0.1 ms，VM 里每个调用点都问一次（一次建 sim 数千次）
+    return n
+
+
+_ARITY_MEMO: dict = {}
 
 
 def call(name: str, args: list):
@@ -517,10 +546,21 @@ def coverage(freq: dict) -> dict:
 # 第二波：容器 / 字符串补齐 / 几何
 # --------------------------------------------------------------------------
 # 蓝图的 TMap/TSet 在求值器里就是 dict/set。读操作放这里，写操作同数组一样留给求值器。
+def _map_find(m, k):
+    """`Map_Find(Map, Key, &Value)`：命中 ⇒ (True, 值)；**缺键 ⇒ (False, 值类型的零值)**，不是 None。
+    原版证据：THE BIG THREE（card_event_the_big_three.cpp:42-46）对**本地空 `factionCount`** 无条件 `Map_Find(...)` 再
+    `Add_IntInt(Value, 1)` —— 不看返回的"找没找到"，卡能正常结算只可能是缺键时出参被写成默认值 0（UE `GenericMap_Find`
+    缺键走 `InitializeValue(OutValue)`）。值类型按已有值推断（`zero_like`）；空表推不出类型 ⇒ 0（VM 里空指针也是 0）。"""
+    m = m or {}
+    if k in m:
+        return NativeOut(True, m[k])
+    return NativeOut(False, zero_like(list(m.values())))
+
+
 _map = {
     # ★ Map_Find(Map, Key, &Value) -> bool：**返回"找没找到"，value 走出参** ——
     #   不能只返回 value（value=0/None 会被调用方当成"没找到"），见 NativeOut。
-    "Map_Find": lambda m, k: NativeOut(k in (m or {}), (m or {}).get(k)),
+    "Map_Find": lambda m, k: _map_find(m, k),
     "Map_Contains": lambda m, k: k in (m or {}),
     "Map_Length": lambda m: U.i32(len(m or {})),
     "Map_Keys": lambda m: list((m or {}).keys()),
@@ -874,8 +914,10 @@ CASES = [
     ("Array_Get 越界给零值(int→0)", "KismetArrayLibrary::Array_Get", [[1, 2], 9], 0),
     ("Array_Get 空数组给零值(int→0)", "KismetArrayLibrary::Array_Get", [[], 0], 0),
     # ★ Map_Find(Map, Key, &Value) -> bool：返回值=找没找到、value 走出参（NativeOut）。
-    ("Map_Find 缺键 ⇒ (False, None)", "BlueprintMapLibrary::Map_Find",
-     [{"a": 1}, "b"], NativeOut(False, None)),
+    ("Map_Find 缺键 ⇒ (False, 值类型零值)", "BlueprintMapLibrary::Map_Find",
+     [{"a": 1}, "b"], NativeOut(False, 0)),
+    ("Map_Find 空表缺键 ⇒ (False, 0)", "BlueprintMapLibrary::Map_Find",
+     [{}, "b"], NativeOut(False, 0)),
     ("Conv_IntToBool", "KismetMathLibrary::Conv_IntToBool", [0], False),
     # ★ 2026-10-02：只写日志的三个按 no-op（见模块 docstring 的例外说明）
     ("PrintString 是 no-op（不再打断效果链）",

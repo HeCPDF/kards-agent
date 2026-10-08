@@ -11,7 +11,6 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 import sys
 import types
 
-sys.path.insert(0, r"D:\Kards\kards-agent")
 
 from kardsmem.kismetlib import NativeOut, call as native_call   # noqa: E402
 from kardsmem.vm import Frame, VM                               # noqa: E402
@@ -32,7 +31,12 @@ def main():
     chk("key 存在但 value=0 ⇒ found=True, value=0", (isinstance(r, NativeOut), r[0], r[1][0]),
         (True, True, 0))
     r = native_call("BlueprintMapLibrary::Map_Find", [{"a": 0}, "zzz"])
-    chk("key 不存在 ⇒ found=False, value=None", (r[0], r[1][0]), (False, None))
+    # 2026-10-06：缺键 ⇒ 出参写**值类型的零值**（THE BIG THREE 对空本地表无条件 Map_Find 再 +1，卡能结算只可能是缺键给 0）
+    chk("key 不存在 ⇒ found=False, value=零值(0)", (r[0], r[1][0]), (False, 0))
+    r = native_call("BlueprintMapLibrary::Map_Find", [{}, "zzz"])
+    chk("空表缺键 ⇒ found=False, value=0", (r[0], r[1][0]), (False, 0))
+    r = native_call("BlueprintMapLibrary::Map_Find", [{"a": "x"}, "zzz"])
+    chk("字符串表缺键 ⇒ value=''", (r[0], r[1][0]), (False, ""))
     r = native_call("BlueprintMapLibrary::Map_Find", [None, "a"])
     chk("空 map 不炸 ⇒ found=False", r[0], False)
 
@@ -63,7 +67,7 @@ def main():
 
     chk("value=0 的 key ⇒ 返回 True（不是 0）且出参写 0", call_via_vm({"a": 0}, "a"), (True, 0))
     chk("value=7 ⇒ 返回 True 且出参写 7", call_via_vm({"b": 7}, "b"), (True, 7))
-    chk("key 不存在 ⇒ 返回 False 且出参 None", call_via_vm({"a": 1}, "zzz"), (False, None))
+    chk("key 不存在 ⇒ 返回 False 且出参写零值 0", call_via_vm({"a": 1}, "zzz"), (False, 0))
 
     print("%d 项失败" % bad)
     return 1 if bad else 0

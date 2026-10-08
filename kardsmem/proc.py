@@ -218,30 +218,35 @@ class Session:
         except OSError:
             pass
 
-        # ★ 2026-10-03：判据 = **运行中游戏自报的 `版本号.分支`**（进程内存里的 ProjectVersion，`version.py`）
-        #   → 已登记的"版本→RVA 表"（`VERSION_TO_BUILD`）是否就是本进程选中的 `B.CURRENT`。
-        #   SizeOfImage / md5 只作信息（`validate()` 仍如实记录，但不再是放行条件）。
+        # ★ 2026-10-03 P7：放行条件 = **RVA 解析链成功**（`build.ensure_resolved`：用户缓存 → 种子复验 → 运行时扫描，
+        #   全只读）。版本号（进程内存里的 ProjectVersion）只作缓存键/日志；未登记的版本照样能起来（走缓存→扫描）。
+        #   SizeOfImage / md5 只作信息（`validate()` 仍如实记录与参照种子的差异，但不是放行条件）。
         info = B.validate(size, md5, file_size)
         info.pid, info.base, info.module_path = pid, base, path
         from . import version as V
         ver = V.version_of_pid(pid)
-        bk = V.build_key_for_version(ver)
         info.checks = [c for c in info.checks if c[0] not in ("image_size", "exe_size", "warning")]
-        info.checks.insert(0, ("version", ver, "→ RVA 表 %s（本进程选中 %s）" % (bk, B.CURRENT), bk == B.CURRENT))
-        info.ok = bool(bk) and bk == B.CURRENT
-        info.matched = bk or info.matched
         info.version = ver
-        self.info = info
-
         if self.m is None:
             self.m = MemRO(pid)
+        err = None
+        try:
+            res = B.ensure_resolved(m=self.m, pid=pid, version=ver, base=base, image_size=size)
+            info.rva_source, info.matched = res.source, (res.key or "scan")
+            info.checks.insert(0, ("rva", res.source, "; ".join("%s:%s" % (st, d) for st, _ok, d in res.steps), True))
+            if B.RESTART_NEEDED:
+                err = ("RVA 解析结果（来源 %s）与本进程启动时烤进 ops.inject 的不同 —— 缓存已写好，重启本进程一次即可"
+                       "（选表只在进程启动 import 时做一次，运行中不切）" % res.source)
+        except B.BuildResolveError as e:
+            err = str(e)
+            info.checks.insert(0, ("rva", None, err, False))
+        info.ok = err is None
+        self.info = info
+
         if self.require_build and not info.ok:
             self.close()
-            raise BuildMismatch(
-                "attach 到的不是偏移表对应的构建：运行中游戏版本=%s → RVA 表 %s；本进程选中 %s（来源 %s）。"
-                " %s" % (ver or "认不出", bk or "未登记", B.CURRENT, getattr(B, "BUILD_SOURCE", "?"),
-                        "重启本进程（不设 KARDS_BUILD 即自动按版本选表）" if bk else
-                        "该版本没有登记 RVA 表（kardsmem/version.py::VERSION_TO_BUILD）"))
+            raise BuildMismatch("无法为运行中的游戏确定可用的 RVA：%s（版本=%s，本进程参照种子 %s，来源 %s）"
+                                % (err, ver or "认不出", B.CURRENT, getattr(B, "BUILD_SOURCE", "?")))
         return self
 
     # -- 便捷 ------------------------------------------------------------
@@ -302,8 +307,8 @@ class Session:
         from .cards import read_raw
         return read_raw(self, ptr, **kw)
 
-    def deck(self, side: str = "local"):
-        """物理牌库（含同名多份）。"""
+    def deck(self, side=None):
+        """物理牌库（含同名多份）。`side` 是 `ESide`，缺省 = 本局 mySide（读不出抛 ValueError）。"""
         from .cards import deck_cards
         return deck_cards(self, side)
 

@@ -1,0 +1,2084 @@
+{
+ "tool": "tools/reconcile_batch.py",
+ "offline": true,
+ "dumps": [
+  "kards-Win64-Shipping.exe_261001_144902.dmp",
+  "kards-Win64-Shipping.exe_261001_103325.dmp",
+  "kards-Win64-Shipping.exe_261001_103314.dmp",
+  "kards-Win64-Shipping.exe_261001_103241.dmp",
+  "kards-Win64-Shipping.exe_261001_103016.dmp",
+  "kards-Win64-Shipping.exe_261001_103005.dmp",
+  "kards-Win64-Shipping.exe_261001_102938.dmp",
+  "kards-Win64-Shipping.exe_261001_100745.dmp",
+  "kards-Win64-Shipping.exe_261001_100719.dmp",
+  "kards-Win64-Shipping.exe_261001_100649.dmp",
+  "kards-Win64-Shipping.exe_261001_100219.dmp",
+  "kards-Win64-Shipping.exe_261001_100209.dmp",
+  "kards-Win64-Shipping.exe_261001_100143.dmp",
+  "kards-Win64-Shipping.exe_261001_094945.dmp",
+  "kards-Win64-Shipping.exe_261001_094919.dmp",
+  "kards-Win64-Shipping.exe_261001_094716.dmp",
+  "kards-Win64-Shipping.exe_261001_094639.dmp",
+  "kards-Win64-Shipping.exe_261001_094614.dmp",
+  "kards-Win64-Shipping.exe_261001_092855.dmp",
+  "kards-Win64-Shipping.exe_261001_092838.dmp",
+  "kards-Win64-Shipping.exe_261001_092807.dmp",
+  "kards-Win64-Shipping.exe_261001_011058.dmp",
+  "kards-Win64-Shipping.exe_261001_011028.dmp",
+  "kards-Win64-Shipping.exe_261001_010955.dmp",
+  "kards-Win64-Shipping.exe_261001_002258.dmp",
+  "kards-now-20260930-214257-p30256-realgame.dmp"
+ ],
+ "scenarios": [
+  "as_dump",
+  "empty_board",
+  "mine_only",
+  "foe_only"
+ ],
+ "elapsed_s": 346.2,
+ "summary": {
+  "cards": 42,
+  "same": 39,
+  "diff_ab": 0,
+  "diff_bc": 1,
+  "skipped": 2,
+  "compare_same": 2714,
+  "compare_diff_ab": 0,
+  "compare_diff_bc": 96,
+  "compare_skipped": 260
+ },
+ "api_orders": {
+  "total": 338,
+  "reached": 37,
+  "not_reached": [
+   "ADMIRAL YAMAMOTO",
+   "AFRIKA KORPS",
+   "AID TO THE FRONT",
+   "AIR BLITZ",
+   "AIR CORPS FERRYING",
+   "AIR COVER",
+   "AIR ESCORT",
+   "AIR STRIPS",
+   "AIR, LAND & SEA",
+   "ANDERS' ARMY",
+   "ARCTIC CONVOY",
+   "AREA BOMBARDMENT",
+   "ARMING THE RESISTANCE",
+   "ATLANTIC COMMAND",
+   "ATLANTIC CONVOY",
+   "ATTACK IN THE COLONIES",
+   "AUNT FRIEDA",
+   "BANZAI",
+   "BETASOM",
+   "BLITZKRIEG",
+   "BLOCKADE",
+   "BLOODY SICKLE",
+   "BOCAGE WARFARE",
+   "BOLSTER THE RANKS",
+   "BOMBING RAID",
+   "BPF",
+   "BREAKOUT",
+   "BREAKTHROUGH",
+   "BURNING SKY",
+   "BURNING SUN",
+   "BUZZ BOMB",
+   "BY THE SWORD",
+   "CADET NURSE CORPS",
+   "CALL TO THE COLONIES",
+   "CALM BEFORE THE STORM",
+   "CAPITULATION",
+   "CARPET BOMBING",
+   "CARRIER BATTLE",
+   "CARRIER COVER",
+   "CASE BLUE",
+   "CHAIN HOME",
+   "CLAIM OBJECTIVE",
+   "CLOSE AIR SUPPORT",
+   "CLOSE COMBAT",
+   "COLOSSUS",
+   "COMBINED ARMS",
+   "COMBINED CHIEFS OF STAFF",
+   "COMMAND FAILURE",
+   "COMMIT THE RESERVES",
+   "CONFUSION",
+   "CONQUEST",
+   "CONVOY ATTACK",
+   "CORPS COMMAND",
+   "COUNTER OFFENSIVE",
+   "COUNTERATTACK",
+   "CREEPING BARRAGE",
+   "CRITICAL HIT",
+   "CROSS OF LORRAINE",
+   "CROSSFIRE",
+   "CRUISER SCOUTS",
+   "DARK DEEDS",
+   "DEADLY DUTY",
+   "DECOY TACTICS",
+   "DEEP OPERATION",
+   "DEFEAT IN DETAIL",
+   "DEFEND IN DEPTH",
+   "DEFEND THE NATION",
+   "DEPOT RAID",
+   "DESERT DUST",
+   "DESPERATE MEASURES",
+   "DETAILED RECON",
+   "DILEMMA",
+   "DO OR DIE",
+   "DRIVE INTO THE SEA",
+   "DUG IN",
+   "DURESS",
+   "DUTY BOUND",
+   "EAGLE DAY",
+   "ECHELON",
+   "EDGE OF THE EMPIRE",
+   "EMPIRE OF THE SUN",
+   "ENCIRCLEMENT",
+   "ENEMY CONTACT",
+   "ENGAGE AT RANGE",
+   "ENIGMA",
+   "ESCAUT PLAN",
+   "EXHAUST ALL OPTIONS",
+   "EXILED FORCES",
+   "EXPOSED",
+   "EXTENDED BARRAGE",
+   "FAST HEINZ",
+   "FEROCIOUS ASSAULT",
+   "FINAL PUSH",
+   "FINEST HOUR",
+   "FIVE YEAR PLAN",
+   "FLIGHT TO OBLIVION",
+   "FOG OF WAR",
+   "FOR GLORY",
+   "FOR PROSPERITY",
+   "FOR THE EMPEROR",
+   "FORGED IN FIRE",
+   "FORM BATTLE LINE",
+   "FORWARD BASE",
+   "FORWARD OBSERVERS",
+   "FREE FRENCH NAVY",
+   "FROM THE PEOPLE",
+   "FRONT AND HOMELAND",
+   "FRONT FORMATION",
+   "FRONTAL ASSAULT",
+   "FRONTAL DEFENSE",
+   "GLIDE BOMBING",
+   "GREATER PURPOSE",
+   "GROUNDED",
+   "GUERILLA WARFARE SCHOOL",
+   "HAPPY TIME",
+   "HARASS",
+   "HEL",
+   "HELL ON WHEELS",
+   "HEROES OF THE SOVIET UNION",
+   "HIS MAJESTY'S CHOSEN",
+   "HMAS WARRAMUNGA",
+   "HMS BELFAST",
+   "HMS FORMIDABLE",
+   "HMS ILLUSTRIOUS",
+   "HOME DEFENSE",
+   "HOME GUARD",
+   "HONORIFICS",
+   "HULL DOWN",
+   "HUMAN TORPEDO",
+   "IJN AKAGI",
+   "IJN MIKURA",
+   "IJN SHINANO",
+   "IJN SHIRAKUMO",
+   "IMPERIAL DECREE",
+   "IMPERIAL RESEARCH",
+   "IRON VICTORY",
+   "IRREGULAR RECRUITS",
+   "ISLAND DEFENSE",
+   "JOINT OPERATION",
+   "JUNGLE WARFARE",
+   "KANGAROO TRANSPORT",
+   "KETTENKRAD",
+   "KM BISMARCK",
+   "KM TIRPITZ",
+   "KRIEGSMARINE",
+   "LAND OF THE FREE",
+   "LAST DITCH FORCE",
+   "LAST RITES",
+   "LESSER OF TWO EVILS",
+   "LIBERATION",
+   "LINE OF ENGAGEMENT",
+   "LOTTA SVÄRD",
+   "MAGINOT LINE",
+   "MAYHEM",
+   "MEN OF STEEL",
+   "MI5",
+   "MINORITY RECRUITS",
+   "MOBILE DEFENSE",
+   "MOLOTOV COCKTAIL",
+   "MONASTYR",
+   "MONTY",
+   "MOTHERLAND CALLS!",
+   "MOTTI TACTIC",
+   "NATIONAL SERVICE",
+   "NAVAL SUPPORT",
+   "NIGHT ATTACK",
+   "NIGHT PATROL",
+   "NIGHT RAID",
+   "OBSERVER CORPS",
+   "OLD HARES",
+   "ONE ROOF",
+   "ORDER 227",
+   "ORDER OF THE DAY",
+   "ORDERS FROM ABOVE",
+   "ORP GENERAL HALLER",
+   "ORP ORZEŁ",
+   "OUT OF THE SUN",
+   "OUT WITH THE OLD",
+   "OUTMANEUVER",
+   "OVERPOWER",
+   "OVERWHELMING FORCE",
+   "PAMS",
+   "PARTISANS",
+   "PATRIOTIC ZEAL",
+   "PATTON",
+   "PERSIAN CORRIDOR",
+   "PILOT ESCAPE",
+   "PLAN D",
+   "PLAN WEST",
+   "PLANNED ATTACK",
+   "PONTOON BRIDGE",
+   "POUND",
+   "PRECISION BOMBING",
+   "PROLONGED SIEGE",
+   "PROTECTED CONVOY",
+   "PROVENCE LANDING",
+   "PUNISH",
+   "QUININE",
+   "RALLY",
+   "RALLY CALEDONIA",
+   "RASPUTITSA",
+   "RATIONING",
+   "RED BANNER",
+   "REDEPLOYMENT",
+   "REGIA AERONAUTICA",
+   "REGIA MARINA",
+   "REICH RESEARCH",
+   "REPEL THE ATTACK",
+   "RESERVES",
+   "RESISTANCE COUNCIL",
+   "RESPITE",
+   "RM BERSAGLIERE",
+   "RM ROMA",
+   "ROMANIAN BRIDGEHEAD",
+   "ROUT",
+   "ROYAL RESEARCH",
+   "RULE BRITANNIA",
+   "RUN THE BATTLEFIELD",
+   "RUSH",
+   "SAAR OFFENSIVE",
+   "SABOTAGE",
+   "SALLY",
+   "SALPA LINE",
+   "SCOUTING PARTY",
+   "SCREENING FORCE",
+   "SEAC",
+   "SECOND FRONT",
+   "SEEK AND DESTROY",
+   "SEMPER FI",
+   "SHADOW STRIKE",
+   "SHIFTING ATTACK",
+   "SHIFTING DOCTRINE",
+   "SHINYO MOTORBOATS",
+   "SHOCK TACTICS",
+   "SIBERIAN TRANSFER",
+   "SKY BARONS",
+   "SOUL OF OLD JAPAN",
+   "SOVIET MILITARY RESEARCH",
+   "SPARS",
+   "SPECIAL ATTACK",
+   "SPECIAL REINFORCEMENTS",
+   "SPIRIT OF ROME",
+   "SPOILS OF WAR",
+   "SPRING OFFENSIVE",
+   "STAND FAST",
+   "STARS & STRIPES",
+   "STRATEGIC FOCUS",
+   "STRETCH THE LINE",
+   "STRIKE GROUP",
+   "SUPPRESSION",
+   "SURGING POWER",
+   "SURPRISE ENGAGEMENT",
+   "SURVEIL",
+   "SUSTAINED PRESSURE",
+   "SWIFT VICTORY",
+   "TACTICAL STRIKE",
+   "TACTICAL WITHDRAWAL",
+   "TANK WEDGE",
+   "THE ALLIANCE",
+   "THE BIG THREE",
+   "THE DAGGER STRIKES",
+   "THE DESERT RATS",
+   "THE DOUBLE SUNRISE",
+   "THE GREAT EXPANSE",
+   "THE HAMMER",
+   "THE LAND GIRLS",
+   "THE PEOPLE'S ARMY",
+   "THE ROCK OF GIBRALTAR",
+   "THE TIDE TURNS",
+   "THE WHITE DEATH",
+   "TO THE LAST MAN",
+   "TORPEDO ATTACK",
+   "TURNING POINT",
+   "U-16",
+   "U-375",
+   "U-48",
+   "UNDERGROUND STATE",
+   "UNITY IS STRENGTH",
+   "UPRISING",
+   "URAL FACTORIES",
+   "US MILITARY RESEARCH",
+   "US WEATHER BUREAU",
+   "USAAF",
+   "USS ARCHERFISH",
+   "USS FITCH",
+   "USS MISSOURI",
+   "USS THE SULLIVANS",
+   "VICTORY BANNERS",
+   "VICTORY GARDEN",
+   "VIVE LA RESISTANCE!",
+   "VOLUNTEER CORPS",
+   "VYSTREL COURSE",
+   "WAVE AFTER WAVE",
+   "WAY OF SUBJECTS",
+   "WINTER OFFENSIVE",
+   "WINTER WARFARE",
+   "WOLFPACK",
+   "WOMEN AT WORK",
+   "YOUR COURAGE",
+   "ZAMOŚĆ UPRISING",
+   "ZHUKOV"
+  ]
+ },
+ "cards": {
+  "A FEW GOOD MEN": {
+   "status": "same",
+   "same": 96,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 96
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "AIR SUPERIORITY": {
+   "status": "same",
+   "same": 36,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_094945/as_dump",
+    "01_094945/empty_board",
+    "01_094945/mine_only",
+    "01_094945/foe_only",
+    "01_094919/as_dump",
+    "01_094919/empty_board"
+   ]
+  },
+  "AMPHIBIOUS ASSAULT": {
+   "status": "same",
+   "same": 114,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 44
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "BLACKOUT": {
+   "status": "same",
+   "same": 54,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_092855/as_dump",
+    "01_092855/empty_board",
+    "01_092855/mine_only",
+    "01_092855/foe_only",
+    "01_092838/as_dump",
+    "01_092838/empty_board"
+   ]
+  },
+  "BLADE OF THE SAMURAI": {
+   "status": "same",
+   "same": 114,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 44
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "BLUE SKY": {
+   "status": "same",
+   "same": 72,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 72
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "CONVOY HX 175": {
+   "status": "same",
+   "same": 24,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_100745/as_dump",
+    "01_100745/empty_board",
+    "01_100745/mine_only",
+    "01_100745/foe_only",
+    "01_100719/as_dump",
+    "01_100719/empty_board"
+   ]
+  },
+  "CUP OF TEA": {
+   "status": "same",
+   "same": 24,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_100745/as_dump",
+    "01_100745/empty_board",
+    "01_100745/mine_only",
+    "01_100745/foe_only",
+    "01_100719/as_dump",
+    "01_100719/empty_board"
+   ]
+  },
+  "DEATH FROM ABOVE": {
+   "status": "same",
+   "same": 16,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_011058/as_dump",
+    "01_011058/empty_board",
+    "01_011058/mine_only",
+    "01_011058/foe_only",
+    "01_011028/as_dump",
+    "01_011028/empty_board"
+   ]
+  },
+  "DELUGE": {
+   "status": "same",
+   "same": 12,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "sim.suppress：压制会清空关键词/重甲/指向税（已建模）；customName1/2→None、effectType=0、customJson 只留 suppressionException/veteran *": 8,
+    "suppress：目标指针换不出场上的单位（未结算）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_002258/as_dump",
+    "01_002258/empty_board",
+    "01_002258/mine_only",
+    "01_002258/foe_only"
+   ]
+  },
+  "DIVE BOMBING": {
+   "status": "same",
+   "same": 54,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeAttack：目标指针换不出场上的单位（未结算）": 6
+   },
+   "samples": {},
+   "where": [
+    "01_092855/as_dump",
+    "01_092855/empty_board",
+    "01_092855/mine_only",
+    "01_092855/foe_only",
+    "01_092838/as_dump",
+    "01_092838/empty_board"
+   ]
+  },
+  "EAGLE CLAWS": {
+   "status": "same",
+   "same": 12,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DamageMultipleCards：卡指针既不是场上单位、也不在 hq_card_ids（未结算）": 18
+   },
+   "samples": {},
+   "where": [
+    "01_092855/as_dump",
+    "01_092855/empty_board",
+    "01_092855/mine_only",
+    "01_092855/foe_only",
+    "01_092838/as_dump",
+    "01_092838/empty_board"
+   ]
+  },
+  "EXPANSION": {
+   "status": "same",
+   "same": 44,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "FOR FREEDOM": {
+   "status": "same",
+   "same": 12,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_002258/as_dump",
+    "01_002258/empty_board",
+    "01_002258/mine_only",
+    "01_002258/foe_only"
+   ]
+  },
+  "FOR THE KING": {
+   "status": "same",
+   "same": 72,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_100745/as_dump",
+    "01_100745/empty_board",
+    "01_100745/mine_only",
+    "01_100745/foe_only",
+    "01_100719/as_dump",
+    "01_100719/empty_board"
+   ]
+  },
+  "FORTIFICATION": {
+   "status": "same",
+   "same": 24,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_100745/as_dump",
+    "01_100745/empty_board",
+    "01_100745/mine_only",
+    "01_100745/foe_only",
+    "01_100719/as_dump",
+    "01_100719/empty_board"
+   ]
+  },
+  "GATHERING STORM": {
+   "status": "same",
+   "same": 12,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_092855/as_dump",
+    "01_092855/empty_board",
+    "01_092855/mine_only",
+    "01_092855/foe_only",
+    "01_092838/as_dump",
+    "01_092838/empty_board"
+   ]
+  },
+  "GUNSHIP MISSION": {
+   "status": "same",
+   "same": 60,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_011058/as_dump",
+    "01_011058/empty_board",
+    "01_011058/mine_only",
+    "01_011058/foe_only",
+    "01_011028/as_dump",
+    "01_011028/empty_board"
+   ]
+  },
+  "HEATWAVE": {
+   "status": "same",
+   "same": 60,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 12,
+   "reasons": {
+    "这张牌没有 打出/部署钩子 覆写 ‖ 这张牌没有 打出/部署钩子 覆写": 12
+   },
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "HONOR": {
+   "status": "same",
+   "same": 36,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_094945/as_dump",
+    "01_094945/empty_board",
+    "01_094945/mine_only",
+    "01_094945/foe_only",
+    "01_094919/as_dump",
+    "01_094919/empty_board"
+   ]
+  },
+  "IMPERIAL ORDER": {
+   "status": "same",
+   "same": 114,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "FullyHealCard：目标指针换不出场上的单位（未结算）": 44,
+    "FullyHealCard：`OnBeforeFullyRepaired`(0xC) 的否决结果没提供 ⇒ 按不否决处理": 30,
+    "FullyHealCard：0x2C / `OnFullyRepaired` 的后续钩子未建模": 30
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "MIST": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_002258/as_dump",
+    "01_002258/empty_board",
+    "01_002258/mine_only",
+    "01_002258/foe_only"
+   ]
+  },
+  "NAVAL BATTLE": {
+   "status": "skipped",
+   "same": 0,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 96,
+   "reasons": {
+    "随机/抉择": 96
+   },
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyMultipleCards：数组里的卡指针换不出场上的单位（未结算）": 56
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "NAVAL POWER": {
+   "status": "same",
+   "same": 72,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_100745/as_dump",
+    "01_100745/empty_board",
+    "01_100745/mine_only",
+    "01_100745/foe_only",
+    "01_100719/as_dump",
+    "01_100719/empty_board"
+   ]
+  },
+  "NZANS": {
+   "status": "same",
+   "same": 96,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "OVERCAST": {
+   "status": "diff_bc",
+   "same": 0,
+   "diff_ab": 0,
+   "diff_bc": 96,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {
+    "diff_bc:opp_cards": 96,
+    "diff_bc:gap:kind='opp_draw' 未在重放表里（v1 不猜）": 96
+   },
+   "direct_gaps": {
+    "forecast：预报选哪张（两层 3×3）未展开（没有可用的种子预测）": 96
+   },
+   "samples": {
+    "diff_bc": {
+     "card": "OVERCAST→None",
+     "diff": {
+      "opp_cards": "(1, 0)"
+     },
+     "gaps": [
+      "apply_calls：kind='opp_draw' 未在重放表里（v1 不猜）"
+     ],
+     "pending": [
+      "forecast"
+     ]
+    }
+   },
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "PARACHUTE ASSAULT": {
+   "status": "skipped",
+   "same": 0,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 96,
+   "reasons": {
+    "Unimplemented LocalFinalFunction: 被调函数停在：Unimplemented @0x35 LetObj: 函数 GetObjectClass": 72,
+    "Unimplemented LocalFinalFunction: 被调函数停在：Unimplemented @0x33 Let: 字段 unitsToSpawn：TArray 有 2 个元素，内层类型 NameProp": 12,
+    "Unimplemented LocalFinalFunction: 被调函数停在：Unimplemented @0x33 Let: 字段 unitsToSpawn：TArray 有 3 个元素，内层类型 NameProp": 12
+   },
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "SEABORNE INVASION": {
+   "status": "same",
+   "same": 40,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 56,
+   "reasons": {
+    "Unimplemented LocalFinalFunction: 被调函数停在：Unimplemented @0x53 Let: 在空对象上读 cards_reserve_changes": 56
+   },
+   "diff_keys": {},
+   "direct_gaps": {
+    "MakeCardRetreat：数组里的卡指针换不出场上的单位（未结算）": 30
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "STRATEGIC BOMBING": {
+   "status": "same",
+   "same": 96,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DamageMultipleCards：卡指针既不是场上单位、也不在 hq_card_ids（未结算）": 70
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "SUDDEN STRIKE": {
+   "status": "same",
+   "same": 54,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 12
+   },
+   "samples": {},
+   "where": [
+    "01_092855/as_dump",
+    "01_092855/empty_board",
+    "01_092855/mine_only",
+    "01_092855/foe_only",
+    "01_092838/as_dump",
+    "01_092838/empty_board"
+   ]
+  },
+  "SUPPLY SHIPMENT": {
+   "status": "same",
+   "same": 60,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_011058/as_dump",
+    "01_011058/empty_board",
+    "01_011058/mine_only",
+    "01_011058/foe_only",
+    "01_011028/as_dump",
+    "01_011028/empty_board"
+   ]
+  },
+  "SURPRISE ATTACK": {
+   "status": "same",
+   "same": 114,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "TASK FORCE 44": {
+   "status": "same",
+   "same": 300,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "forecast：预报选哪张（两层 3×3）未展开（没有可用的种子预测）": 300
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "THE ANZAC SPIRIT": {
+   "status": "same",
+   "same": 96,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DamageMultipleCards：卡指针既不是场上单位、也不在 hq_card_ids（未结算）": 98
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "THE WAR MACHINE": {
+   "status": "same",
+   "same": 96,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "TORA! TORA! TORA!": {
+   "status": "same",
+   "same": 20,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_094945/as_dump",
+    "01_094945/empty_board",
+    "01_094945/mine_only",
+    "01_094945/foe_only",
+    "01_094919/as_dump",
+    "01_094919/empty_board"
+   ]
+  },
+  "TORRENTIAL RAIN": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_002258/as_dump",
+    "01_002258/empty_board",
+    "01_002258/mine_only",
+    "01_002258/foe_only"
+   ]
+  },
+  "USACE": {
+   "status": "same",
+   "same": 12,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_002258/as_dump",
+    "01_002258/empty_board",
+    "01_002258/mine_only",
+    "01_002258/foe_only"
+   ]
+  },
+  "USS YORKTOWN": {
+   "status": "same",
+   "same": 96,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "WAR BONDS": {
+   "status": "same",
+   "same": 96,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "WE CAN DO IT!": {
+   "status": "same",
+   "same": 96,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  },
+  "Z SPECIAL UNIT": {
+   "status": "same",
+   "same": 300,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump",
+    "01_103325/empty_board",
+    "01_103325/mine_only",
+    "01_103325/foe_only",
+    "01_103314/as_dump",
+    "01_103314/empty_board"
+   ]
+  }
+ },
+ "runs": [
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103325.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.72,
+   "n_hand": 21,
+   "n_pairs": 39,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103325.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.35,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103325.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.38,
+   "n_hand": 21,
+   "n_pairs": 33,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103325.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.3,
+   "n_hand": 21,
+   "n_pairs": 27,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103314.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.44,
+   "n_hand": 21,
+   "n_pairs": 39,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103314.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.41,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103314.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.6,
+   "n_hand": 21,
+   "n_pairs": 33,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103314.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.52,
+   "n_hand": 21,
+   "n_pairs": 27,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103241.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.49,
+   "n_hand": 21,
+   "n_pairs": 39,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103241.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.27,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103241.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.48,
+   "n_hand": 21,
+   "n_pairs": 33,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103241.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.5,
+   "n_hand": 21,
+   "n_pairs": 27,
+   "turn": 22,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103016.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.96,
+   "n_hand": 21,
+   "n_pairs": 57,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103016.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.42,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103016.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.64,
+   "n_hand": 21,
+   "n_pairs": 45,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103016.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.5,
+   "n_hand": 21,
+   "n_pairs": 33,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103005.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.73,
+   "n_hand": 21,
+   "n_pairs": 57,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103005.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.35,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103005.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.62,
+   "n_hand": 21,
+   "n_pairs": 45,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103005.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.57,
+   "n_hand": 21,
+   "n_pairs": 33,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_102938.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.79,
+   "n_hand": 21,
+   "n_pairs": 57,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_102938.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.33,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_102938.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.52,
+   "n_hand": 21,
+   "n_pairs": 45,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_102938.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.52,
+   "n_hand": 21,
+   "n_pairs": 33,
+   "turn": 18,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100745.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.45,
+   "n_hand": 21,
+   "n_pairs": 37,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100745.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.25,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100745.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.4,
+   "n_hand": 21,
+   "n_pairs": 29,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100745.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.4,
+   "n_hand": 21,
+   "n_pairs": 29,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100719.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.53,
+   "n_hand": 21,
+   "n_pairs": 37,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100719.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.38,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100719.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.4,
+   "n_hand": 21,
+   "n_pairs": 29,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100719.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.36,
+   "n_hand": 21,
+   "n_pairs": 29,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100649.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.49,
+   "n_hand": 21,
+   "n_pairs": 37,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100649.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.28,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100649.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.42,
+   "n_hand": 21,
+   "n_pairs": 29,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100649.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.42,
+   "n_hand": 21,
+   "n_pairs": 29,
+   "turn": 16,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100219.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.42,
+   "n_hand": 21,
+   "n_pairs": 37,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100219.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.23,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100219.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.24,
+   "n_hand": 21,
+   "n_pairs": 25,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100219.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.37,
+   "n_hand": 21,
+   "n_pairs": 33,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100209.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.48,
+   "n_hand": 21,
+   "n_pairs": 37,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100209.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.22,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100209.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.22,
+   "n_hand": 21,
+   "n_pairs": 25,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100209.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.32,
+   "n_hand": 21,
+   "n_pairs": 33,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100143.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.56,
+   "n_hand": 21,
+   "n_pairs": 37,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100143.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.28,
+   "n_hand": 21,
+   "n_pairs": 21,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100143.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.24,
+   "n_hand": 21,
+   "n_pairs": 25,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_100143.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.41,
+   "n_hand": 21,
+   "n_pairs": 33,
+   "turn": 8,
+   "cards": 21
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094945.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.34,
+   "n_hand": 24,
+   "n_pairs": 32,
+   "turn": 10,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094945.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.27,
+   "n_hand": 24,
+   "n_pairs": 24,
+   "turn": 10,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094945.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.31,
+   "n_hand": 24,
+   "n_pairs": 24,
+   "turn": 10,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094945.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.44,
+   "n_hand": 24,
+   "n_pairs": 32,
+   "turn": 10,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094919.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.38,
+   "n_hand": 24,
+   "n_pairs": 32,
+   "turn": 10,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094919.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.3,
+   "n_hand": 24,
+   "n_pairs": 24,
+   "turn": 10,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094919.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.22,
+   "n_hand": 24,
+   "n_pairs": 24,
+   "turn": 10,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094919.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.29,
+   "n_hand": 24,
+   "n_pairs": 32,
+   "turn": 10,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094716.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.34,
+   "n_hand": 22,
+   "n_pairs": 38,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094716.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.24,
+   "n_hand": 22,
+   "n_pairs": 22,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094716.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.27,
+   "n_hand": 22,
+   "n_pairs": 30,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094716.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.2,
+   "n_hand": 22,
+   "n_pairs": 30,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094639.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.35,
+   "n_hand": 22,
+   "n_pairs": 38,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094639.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.19,
+   "n_hand": 22,
+   "n_pairs": 22,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094639.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.33,
+   "n_hand": 22,
+   "n_pairs": 30,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094639.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.28,
+   "n_hand": 22,
+   "n_pairs": 30,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094614.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.33,
+   "n_hand": 22,
+   "n_pairs": 38,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094614.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.24,
+   "n_hand": 22,
+   "n_pairs": 22,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094614.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.26,
+   "n_hand": 22,
+   "n_pairs": 30,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_094614.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.43,
+   "n_hand": 22,
+   "n_pairs": 30,
+   "turn": 4,
+   "cards": 22
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092855.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 2.08,
+   "n_hand": 19,
+   "n_pairs": 54,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092855.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.75,
+   "n_hand": 19,
+   "n_pairs": 19,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092855.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.86,
+   "n_hand": 19,
+   "n_pairs": 34,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092855.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 2.34,
+   "n_hand": 19,
+   "n_pairs": 39,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092838.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 2.48,
+   "n_hand": 19,
+   "n_pairs": 54,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092838.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 2.01,
+   "n_hand": 19,
+   "n_pairs": 19,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092838.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.97,
+   "n_hand": 19,
+   "n_pairs": 34,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092838.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.89,
+   "n_hand": 19,
+   "n_pairs": 39,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092807.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 2.06,
+   "n_hand": 19,
+   "n_pairs": 54,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092807.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.85,
+   "n_hand": 19,
+   "n_pairs": 19,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092807.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.9,
+   "n_hand": 19,
+   "n_pairs": 34,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_092807.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 2.03,
+   "n_hand": 19,
+   "n_pairs": 39,
+   "turn": 10,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_011058.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.28,
+   "n_hand": 19,
+   "n_pairs": 43,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_011058.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.06,
+   "n_hand": 19,
+   "n_pairs": 19,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_011058.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.28,
+   "n_hand": 19,
+   "n_pairs": 35,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_011058.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.34,
+   "n_hand": 19,
+   "n_pairs": 27,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_011028.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.46,
+   "n_hand": 19,
+   "n_pairs": 43,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_011028.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.08,
+   "n_hand": 19,
+   "n_pairs": 19,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_011028.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.24,
+   "n_hand": 19,
+   "n_pairs": 35,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_011028.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.23,
+   "n_hand": 19,
+   "n_pairs": 27,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_010955.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.35,
+   "n_hand": 19,
+   "n_pairs": 43,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_010955.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.26,
+   "n_hand": 19,
+   "n_pairs": 19,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_010955.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.36,
+   "n_hand": 19,
+   "n_pairs": 35,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_010955.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.28,
+   "n_hand": 19,
+   "n_pairs": 27,
+   "turn": 22,
+   "cards": 19
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_002258.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 1.81,
+   "n_hand": 24,
+   "n_pairs": 52,
+   "turn": 25,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_002258.dmp",
+   "scenario": "empty_board",
+   "elapsed_s": 1.58,
+   "n_hand": 24,
+   "n_pairs": 24,
+   "turn": 25,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_002258.dmp",
+   "scenario": "mine_only",
+   "elapsed_s": 1.58,
+   "n_hand": 24,
+   "n_pairs": 31,
+   "turn": 25,
+   "cards": 24
+  },
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_002258.dmp",
+   "scenario": "foe_only",
+   "elapsed_s": 1.74,
+   "n_hand": 24,
+   "n_pairs": 45,
+   "turn": 25,
+   "cards": 24
+  }
+ ],
+ "errors": [
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_144902.dmp",
+   "error": "转储里没有对局盘面（菜单/加载中）"
+  },
+  {
+   "dump": "kards-now-20260930-214257-p30256-realgame.dmp",
+   "error": "转储里没有对局盘面（菜单/加载中）"
+  }
+ ]
+}

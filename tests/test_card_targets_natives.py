@@ -10,7 +10,6 @@ import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import sys
 
-sys.path.insert(0, r"D:\Kards\kards-agent")
 
 from tools.card_targets import make_natives                              # noqa: E402
 

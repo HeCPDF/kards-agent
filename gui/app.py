@@ -136,6 +136,8 @@ class LogView(ttk.Frame):
 class App(tk.Tk):
     def __init__(self, debug: bool = False, size=(1180, 760)):
         super().__init__()
+        if os.environ.get("KARDS_GUI_SELFTEST_EXIT_MS", "").isdigit():
+            self.withdraw()            # 无头冒烟：窗口不映射到桌面（不抢游戏焦点、不闪屏），控件照常创建、事件循环照常跑
         self.debug = debug
         self.title("%s 控制面板" % APP_NAME)
         self.geometry(K.geometry_string(K.load_win_state(), default=size))
@@ -155,6 +157,21 @@ class App(tk.Tk):
         self._tick()
         threading.Thread(target=self._poll_watcher, daemon=True).start()
         threading.Thread(target=self._auto_update, daemon=True).start()
+        # 无头冒烟（打包产物验收用）：设了 KARDS_GUI_SELFTEST_EXIT_MS=<毫秒> 就在窗口建好、跑过若干次 _tick 后自己关掉。
+        ms = os.environ.get("KARDS_GUI_SELFTEST_EXIT_MS", "")
+        if ms.isdigit():
+            self.after(int(ms), self._selftest_exit)
+
+    def _selftest_exit(self):
+        """冒烟自动退出：先落一个标记文件（证明 Tk 窗口真建出来了、事件循环真跑过），再 destroy（不弹确认框、不碰监听器）。"""
+        try:
+            os.makedirs(K.STATE_DIR, exist_ok=True)
+            with open(os.path.join(K.STATE_DIR, "gui_smoke_ok.txt"), "w", encoding="utf-8") as f:
+                json.dump({"title": self.title(), "size": [self.winfo_width(), self.winfo_height()],
+                           "children": len(self.winfo_children()), "frozen": _paths.FROZEN}, f, ensure_ascii=False)
+        except Exception:                                     # noqa: BLE001
+            pass
+        self.destroy()
 
     # ---------------- 界面 ----------------
     def _build(self):
@@ -364,17 +381,18 @@ class App(tk.Tk):
             messagebox.showerror("找不到解释器", "试过这些：\n" + detail)
             return
         info = W.detect_version()
-        build = info["build"]
-        if build is None:
-            messagebox.showerror("没法确定游戏构建", info["why"] + "\n\n不启动（构建不对时偏移表会读错，监听器必然 attach 失败）。")
+        # ★ 2026-10-03 P7：版本号不是放行条件。RVA 由监听器 attach 时自己确定（缓存 → 种子复验 → 扫描），
+        #   不再传 KARDS_BUILD（它现在只是调试覆盖）；只有“游戏没开/认不出版本”才挡在这里。
+        if info["version"] is None:
+            messagebox.showerror("认不出游戏", info["why"] + "\n\n不启动（监听器 attach 需要游戏在跑）。")
             return
         if not messagebox.askyesno(
                 "启动监听器", "这会启动常驻监听器并 attach 到 KARDS 游戏进程。\n\n"
-                "检测到：%s\n将以 KARDS_BUILD=%s 启动（解释器 %s）。\n\n"
-                "· 游戏必须已经打开；\n· 不要对同一个游戏起第二个监听器；\n确定启动？" % (W.describe(info), build, py)):
+                "检测到：%s\nRVA 由监听器 attach 时自行确定（缓存 → 种子复验 → 扫描；预期来源：%s）。解释器 %s。\n\n"
+                "· 游戏必须已经打开；\n· 不要对同一个游戏起第二个监听器；\n确定启动？" % (W.describe(info), info.get("source"), py)):
             return
         self._game_info = W.describe(info)
-        env = dict(os.environ, KARDS_BUILD=build)
+        env = dict(os.environ)
         flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         _paths.ensure_dirs()
         out = open(_paths.LIVE_STDOUT, "a", encoding="utf-8")
@@ -382,7 +400,7 @@ class App(tk.Tk):
             off = os.path.getsize(LIVE_LOG)
         except OSError:
             off = 0
-        proc = subprocess.Popen([py, LIVE_SESSION], cwd=_paths.AGENT_ROOT, stdout=out, stderr=out,
+        proc = subprocess.Popen(K.listener_cmd(py, LIVE_SESSION), cwd=_paths.AGENT_ROOT, stdout=out, stderr=out,
                                 stdin=subprocess.DEVNULL, creationflags=flags, env=env)
         self._started_proc, self._exit_info = proc, None
         self._launch = {"proc": proc, "t0": time.time(), "log_off": off}

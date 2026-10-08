@@ -25,6 +25,7 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
+from base import paths as _paths
 from .baselines import all_baselines
 from .dataset import (build_encoded, describe, load_records, split_games,
                       to_torch_batch, iterate_batches)
@@ -296,7 +297,7 @@ def main(argv=None) -> int:
     table = CardTable.load()
     samples = build_encoded(
         load_records(a.data or ckpt.get("data_dir") or None or
-                     r"D:\Kards\kards-data\recordings"),
+                     _paths.RECORD_DIR),
         table, drop_fallback=not a.keep_fallback)
     split = ckpt.get("split") or {}
     mode = a.split or split.get("mode", "time")

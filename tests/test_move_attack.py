@@ -5,7 +5,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from sim.state import Sim, U, LOCAL                                   # noqa: E402
+from _cards import ME, OPP                              # noqa: E402
+from sim.state import Sim, U                                   # noqa: E402
 from sim import engine as E                                           # noqa: E402
 from player.rule import RuleV2                                         # noqa: E402
 
@@ -19,7 +20,7 @@ def chk(name, ok, extra=""):
 
 
 def after_move(typ, kw=()):
-    s = Sim({1: U(1, LOCAL, "back", 3, 3, 3, typ, kw)}, {"local": 20, "enemy": 20}, 5.0, {}, 5.0)
+    s = Sim({1: U(1, ME, "back", 3, 3, 3, typ, kw)}, {ME: 20, OPP: 20}, 5.0, {}, 5.0, my_side=ME)
     return E.sim_move(s, 1).units[1]
 
 

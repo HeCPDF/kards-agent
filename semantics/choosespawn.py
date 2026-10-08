@@ -33,8 +33,29 @@ from base import paths as _paths  # noqa: E402
 API_CACHE = _paths.API_CACHE
 
 
+_LEGAL_MEMO: dict = {}
+
+
 def legal_titles(path: str = API_CACHE) -> Optional[frozenset]:
-    """官方 API 当前卡表（= 没进预备）的英文标题（大写）集合；缓存读不出 ⇒ None。"""
+    """官方 API 当前卡表（= 没进预备）的英文标题（大写）集合；缓存读不出 ⇒ None。
+
+    按 (路径, mtime_ns, 大小) 记住解析结果：这个 json 有两千多行、每次 `_play_hooks` 都整份重解析（~70 ms/次）。
+    文件一变（API 缓存刷新）键就变，立刻重读；读不出（None）不记。"""
+    try:
+        stt = os.stat(path)
+        key = (path, stt.st_mtime_ns, stt.st_size)
+    except OSError:
+        key = None
+    if key is not None and key in _LEGAL_MEMO:
+        return _LEGAL_MEMO[key]
+    out = _legal_titles_uncached(path)
+    if key is not None and out is not None:
+        _LEGAL_MEMO.clear()
+        _LEGAL_MEMO[key] = out
+    return out
+
+
+def _legal_titles_uncached(path: str) -> Optional[frozenset]:
     try:
         out = set()
         for row in json.load(open(path, encoding="utf-8")):
@@ -75,23 +96,28 @@ def shuffle_pick(seed: int, n: int, k: int = 3) -> tuple:
     return order[:k], st.draws
 
 
-def predict(km, card_ptr: int, seed: Optional[int], st=None, legal: Optional[frozenset] = None,
-            timeout_s: float = 8.0) -> dict:
-    """→ `{"names": [内部名×≤3], "pool": N, "keep_order": bool, "draws": n, "stopped": None|原因}`。"""
-    out = {"names": [], "pool": 0, "keep_order": None, "draws": 0, "stopped": None}
-    if seed is None:
-        out["stopped"] = "读不到随机种子"
-        return out
+def pool_hooks(km, card_ptr: int = 0, legal: Optional[frozenset] = None, table: Optional[list] = None) -> dict:
+    """卡池类原生的只读钩子 `{"IsCardReserved": …, "GetAllActiveStaticCards": …}`（VM 没有它们的字节码：它们落到
+    `BP_Logic → UtilityFunctions.isCardReserved → GetDSession().cards_reserve_changes`，离线/空会话里 `GetDSession()` 是空 ⇒ VM 在
+    `@0x53 Let: 在空对象上读 cards_reserve_changes` 停）。凡是从"全部可用卡"里随机取牌的指令（ATLANTIC CONVOY / RED BANNER /
+    URAL FACTORIES …）都要它们。原版：`GetAllActiveStaticCards`（BP_CardFunctions.cpp:~3990-4050，卡集 switch + `NotifyCheckCardReserved`@4032）、
+    `IsCardReserved`（BP_CardFunctions.cpp:23027）。预备判据 = 官方 API 本地缓存没有这张牌的英文标题；缓存/静态卡表读不出 ⇒ `{}`
+    （不编池子，VM 照旧停在原语上并如实记缺口）。静态卡表按 km 缓存（整表扫描不便宜）。"""
+    from semantics import effectvm as EV
     legal = legal if legal is not None else legal_titles()
     if legal is None:
-        out["stopped"] = "官方 API 本地缓存读不出（kards-data/api/kards_api_cards.json），池子的“没进预备”无法判定"
-        return out
-    from semantics import effectvm as EV
-    try:
-        table = static_cards(km)
-    except Exception as ex:                                       # noqa: BLE001
-        out["stopped"] = "静态卡表读不出：%s: %s" % (type(ex).__name__, ex)
-        return out
+        return {}
+    if table is None:
+        table = km.__dict__.get("_static_cards_cache") if hasattr(km, "__dict__") else None
+        if table is None:
+            try:
+                table = static_cards(km)
+            except Exception:                                     # noqa: BLE001
+                return {}
+            try:
+                km._static_cards_cache = table
+            except Exception:                                     # noqa: BLE001
+                pass
     by_ptr = {p: (n, ti, cs) for p, n, ti, cs in table}
     by_name = {n: ti for _p, n, ti, _cs in table}
     title_of_self = by_ptr.get(card_ptr, (None, None, None))[1]
@@ -117,12 +143,33 @@ def predict(km, card_ptr: int, seed: Optional[int], st=None, legal: Optional[fro
             res.append(p)
         EV._generic_out(frame, e, res)
         return res
+    return {"IsCardReserved": hk_reserved, "GetAllActiveStaticCards": hk_active}
+
+
+def predict(km, card_ptr: int, seed: Optional[int], st=None, legal: Optional[frozenset] = None,
+            timeout_s: float = 8.0) -> dict:
+    """→ `{"names": [内部名×≤3], "pool": N, "keep_order": bool, "draws": n, "stopped": None|原因}`。"""
+    out = {"names": [], "pool": 0, "keep_order": None, "draws": 0, "stopped": None}
+    if seed is None:
+        out["stopped"] = "读不到随机种子"
+        return out
+    legal = legal if legal is not None else legal_titles()
+    if legal is None:
+        out["stopped"] = "官方 API 本地缓存读不出（kards-data/api/kards_api_cards.json），池子的“没进预备”无法判定"
+        return out
+    from semantics import effectvm as EV
+    try:
+        table = static_cards(km)
+    except Exception as ex:                                       # noqa: BLE001
+        out["stopped"] = "静态卡表读不出：%s: %s" % (type(ex).__name__, ex)
+        return out
+    by_ptr = {p: (n, ti, cs) for p, n, ti, cs in table}
+    pool = pool_hooks(km, card_ptr, legal=legal, table=table)
 
     hooks = {}
     if st is not None:
         hooks.update(EV.make_read_hooks(st, getattr(st, "my_side_raw", None)))
-    hooks["IsCardReserved"] = hk_reserved
-    hooks["GetAllActiveStaticCards"] = hk_active
+    hooks.update(pool)
     r = EV.record_effects(km, card_ptr, 0, False, hook="GetChooseSpawnCards",
                           my_side=getattr(st, "my_side_raw", None), read_hooks=hooks,
                           slots=dict(getattr(st, "slots", None) or {}), rng_seed=seed, timeout_s=timeout_s,

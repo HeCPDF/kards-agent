@@ -319,7 +319,8 @@ def main():
         i = W.detect_version(lambda: [5], rd(ver))
         chk("detect_version: %s => RVA table %s (memory version only, no exe size)" % (ver, want), i["build"] == want and i["version"] == ver, str(i))
     i = W.detect_version(lambda: [5], rd("1.99.1.launcher"))
-    chk("detect_version: unregistered version => build None (no guess)", i["build"] is None and "没有登记" in i["why"])
+    chk("detect_version: unregistered version => 不拦（version 照出，build None，source 预期 scan/cache）",
+        i["build"] is None and i["version"] == "1.99.1.launcher" and i["source"] in ("scan", "cache") and "种子表没有" in i["why"], str(i))
     i = W.detect_version(lambda: [5], lambda pid: {"version": None, "why": "none found"})
     chk("detect_version: not found in memory => None", i["build"] is None and i["version"] is None)
     chk("detect_version: no process / two processes", W.detect_version(lambda: [], rd("x"))["build"] is None
@@ -333,9 +334,9 @@ def main():
     v3 = V.running_version(True, lambda: [9], rf, lambda p: 222)
     chk("running_version: same (pid,start) read once; restart (new start time) rescans", v1 == v2 == v3 == "1.60.27292.launcher" and len(calls) == 2, str(calls))
     chk("running_version: 0 or 2 processes => None", V.running_version(False, lambda: [], rf) is None and V.running_version(False, lambda: [1, 2], rf) is None)
-    chk("select_build: env wins", V.select_build({"KARDS_BUILD": "launcher_default"}) == ("launcher_default", "env"))
-    chk("VERSION_TO_BUILD values are all known tables", set(V.VERSION_TO_BUILD.values()) <= set(__import__("kardsmem.build", fromlist=["x"]).BUILDS)
-        and set(V.VERSION_TO_BUILD.values()) <= set(__import__("kardsmem.board", fromlist=["x"])._BUILD_TABLE))
+    import kardsmem.build as KB
+    chk("P7: 版本登记制已删（VERSION_TO_BUILD/select_build 不在 version.py）", not hasattr(V, "VERSION_TO_BUILD") and not hasattr(V, "select_build"))
+    chk("P7: 种子表每个 versions 条目都能反查回自己的键", all(KB.seed_for_display(v) == k for k, b_ in KB.BUILDS.items() for v in b_["versions"]))
     print("失败 %d 项" % fails)
     return fails
 

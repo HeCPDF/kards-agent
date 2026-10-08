@@ -1,0 +1,6211 @@
+{
+ "tool": "tools/reconcile_batch.py",
+ "offline": true,
+ "dumps": [
+  "kards-Win64-Shipping.exe_261001_103325.dmp"
+ ],
+ "scenarios": [
+  "as_dump"
+ ],
+ "elapsed_s": 1109.3,
+ "summary": {
+  "cards": 361,
+  "same": 361,
+  "diff_ab": 0,
+  "diff_bc": 0,
+  "skipped": 0,
+  "compare_same": 866,
+  "compare_diff_ab": 0,
+  "compare_diff_bc": 0,
+  "compare_skipped": 0,
+  "cards_with_rng_exact": 30,
+  "choice_option_entries": 36,
+  "cards_with_choice": 17
+ },
+ "api_orders": {
+  "total": 338,
+  "reached": 338,
+  "not_reached": []
+ },
+ "cards": {
+  "A FEW GOOD MEN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ADMIRAL YAMAMOTO": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AFRIKA KORPS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AID TO THE FRONT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AIR BLITZ": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AIR BLITZ <air_blitz_tut>": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AIR CORPS FERRYING": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AIR COVER": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AIR ESCORT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AIR STRIPS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 1,
+    "SpawnCardInDeckBySide：新牌的**效果**要读它自己的字节码（调用方的事）⇒ 面板读得到才用，效果留空并记缺口": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AIR SUPERIORITY": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AIR SUPERIORITY <air_superiority_cam1>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AIR, LAND & SEA": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AMPHIBIOUS ASSAULT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AMPHIBIOUS ASSAULT <amphibious_assault>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AMPHIBIOUS ASSAULT <amphibious_assault_cam1>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ANDERS' ARMY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ARCTIC CONVOY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "AREA BOMBARDMENT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ARMING THE RESISTANCE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ATLANTIC COMMAND": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ATLANTIC CONVOY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "ATTACK IN THE COLONIES": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "AUNT FRIEDA": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BANZAI": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BETASOM": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1,
+    "CustomAbilityAdd：cardID=25 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BLACKOUT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BLADE OF THE SAMURAI": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BLITZKRIEG": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BLOCKADE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BLOODY SICKLE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BLOODY SICKLE <bloody_sickle_cam1>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BLUE SKY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BOCAGE WARFARE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 3,
+    "CustomAbilityAdd：cardID=41 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BOLSTER THE RANKS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeOperationCost：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BOMBING RAID": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BPF": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BREAKOUT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "GiveFury：目标指针换不出场上的单位（未结算）": 1,
+    "GiveShock：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BREAKTHROUGH": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeOperationCost：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BURNING SKY": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BURNING SUN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BUZZ BOMB": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "BY THE SWORD": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CADET NURSE CORPS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "FullyHealCard：`OnBeforeFullyRepaired`(0xC) 的否决结果没提供 ⇒ 按不否决处理": 2,
+    "FullyHealCard：0x2C / `OnFullyRepaired` 的后续钩子未建模": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CALL TO THE COLONIES": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "CALM BEFORE THE STORM": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CAPITULATION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CARPET BOMBING": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CARRIER BATTLE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeKreditCost：目标是刚进对方手牌的新牌（对方手牌只有张数、没有逐张状态）⇒ 未结算": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CARRIER COVER": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "CASE BLUE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CHAIN HOME": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "sim.fight：MakeCardsFight 已按 BP 建模（互相受对方 atk、无重甲、受击方免疫⇒0）；改伤钩子仅在预计算 `fight_dmg` 时才算（否则按裸 atk）；ApplyDamageToCard": 3,
+    "sim.fight：41/55 不在场上，未结算": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 4,
+   "choice_options": 0
+  },
+  "CLAIM OBJECTIVE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CLOSE AIR SUPPORT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CLOSE COMBAT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "COLOSSUS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardInDeckBySide：新牌的**效果**要读它自己的字节码（调用方的事）⇒ 面板读得到才用，效果留空并记缺口": 3
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "COMBINED ARMS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "COMBINED ARMS <combined_arms_cam1>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "COMBINED CHIEFS OF STAFF": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "COMMAND FAILURE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "COMMIT THE RESERVES": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CONFUSION": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "steal：我方后排满的分支 / hasActivePincerEffect / CardLocationMoved 未建模": 3,
+    "TakeControlOfEnemyUnit：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CONQUEST": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CONVOY ATTACK": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 4,
+   "choice_options": 0
+  },
+  "CONVOY HX 175": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CORPS COMMAND": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：cardID=31 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "COUNTER OFFENSIVE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "COUNTERATTACK": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "COUNTERATTACK <german_counterattack>": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "sim.fight：MakeCardsFight 已按 BP 建模（互相受对方 atk、无重甲、受击方免疫⇒0）；改伤钩子仅在预计算 `fight_dmg` 时才算（否则按裸 atk）；ApplyDamageToCard": 1,
+    "sim.fight：7/55 不在场上，未结算": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "CREEPING BARRAGE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CRITICAL HIT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CROSS OF LORRAINE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CROSSFIRE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CRUISER SCOUTS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "forecast：预报选哪张（两层 3×3）未展开（没有可用的种子预测）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CUP OF TEA": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "CUP OF TEA <cup_of_tea_cam1>": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DARK DEEDS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SetCountdown：0 换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DEADLY DUTY": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DEATH FROM ABOVE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "DECOY TACTICS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 3,
+    "GiveAmbush：目标指针换不出场上的单位（未结算）": 1,
+    "GiveShock：目标指针换不出场上的单位（未结算）": 1,
+    "CustomAbilityAdd：cardID=41 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DEEP OPERATION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DEFEAT IN DETAIL": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DEFEND IN DEPTH": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DEFEND THE NATION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DEPOT RAID": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 4,
+    "MoveUnitFromBoardToOwnersHand：『进原主手牌』未建模（只做了离场/撤退登记）": 3
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DESERT DUST": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DESPERATE MEASURES": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DETAILED RECON": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DILEMMA": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeOperationCost：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DIVE BOMBING": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeAttack：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DO OR DIE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DRIVE INTO THE SEA": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "RemoveCardFromBoard：目标指针换不出 card_id（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DUG IN": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardInDeckBySide：新牌的**效果**要读它自己的字节码（调用方的事）⇒ 面板读得到才用，效果留空并记缺口": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DURESS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "sim.suppress：压制会清空关键词/重甲/指向税（已建模）；customName1/2→None、effectType=0、customJson 只留 suppressionException/veteran *": 3,
+    "suppress：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "DUTY BOUND": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "EAGLE CLAWS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "EAGLE DAY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ECHELON": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "EDGE OF THE EMPIRE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "EMPIRE OF THE SUN": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ENCIRCLEMENT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "spawn：card_location_changchun 的面板读不到，生成的单位没法入模拟（不编）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ENEMY CONTACT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ENGAGE AT RANGE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ENIGMA": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ESCAUT PLAN": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "MoveUnitFromSupportToFrontLine：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "EXHAUST ALL OPTIONS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "EXILED FORCES": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SetCountdown：回合倒数机制未建模（card=-2001 value=3）—— 只记缺口": 2,
+    "SetCountdown：0 换不出场上的单位（未结算）": 2,
+    "spawn：card_unit_b 的面板读不到，生成的单位没法入模拟（不编）": 1,
+    "spawn：card_location_changchun 的面板读不到，生成的单位没法入模拟（不编）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "EXPANSION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "EXPOSED": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "EXTENDED BARRAGE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FAST HEINZ": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FEROCIOUS ASSAULT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FINAL PUSH": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FINEST HOUR": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "GiveBlitz：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FIVE YEAR PLAN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FLIGHT TO OBLIVION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "FOG OF WAR": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardInDeckBySide：新牌的**效果**要读它自己的字节码（调用方的事）⇒ 面板读得到才用，效果留空并记缺口": 2,
+    "SpawnCardInDeckBySide：往**对方**牌库塞牌未建模（牌序读不到）": 2,
+    "RemoveCardFromBoard：目标指针换不出 card_id（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FOR FREEDOM": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FOR GLORY": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FOR PROSPERITY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FOR PROSPERITY <for_prosperety_cam1>": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FOR THE EMPEROR": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FOR THE KING": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FORGED IN FIRE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "GiveRandomCombatKeyword：目标 id 41 不是场上单位（手牌/牌库上的随机关键词未建模）⇒ 未结算": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FORM BATTLE LINE": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "FORTIFICATION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FORWARD BASE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DiscardCardFromHand：0 不在我方手牌（敌方手牌不建模）⇒ 未结算": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FORWARD OBSERVERS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FREE FRENCH NAVY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FROM THE PEOPLE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FROM THE PEOPLE <from_the_people_tut>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FRONT AND HOMELAND": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FRONT FORMATION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：cardID=1 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FRONTAL ASSAULT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FRONTAL ASSAULT <assault_cam1>": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "FRONTAL DEFENSE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 3,
+    "CustomAbilityAdd：cardID=41 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "GATHERING STORM": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "GLIDE BOMBING": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 3,
+    "CustomAbilityAdd：cardID=41 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "GREATER PURPOSE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "GROUNDED": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "牌库顶：单位回牌库按**当前控制方**判断主人（原版取 originalSide；被偷过的单位会不同，状态里没有该字段）": 3,
+    "牌库顶：单位回**对方**牌库未建模（牌序读不到）⇒ 只做离场": 1,
+    "牌库顶：41 不在我方手牌（敌方手牌不建模）⇒ 未结算": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "GUERILLA WARFARE SCHOOL": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "GUNSHIP MISSION": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HAPPY TIME": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HARASS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "MoveUnitFromBoardToOwnersHand：『进原主手牌』未建模（只做了离场/撤退登记）": 3
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HEATWAVE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HEL": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "GiveImmune：目标指针换不出场上的单位（未结算）": 4,
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 3,
+    "CustomAbilityAdd：cardID=41 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HELL ON WHEELS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "spawn：card_unit_b 的面板读不到，生成的单位没法入模拟（不编）": 1,
+    "spawn：card_location_changchun 的面板读不到，生成的单位没法入模拟（不编）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HEROES OF THE SOVIET UNION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HEROES OF THE SOVIET UNION <heroes_of_the_soviet_union_skirm>": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HIS MAJESTY'S CHOSEN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HMAS WARRAMUNGA": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HMS BELFAST": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "牌库顶：单位回牌库按**当前控制方**判断主人（原版取 originalSide；被偷过的单位会不同，状态里没有该字段）": 3,
+    "牌库顶：单位回**对方**牌库未建模（牌序读不到）⇒ 只做离场": 1,
+    "牌库顶：41 不在我方手牌（敌方手牌不建模）⇒ 未结算": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HMS FORMIDABLE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "sim.fight：MakeCardsFight 已按 BP 建模（互相受对方 atk、无重甲、受击方免疫⇒0）；改伤钩子仅在预计算 `fight_dmg` 时才算（否则按裸 atk）；ApplyDamageToCard": 3,
+    "sim.fight：41/55 不在场上，未结算": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 4,
+   "choice_options": 0
+  },
+  "HMS ILLUSTRIOUS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HOME DEFENSE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HOME GUARD": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HONOR": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HONORIFICS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HULL DOWN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "HUMAN TORPEDO": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "IJN AKAGI": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "IJN MIKURA": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "IJN SHINANO": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "IJN SHIRAKUMO": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "IMPERIAL DECREE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "IMPERIAL ORDER": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "FullyHealCard：`OnBeforeFullyRepaired`(0xC) 的否决结果没提供 ⇒ 按不否决处理": 2,
+    "FullyHealCard：0x2C / `OnFullyRepaired` 的后续钩子未建模": 2,
+    "FullyHealCard：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "IMPERIAL RESEARCH": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "IRON VICTORY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 339,
+    "ChangeOperationCost：目标指针换不出场上的单位（未结算）": 339
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "IRREGULAR RECRUITS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "ISLAND DEFENSE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "JOINT OPERATION": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "JOINT OPERATION <joint_operation_cam1>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "JUNGLE WARFARE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 3,
+    "CustomAbilityAdd：cardID=41 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "KANGAROO TRANSPORT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "GiveBlitz：目标指针换不出场上的单位（未结算）": 1,
+    "ChangeHeavyArmor：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "KETTENKRAD": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "MoveUnitFromBoardToOwnersHand：『进原主手牌』未建模（只做了离场/撤退登记）": 3
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "KM BISMARCK": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "KM TIRPITZ": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "KRIEGSMARINE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DiscardRandomCardFromHand：随机弃牌未建模（随机点；不能替游戏选一张）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "LAND OF THE FREE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeKreditCost：目标指针认不出 card_id（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "LAND OF THE FREE <land_of_the_free>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeOperationCost：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "LAST DITCH FORCE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeAttack：目标指针换不出场上的单位（未结算）": 19
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "LAST RITES": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardInDeckBySide：新牌的**效果**要读它自己的字节码（调用方的事）⇒ 面板读得到才用，效果留空并记缺口": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "LESSER OF TWO EVILS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "LIBERATION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardInDeckBySide：往**对方**牌库塞牌未建模（牌序读不到）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "LINE OF ENGAGEMENT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "LOTTA SVÄRD": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "MAGINOT LINE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 9,
+    "CustomAbilityAdd：cardID=41 不在场上或 ability 为空（未结算）": 3
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "MAYHEM": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "MEN OF STEEL": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "MI5": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "牌库顶：73 不在我方手牌（敌方手牌不建模）⇒ 未结算": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "MINORITY RECRUITS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "steal：我方后排满的分支 / hasActivePincerEffect / CardLocationMoved 未建模": 3,
+    "TakeControlOfEnemyUnit：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "MOBILE DEFENSE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "MOLOTOV COCKTAIL": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DiscardRandomCardFromHand：随机弃牌未建模（随机点；不能替游戏选一张）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "MONASTYR": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "MONTY": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "MOTHERLAND CALLS!": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "MOTTI TACTIC": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 4,
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "NATIONAL SERVICE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "NAVAL BATTLE": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "NAVAL POWER": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "NAVAL SUPPORT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "NIGHT ATTACK": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "spawn：card_unit_b 的面板读不到，生成的单位没法入模拟（不编）": 1,
+    "RemoveCardFromBoard：目标指针换不出 card_id（未结算）": 1,
+    "spawn：card_location_changchun 的面板读不到，生成的单位没法入模拟（不编）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "NIGHT PATROL": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "NIGHT RAID": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "NZANS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "OBSERVER CORPS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "OLD HARES": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "AddAttackUntilEndOfTurn：目标指针/ID 换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ONE ROOF": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ORDER 227": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ORDER OF THE DAY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ORDERS FROM ABOVE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ORP GENERAL HALLER": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "convert：41 既不在场、也不在我方手牌/牌库（未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ORP ORZEŁ": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "OUT OF THE SUN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "OUT WITH THE OLD": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "convert：41 既不在场、也不在我方手牌/牌库（未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "OUTMANEUVER": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "OVERCAST": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "forecast：预报选哪张（两层 3×3）未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "OVERPOWER": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "OVERWHELMING FORCE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PAMS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PARACHUTE ASSAULT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PARTISANS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "steal：我方后排满的分支 / hasActivePincerEffect / CardLocationMoved 未建模": 3,
+    "TakeControlOfEnemyUnit：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PATRIOTIC ZEAL": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PATTON": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PERSIAN CORRIDOR": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 3,
+    "CustomAbilityAdd：cardID=41 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PILOT ESCAPE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PLAN D": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "PLAN WEST": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PLANNED ATTACK": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 4,
+    "DamageCard：目标指针换不出 card_id（未结算）": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 4
+  },
+  "PONTOON BRIDGE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "POUND": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PRECISION BOMBING": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PROLONGED SIEGE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PROTECTED CONVOY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PROVENCE LANDING": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "PUNISH": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DiscardCardFromHand：73 不在我方手牌（敌方手牌不建模）⇒ 未结算": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "QUININE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeOperationCost：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RALLY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RALLY CALEDONIA": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RASPUTITSA": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RATIONING": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "RED BANNER": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 4,
+   "choice_options": 0
+  },
+  "REDEPLOYMENT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "REGIA AERONAUTICA": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "REGIA MARINA": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "REICH RESEARCH": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "REPEL THE ATTACK": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RESERVES": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RESERVES <reserves_cam1>": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RESISTANCE COUNCIL": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardInDeckBySide：往**对方**牌库塞牌未建模（牌序读不到）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RESPITE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RM BERSAGLIERE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RM ROMA": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：cardID=25 不在场上或 ability 为空（未结算）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ROMANIAN BRIDGEHEAD": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SetCountdown：回合倒数机制未建模（card=11 value=2）—— 只记缺口": 1,
+    "SetCountdown：回合倒数机制未建模（card=7 value=2）—— 只记缺口": 1,
+    "SetCountdown：回合倒数机制未建模（card=55 value=2）—— 只记缺口": 1,
+    "GiveBlitz：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ROUT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "convert：41 既不在场、也不在我方手牌/牌库（未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ROYAL RESEARCH": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "RULE BRITANNIA": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "RUN THE BATTLEFIELD": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "RUSH": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 4,
+   "choice_options": 0
+  },
+  "SAAR OFFENSIVE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SABOTAGE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SALLY": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "sim.suppress：压制会清空关键词/重甲/指向税（已建模）；customName1/2→None、effectType=0、customJson 只留 suppressionException/veteran *": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SALPA LINE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SCOUTING PARTY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SCREENING FORCE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SEABORNE INVASION": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SEAC": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SECOND FRONT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "RemoveCardFromBoard：目标指针换不出 card_id（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SEEK AND DESTROY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SEMPER FI": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "convert：牌库里转化出的新牌 card_unit_22nd_marines 的效果未知（eff 留空）；ExecuteOnAfterDeckChanged(0x3) 的后果未建模": 3,
+    "convert：手牌里的转化牌 card_unit_22nd_marines 的效果未知（出厂数值已换、eff 留空）；ExecuteOnSpawnedInHandEvents 的后果未建模": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "SHADOW STRIKE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "GiveShock：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SHIFTING ATTACK": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "MoveUnitFromBoardToOwnersHand：『进原主手牌』未建模（只做了离场/撤退登记）": 3
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SHIFTING DOCTRINE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "SHINYO MOTORBOATS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SHOCK TACTICS": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "GiveBlitz：目标指针换不出场上的单位（未结算）": 2,
+    "GiveShock：目标指针换不出场上的单位（未结算）": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "SIBERIAN TRANSFER": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SKY BARONS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SOUL OF OLD JAPAN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SOUL OF OLD JAPAN <soul_of_old_japan_skirm>": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SOVIET MILITARY RESEARCH": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "SPARS": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "GiveAmbush：目标指针换不出场上的单位（未结算）": 1,
+    "GiveShock：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "SPECIAL ATTACK": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SPECIAL REINFORCEMENTS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SPIRIT OF ROME": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SPOILS OF WAR": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SPRING OFFENSIVE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "STAND FAST": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeOperationCost：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "STARS & STRIPES": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "STRATEGIC BOMBING": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "STRATEGIC FOCUS": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "STRETCH THE LINE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "STRIKE GROUP": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SUDDEN STRIKE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SUPPLY SHIPMENT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SUPPLY SHIPMENT <supply_shipment_cam1>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SUPPRESSION": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "sim.suppress：压制会清空关键词/重甲/指向税（已建模）；customName1/2→None、effectType=0、customJson 只留 suppressionException/veteran *": 3,
+    "suppress：目标指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SURGING POWER": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeAttack：目标指针换不出场上的单位（未结算）": 4,
+    "ChangeDefense：目标指针换不出场上的单位（未结算）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SURPRISE ATTACK": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SURPRISE ENGAGEMENT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "SURVEIL": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SUSTAINED PRESSURE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "SWIFT VICTORY": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeAttack：目标指针换不出场上的单位（未结算）": 56
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "TACTICAL STRIKE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "TACTICAL WITHDRAWAL": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "FullyHealCard：目标指针换不出场上的单位（未结算）": 4,
+    "ResetUnitOperations：目标指针换不出场上的单位（未结算）": 4,
+    "MakeCardRetreat：数组里的卡指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "TANK WEDGE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "TASK FORCE 44": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "forecast：预报选哪张（两层 3×3）未展开（没有可用的种子预测）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE ALLIANCE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE ANZAC SPIRIT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE BIG THREE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE DAGGER STRIKES": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE DESERT RATS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE DESERT RATS <desert_rats_cam1>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE DOUBLE SUNRISE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "THE GREAT EXPANSE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE HAMMER": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE LAND GIRLS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE PEOPLE'S ARMY": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE ROCK OF GIBRALTAR": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "choose_spawn：三选一加入手牌（selectCardToDraw）的候选未展开（没有可用的种子预测）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE TIDE TURNS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE WAR MACHINE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "THE WHITE DEATH": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "sim.suppress：压制会清空关键词/重甲/指向税（已建模）；customName1/2→None、effectType=0、customJson 只留 suppressionException/veteran *": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "TO THE LAST MAN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "TORA! TORA! TORA!": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "TORPEDO ATTACK": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "TURNING POINT": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "U-16": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "MakeCardRetreat：数组里的卡指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "U-375": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DiscardCardFromHand：73 不在我方手牌（敌方手牌不建模）⇒ 未结算": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "U-48": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "UNDERGROUND STATE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "MakeCardRetreat：数组里的卡指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "UNITY IS STRENGTH": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "UNITY IS STRENGTH <unity_is_strength_cam1>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "UPRISING": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "URAL FACTORIES": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "spawn：卡名/side 读不出（未生成）": 1,
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 3,
+   "choice_options": 0
+  },
+  "URAL FACTORIES <ural_factories_cam1>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "spawn：卡名/side 读不出（未生成）": 1,
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 3,
+   "choice_options": 0
+  },
+  "US MILITARY RESEARCH": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardinHandbySide：手牌已满（9）⇒ 新牌的去向（CreateCard 满手分支）未建模，不加": 2
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "US WEATHER BUREAU": {
+   "status": "same",
+   "same": 2,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "forecast：预报选哪张（两层 3×3）未展开（没有可用的种子预测）": 1,
+    "RemoveGameplayTag：移除 GameplayTag（`gameplay_tag` 键零消费者 ⇒ 未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 2
+  },
+  "USAAF": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "USACE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "USACE <usace_tut>": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "USS ARCHERFISH": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 1,
+   "choice_options": 0
+  },
+  "USS FITCH": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "USS MISSOURI": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DestroyCard：目标是总部牌（原版摧毁总部 = 对局结局，未建模）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "USS THE SULLIVANS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ChangeAttack：目标指针换不出场上的单位（未结算）": 4,
+    "ChangeDefense：目标指针换不出场上的单位（未结算）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "USS YORKTOWN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "VICTORY BANNERS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "ConvertCard：取不到载荷（Unimplemented: 'ConvertCard：convertIntoCardID>0（按在场牌的名字转）暂未支持'）": 4,
+    "convert：没拿到目标卡数值（`ctx.payload['convert']` 缺）⇒ 不结算（不编）": 4
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "VICTORY GARDEN": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：cardID=8 不在场上或 ability 为空（未结算）": 1,
+    "CustomAbilityAdd：cardID=37 不在场上或 ability 为空（未结算）": 1,
+    "CustomAbilityAdd：cardID=23 不在场上或 ability 为空（未结算）": 1,
+    "CustomAbilityAdd：cardID=9 不在场上或 ability 为空（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "VIVE LA RESISTANCE!": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "SpawnCardInDeckBySide：往**对方**牌库塞牌未建模（牌序读不到）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "VOLUNTEER CORPS": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "RemoveCardFromBoard：目标指针换不出 card_id（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "VYSTREL COURSE": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "CustomAbilityAdd：缺门数据 `buffable`（不猜、不改状态）": 3,
+    "SetCountdown：回合倒数机制未建模（card=11 value=1）—— 只记缺口": 1,
+    "SetCountdown：回合倒数机制未建模（card=7 value=1）—— 只记缺口": 1,
+    "SetCountdown：回合倒数机制未建模（card=55 value=1）—— 只记缺口": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "WAR BONDS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "WAVE AFTER WAVE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "WAY OF SUBJECTS": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "WE CAN DO IT!": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "WINTER OFFENSIVE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "WINTER WARFARE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "WOLFPACK": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "DiscardRandomCardFromHand：随机弃牌未建模（随机点；不能替游戏选一张）": 4,
+    "MoveUnitFromBoardToOwnersHand：『进原主手牌』未建模（只做了离场/撤退登记）": 3
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "WOMEN AT WORK": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "hand_target：部署后要选一张手牌（OnHandTargetSelected 的后果）未建模": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "YOUR COURAGE": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "Z SPECIAL UNIT": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ZAMOŚĆ UPRISING": {
+   "status": "same",
+   "same": 4,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {
+    "MakeCardRetreat：数组里的卡指针换不出场上的单位（未结算）": 1
+   },
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  },
+  "ZHUKOV": {
+   "status": "same",
+   "same": 1,
+   "diff_ab": 0,
+   "diff_bc": 0,
+   "skipped": 0,
+   "reasons": {},
+   "diff_keys": {},
+   "direct_gaps": {},
+   "samples": {},
+   "where": [
+    "01_103325/as_dump"
+   ],
+   "rng_exact": 0,
+   "choice_options": 0
+  }
+ },
+ "runs": [
+  {
+   "dump": "kards-Win64-Shipping.exe_261001_103325.dmp",
+   "scenario": "as_dump",
+   "elapsed_s": 311.74,
+   "n_hand": 361,
+   "n_pairs": 847,
+   "turn": 22,
+   "cards": 361,
+   "rng_seed": 2894790760,
+   "rng_fake": false,
+   "choice_actions": 36,
+   "enum_fallback": 0
+  }
+ ],
+ "errors": []
+}

@@ -58,6 +58,7 @@ from typing import Optional
 
 
 from agent import session as _session_mod
+from kardsmem.gamemodel import other_side
 from agent import view as _view
 
 from base import paths as _paths_rec
@@ -89,7 +90,7 @@ MINE_LABEL_FIELDS = {
 }
 
 # 对手侧（具名字段）同一件事的字段名映射。
-ENEMY_LABEL_FIELDS = {
+OPP_LABEL_FIELDS = {
     "XActionPlayCardFromHand": ("cardID", None),
     "XActionAttackCard": ("attackerCardID", "defenderCardID"),
     "XActionMoveCardToLine": (None, None),
@@ -120,7 +121,7 @@ def _kv(row: dict) -> dict:
 def _decode_label(row: dict, mine: bool):
     """从一条 matchlog 条目里抠 (type, subject, target)。抠不出来就 (type, None, None)。"""
     typ = row.get("action_type")
-    fields = (MINE_LABEL_FIELDS if mine else ENEMY_LABEL_FIELDS).get(typ)
+    fields = (MINE_LABEL_FIELDS if mine else OPP_LABEL_FIELDS).get(typ)
     kv = _kv(row)
     subject = target = None
     if fields:
@@ -177,6 +178,10 @@ class Recorder:
         self._pick_matchlog_echo = deque(maxlen=8)  # XActionCardToDrawSelected 原始行，只作旁证不当 label（见下方 _poll_pick 说明）
         self._n_written = 0
         self._n_before_fallback = 0
+        # 本地座位（`ESide`）：**每次 tick 都用当前快照覆盖**（None = 这一拍读不出），不跨局缓存；
+        # 读不出时不造样本（不默认 1、不按我方算），计数留给收尾打印。
+        self._my_side = None
+        self._n_seat_unknown = 0
         self._closed = False
 
     def _open(self):
@@ -224,6 +229,7 @@ class Recorder:
             if self._matches_seen > 1 and self._tag:
                 self._rotate()
         self._in_match = in_match
+        self._my_side = st.my_side
         self._refresh_log()
         self._ensure_deck_roster(st)
         silent = self._silent()
@@ -245,6 +251,8 @@ class Recorder:
             pass
         print("录制结束：写了 %d 条样本 -> %s" % (self._n_written,
               os.path.join(self.out_dir, self.game + ".jsonl.gz")))
+        if self._n_seat_unknown:
+            print("  ⚠ 有 %d 次因为本地座位读不出（st.my_side=None）而没落样本" % self._n_seat_unknown)
         if self._n_before_fallback:
             print("  ⚠ 其中 %d 条的 state_before 只能拿当前快照兜底（是动作之后的），"
                   "这些样本在 nn 侧会被标 state_before_src=fallback_post"
@@ -256,6 +264,12 @@ class Recorder:
 
     def _snap(self):
         return self.sess.snapshot()
+
+    def _viewer(self) -> int:
+        """样本投影的『查看者』= 本地座位（1/2）；读不出就抛（调用方已先判过 None）。"""
+        if self._my_side is None:
+            raise ValueError("本地座位读不出（st.my_side 为空）")
+        return int(self._my_side)
 
     def _refresh_log(self):
         """动作流对象**换局就会换**，而 `MatchLog.locate()` 找到后是永久缓存
@@ -310,16 +324,18 @@ class Recorder:
         `Logic.mySide`（见 `kardsmem/board.py` 同日的改动），这个坑已经堵上了，
         不用再等 `in_mulligan() is False` 才敢取。
         """
-        if self._deck_roster is not None:
-            return
+        if self._deck_roster is not None or st.my_side is None:
+            return               # 座位读不出：这一拍不取（不默认按 1 号座位），下一拍再试
         try:
             from kardsmem.names import FNamePool
             pool = FNamePool(self.sess._kardsmem().m, self.sess._kardsmem().base)
             names = []
             for c in st.cards:
-                if c.side != _session_mod.LOCAL:
+                o = c.obj
+                if o.side != st.my_side:
                     continue
-                if c.location not in ("hand", "deck", "back", "frontline", "discard"):
+                in_deck = o.Location is not None and o.Location.name.startswith("Deck")
+                if not (o.InHand() or in_deck or o.IsFieldUnit() or o.InDiscard()):
                     continue
                 ptr = (c.raw or {}).get("ptr")
                 if not ptr:
@@ -328,7 +344,7 @@ class Recorder:
                 if fn:
                     names.append(fn)
             if names:
-                self._deck_roster = {"local": names}
+                self._deck_roster = {int(st.my_side): names}
         except Exception as e:                   # noqa: BLE001
             print("  [deck_roster 取不到，跳过] %s" % e)
 
@@ -358,7 +374,10 @@ class Recorder:
             if typ not in ACTION_TO_TYPE:
                 continue      # StartOfTurn 之类不建样本，只是时序标记
             mine = r.get("action_id") == -1
-            seat = "local" if mine else "enemy"
+            if self._my_side is None:
+                self._n_seat_unknown += 1      # 座位读不出：这条动作属于哪一边不知道 ⇒ 不造样本（不猜）
+                continue
+            seat = int(self._my_side) if mine else int(other_side(self._my_side))
             action_type, subject, target = _decode_label(r, mine)
             # state_before：环形缓冲里最近一份"静默"快照
             state_before = None
@@ -378,6 +397,9 @@ class Recorder:
     def _finalize_pending(self, cur_snap, silent: bool):
         if not self._pending or not silent:
             return
+        if self._my_side is None:
+            self._n_seat_unknown += 1          # 座位读不出：没法选『查看者』视角 ⇒ 这拍不落样本，条目留着等下一拍
+            return
         item = self._pending.popleft()
         st_before = item["state_before"] or cur_snap
         if item["state_before"] is None:
@@ -391,7 +413,7 @@ class Recorder:
             game=self.game, patch=self.patch, seat=item["seat"],
             turn=getattr(st_before, "turn", None), t=item["t_seen"],
             phase=phase,
-            state=_schema().project_state(st_before, _session_mod.LOCAL, self._deck_roster),
+            state=_schema().project_state(st_before, self._viewer(), self._deck_roster),
             candidates={"subject": [], "target": [], "option": []},
             verdict={},
             label={"type": item["action_type"], "subject": item["subject"],
@@ -402,7 +424,7 @@ class Recorder:
                      "state_before_src": item.get("before_src")},
             events=[dict(e, text_zh=None) for e in self.sess.events()],
             state_after_hash=_schema().state_hash(
-                _schema().project_state(cur_snap, _session_mod.LOCAL, self._deck_roster)),
+                _schema().project_state(cur_snap, self._viewer(), self._deck_roster)),
         )
         self._write(sample)
 
@@ -459,6 +481,9 @@ class Recorder:
                       % len(self._pick_pending_rounds))
             self._pick_pending_rounds = []
             return
+        if st.my_side is None:
+            self._n_seat_unknown += 1          # 座位读不出：不造 pick 样本
+            return
         try:
             from kardsmem import pick as PK
             cur = PK.choose_candidates(self.sess._kardsmem())
@@ -484,9 +509,9 @@ class Recorder:
                 echo = [e["row"] for e in self._pick_matchlog_echo]
                 self._pick_matchlog_echo.clear()
                 sample = _schema().make_sample(
-                    game=self.game, patch=self.patch, seat="local",
+                    game=self.game, patch=self.patch, seat=int(st.my_side),
                     turn=st.turn, t=self._t(), phase="pick",
-                    state=_schema().project_state(st, _session_mod.LOCAL, self._deck_roster),
+                    state=_schema().project_state(st, st.my_side, self._deck_roster),
                     candidates={"subject": [], "target": [],
                                 "option": [r["name"] for r in prev_rows]},
                     verdict={},
@@ -553,6 +578,9 @@ class Recorder:
         starting = log.starting_cards()
         if not starting:
             return
+        if st.my_side is None:
+            self._n_seat_unknown += 1            # 座位读不出：先不判（下一拍再试），不默认 1 号座位
+            return
         self._mulligan_sample_written = True     # 不管下面成不成，这一局只判定一次
         # ★ 用户指出：不用扯上 `st`/`board_api` 那套通用快照（还绑着 st.our_side）
         #   ——`ops_inject.mulligan_marks()` 本来就是查"现在手牌是哪几张"最直接的路，
@@ -568,9 +596,9 @@ class Recorder:
                         "discarded": c.get("card_id") not in current_hand_ids}
                        for c in starting]
         sample = _schema().make_sample(
-            game=self.game, patch=self.patch, seat="local",
+            game=self.game, patch=self.patch, seat=int(st.my_side),
             turn=st.turn, t=self._t(), phase="mulligan",
-            state=_schema().project_state(st, _session_mod.LOCAL, self._deck_roster),
+            state=_schema().project_state(st, st.my_side, self._deck_roster),
             candidates={"subject": [], "target": [],
                         "option": [c["name"] for c in option_list]},
             verdict={},

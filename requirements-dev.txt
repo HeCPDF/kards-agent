@@ -1,0 +1,4 @@
+# 仅测试需要的额外依赖（CI、tools/make_release.py 的干净目录测试、install.ps1 都装这份）。
+-r requirements.txt
+# tests/test_pakread.py 用 tools/pakread.py 做 AES 解密（运行时代码不依赖它）
+pycryptodome>=3.20

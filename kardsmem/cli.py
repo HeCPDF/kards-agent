@@ -11,7 +11,7 @@ r"""kardsmem.cli —— 内存侧工具链的统一命令行。
 | `verify`     | 进程 + 构建指纹 + 定位链 + 文档/代码常量一致性 |
 | `procs`      | 列出所有 kards 进程（多份同名 exe 认错人时看这里） |
 | `state`      | 归一化盘面（手牌/场上/弃牌/牌库/HQ/指挥点/回合） |
-| `hand [side]`| 手牌（默认 local），按 `locationNumber` 排 |
+| `hand [side]`| 手牌（side = left/right/me/opp，默认 me），按 `locationNumber` 排 |
 | `cards [--raw [UID]]` | 盘面卡；`--raw` 摊开单卡全部原始字段 |
 | `discard [side]` | 弃牌堆 |
 | `gs [--full]`| GameState 原始字段；`--full` 含牌库 id / 静态表 / 重连表 |
@@ -33,12 +33,29 @@ import json
 import sys
 
 from . import __version__, build as B
+from .gamemodel import ECardLocation, ESide
+
+# 命令行的座位文字：left/right = 绝对座位（ESide 1/2）；me/opp = 本局我方/对方，只在命令入口处
+# 用 `cards.parse_side()` 现算（读不出 mySide ⇒ ValueError），内部不存字符串。
+SIDE_CHOICES = ("left", "right", "me", "opp")
 
 SUBCOMMANDS = ("verify", "procs", "exes", "state", "hand", "cards", "deck", "discard", "effects", "gs", "names",
                "rendered", "pick", "candidates", "targets", "dump", "selftest", "docs")
 
 
 # --------------------------------------------------------------------------
+def _loc_name(card):
+    loc = card.obj.Location
+    return None if loc is None else ECardLocation(loc).name
+
+
+def _card_dict(card) -> dict:
+    """Card → 可 JSON 的 dict（取 `obj` 的字段；枚举写成 int，座位写 1/2）。"""
+    from enum import IntEnum
+    return {k: (int(v) if isinstance(v, IntEnum) else v)
+            for k, v in card.obj.__dict__.items() if k != "raw"}
+
+
 def _out(obj, as_json: bool, text_fn) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=1) if as_json else text_fn())
 
@@ -98,8 +115,8 @@ def cmd_effects(a) -> int:
         eff = C.read_live_effects(s, ptr)
         if want is None and not C.has_live_effects(eff):
             continue
-        out.append({"uid": c.uid, "card_id": c.card_id, "name": c.name, "side": c.side,
-                    "location": c.location, "slot": c.slot, "effects": eff})
+        out.append({"uid": c.uid, "card_id": c.obj.CardID, "name": c.name, "side": c.side,
+                    "location": _loc_name(c), "slot": c.slot, "effects": eff})
     if a.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
         s.close()
@@ -137,11 +154,15 @@ def cmd_verify(a) -> int:
     d["spec_consistency"] = [list(x) for x in B.spec_consistency()]
     d["expected_build"] = B.BUILDS[B.CURRENT]
     d["selected_build"] = {"key": B.CURRENT, "source": getattr(B, "BUILD_SOURCE", "?")}
+    d["rva_status"] = B.status()
     d["rva"] = {k: hex(v) for k, v in B.RVA.items()}
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=1))
         return 0 if (d.get("session") or {}).get("ok") else 2
-    print("== 本进程选中的 RVA 表 ==  %s（来源：%s）" % (B.CURRENT, getattr(B, "BUILD_SOURCE", "?")))
+    print("== 本进程的 RVA ==  参照种子 %s（选表来源：%s）；RVA 来源=%s 已复验=%s 版本=%s"
+          % (B.CURRENT, getattr(B, "BUILD_SOURCE", "?"), B.RVA_SOURCE, B.RVA_VERIFIED, B.RVA_VERSION))
+    for _st, _ok, _d in (B.RESOLVED.steps if B.RESOLVED else []):
+        print("   解析链 %-5s %s %s" % (_st, "OK  " if _ok else "FAIL", _d))
     print("== 期望构建 ==")
     for k, v in B.BUILDS[B.CURRENT].items():
         print("   %-12s %s" % (k, v))
@@ -184,16 +205,17 @@ def cmd_hand(a) -> int:
     from . import cards as C
     from .proc import attach
     s = attach(pid=a.pid)
-    cs = C.hand(s, a.side)
+    side = C.parse_side(s, a.side)         # me/opp 只在入口处用本局 mySide 现算
+    cs = C.hand(s, side)
     if a.json:
-        print(json.dumps([c.__dict__ for c in cs], ensure_ascii=False, indent=1))
+        print(json.dumps([_card_dict(c) for c in cs], ensure_ascii=False, indent=1))
     else:
-        print("== %s 手牌 %d 张（locationNumber 升序）==" % (a.side, len(cs)))
+        print("== 座位%d(%s) 手牌 %d 张（locationNumber 升序）==" % (int(side), a.side, len(cs)))
         for c in cs:
             print("  slot=%-3s id=%-6s %-26s %-9s a/d=%s/%s cost=%-3s op=%-3s enterTurn=%-3s %s%s"
-                  % (c.slot, c.card_id, (c.name or "?")[:26], c.card_type, c.attack, c.defense,
-                     c.kredit_cost, c.operation_cost, c.enter_play_on_turn, " ".join(c.keywords),
-                     "  needsTarget" if c.needs_hand_target else ""))
+                  % (c.slot, c.obj.CardID, (c.name or "?")[:26], c.card_type, c.attack, c.defense,
+                     c.obj.getTotalKredits(), c.obj.operationCost, c.obj.enterPlayOnTurn, " ".join(c.keywords),
+                     "  needsTarget" if c.obj.selectTargetOnPlayedFromHand else ""))
     s.close()
     return 0
 
@@ -218,19 +240,20 @@ def cmd_deck(a) -> int:
     from . import cards as C
     from .proc import attach
     s = attach(pid=a.pid)
-    rows = C.deck_cards(s, a.side)
+    side = C.parse_side(s, a.side)
+    rows = C.deck_cards(s, side)
     if rows is None:
         print("牌库读不出（DeckCardIDs 为空 / 不在对局）")
         s.close()
         return 2
     if a.json:
-        print(json.dumps({"rows": rows, "multiset": C.deck_multiset(s, a.side)},
+        print(json.dumps({"rows": rows, "multiset": C.deck_multiset(s, side)},
                          ensure_ascii=False, indent=1))
         s.close()
         return 0
-    ms = C.deck_multiset(s, a.side) or {}
-    print("== %s 牌库 %d 张，%d 个不同名字（★ 同名多份在这里才看得见）=="
-          % (a.side, len(rows), len(ms)))
+    ms = C.deck_multiset(s, side) or {}
+    print("== 座位%d(%s) 牌库 %d 张，%d 个不同名字（★ 同名多份在这里才看得见）=="
+          % (int(side), a.side, len(rows), len(ms)))
     for r in rows:
         print("  id=%-6s %-28s matched=%s" % (r["card_id"], r["name"], r["matched"]))
     dups = {k: v for k, v in ms.items() if v > 1}
@@ -244,15 +267,16 @@ def cmd_discard(a) -> int:
     from . import cards as C
     from .proc import attach
     s = attach(pid=a.pid)
-    cs = C.discard(s, a.side)
+    side = C.parse_side(s, a.side)
+    cs = C.discard(s, side)
     if a.json:
-        print(json.dumps([c.__dict__ for c in cs], ensure_ascii=False, indent=1))
+        print(json.dumps([_card_dict(c) for c in cs], ensure_ascii=False, indent=1))
         s.close()
         return 0
-    print("== %s 弃牌堆 %d 张 ==" % (a.side, len(cs)))
+    print("== 座位%d(%s) 弃牌堆 %d 张 ==" % (int(side), a.side, len(cs)))
     for c in cs[:a.limit]:
         print("  id=%-6s %-26s %-11s a/d=%s/%s cost=%s" %
-              (c.card_id, (c.name or "?")[:26], c.card_type, c.attack, c.defense, c.kredit_cost))
+              (c.obj.CardID, (c.name or "?")[:26], c.card_type, c.attack, c.defense, c.obj.getTotalKredits()))
     if len(cs) > a.limit:
         print("  ... 还有 %d 张（--limit 调大）" % (len(cs) - a.limit))
     s.close()
@@ -327,10 +351,11 @@ def cmd_targets(a) -> int:
         return 2
     cands = C.target_candidates(s, card)
     print("== %s (id=%s side=%s loc=%s) 的读侧近似可指向目标 ==" %
-          (card.name, card.card_id, card.side, card.location))
+          (card.name, card.obj.CardID, None if card.side is None else int(card.side), _loc_name(card)))
     for c in cands:
-        print("  %-26s side=%-6s loc=%-9s slot=%-3s tax=%-3s suppressed=%s"
-              % ((c["name"] or "?")[:26], c["side"], c["location"], c["slot"], c["tax"],
+        print("  %-26s side=%-6s loc=%-15s slot=%-3s tax=%-3s suppressed=%s"
+              % ((c["name"] or "?")[:26], int(c["side"]) if c["side"] is not None else None,
+                 ECardLocation(c["location"]).name if c["location"] is not None else None, c["slot"], c["tax"],
                  c["suppressed"]))
     print("\n⚠ 这是读侧近似（位置 + 压制 + 税）；权威判据在 exe 里的 "
           "CanBeTargetted 0x4A7F910 / CanOtherCardBeTargetted 0x4A7FC10。")
@@ -513,7 +538,10 @@ def cmd_selftest(a) -> int:
     chk("同构建·字节不同 md5_match=False", same_img.md5_match, False)
     chk("同构建·字节不同 仍认出构建", same_img.matched, B.CURRENT)
     # RVA 表：选中的构建要与表一致；两个构建的**已采证值**不许漂
-    chk("RVA == RVA_BY_BUILD[CURRENT]", B.RVA, B.RVA_BY_BUILD[B.CURRENT])
+    if B.RVA_SOURCE in ("seed", "default", "env"):      # 缓存/扫描来源的值本来就可以与种子不同
+        chk("RVA == RVA_BY_BUILD[CURRENT]（来源 %s）" % B.RVA_SOURCE, dict(B.RVA), B.RVA_BY_BUILD[B.CURRENT])
+    else:
+        print("  [INFO] 当前 RVA 来源 %s（非种子），跳过与种子逐项相等" % B.RVA_SOURCE)
     chk("Steam FNamePool 未漂移", B.RVA_BY_BUILD["current"]["FNamePool"], 0x0911B9C0)
     chk("Steam GNames(decoy) 未漂移", B.RVA_BY_BUILD["current"]["GNames_decoy"], 0x090E2E28)
     chk("launcher FNamePool 未漂移", B.RVA_BY_BUILD["launcher_default"]["FNamePool"], 0x09118940)
@@ -521,20 +549,21 @@ def cmd_selftest(a) -> int:
     from . import cards as _C
     chk("AllCardsInBattle elem", _C.TMAP_ELEM_SIZE, 24)
 
-    print("== B. 与 board_api 的常量一致性（防两层漂移；两个构建都查） ==")
+    print("== B. 种子表单一来源（P7：build_tables.json 是唯一数据；board 不再有第二份表） ==")
     from .proc import board_api as BA
+    chk("board 没有第二份表（_BUILD_TABLE 已删）", hasattr(BA, "_BUILD_TABLE"), False)
+    chk("board 不再有 VERSION_TO_BUILD 式登记", hasattr(__import__("kardsmem.version", fromlist=["x"]), "VERSION_TO_BUILD"), False)
+    _ref = B.BUILDS[B.CURRENT]
+    chk("board.MEM_BUILD.exe_size == 参照种子", BA.MEM_BUILD["exe_size"], _ref["exe_size"])
+    chk("board.MEM_BUILD.md5 == 参照种子", BA.MEM_BUILD["md5"], _ref["md5"])
+    chk("board.RVA_GWORLD == build.RVA['GWorld']（调用期读，P7-S3b）", BA.RVA_GWORLD, B.RVA["GWorld"])
     for _key, _rv in B.RVA_BY_BUILD.items():
-        _bb = getattr(BA, "_BUILD_TABLE", {}).get(_key)
-        if not _bb:
-            chk("board_api 缺构建 %s" % _key, None, "有")
-            continue
         _bd = B.BUILDS.get(_key, {})
-        chk("[%s] GWorld 一致" % _key, _bb.get("gworld"), _rv["GWorld"])
-        chk("[%s] GObjects 一致" % _key, _bb.get("gobjects"), _rv["GObjects"])
-        chk("[%s] GNames 一致" % _key, _bb.get("gnames"), _rv["GNames_decoy"])
-        chk("[%s] image_size 一致" % _key, _bb.get("image_size"), _bd.get("image_size"))
-        chk("[%s] exe_size 一致" % _key, _bb.get("exe_size"), _bd.get("exe_size"))
-        chk("[%s] md5 一致" % _key, _bb.get("md5"), _bd.get("md5"))
+        chk("[%s] 种子 RVA 含核心四项" % _key, all(_rv.get(k) for k in B.CORE_RVA_KEYS), True)
+        chk("[%s] 种子身份含 image_size/exe_size/md5/versions" % _key,
+            all(_bd.get(k) for k in ("image_size", "exe_size", "md5", "versions")), True)
+    _allv = [v for b_ in B.BUILDS.values() for v in b_["versions"]]
+    chk("versions 在种子表里不重复", len(_allv), len(set(_allv)))
 
     print("== C. 与规格 JSON 的一致性 ==")
     sc = B.spec_consistency()
@@ -594,19 +623,6 @@ def cmd_selftest(a) -> int:
     _nf_rows = _NF.selftest()
     chk("notify selftest rc", 0 if all(r[0] == "PASS" for r in _nf_rows) else 1, 0)
 
-    print("== E2. 行模型回归（7 组，合成盘面；实现方 = 已归档的 _archive/ops_mouse.py） ==")
-    import subprocess as _sp, sys as _sys, os as _op
-    _t = _op.path.join(_op.path.dirname(_op.path.dirname(_op.path.abspath(__file__))),
-                       "test_rowmodel.py")
-    if not _op.path.exists(_t):
-        chk("test_rowmodel.py 存在", False, True)
-    else:
-        _r = _sp.run([_sys.executable, _t], capture_output=True, text=True,
-                     encoding="utf-8", errors="replace")
-        if _r.returncode:
-            print((_r.stdout or "")[-1200:]);  print((_r.stderr or "")[-800:])
-        chk("行模型 selftest rc", _r.returncode, 0)
-
     print("== F. 实机探测（游戏没开就跳过） ==")
     from . import proc as P
     try:
@@ -625,9 +641,10 @@ def cmd_selftest(a) -> int:
             print("  [INFO] 不在对局中（主菜单下 in_battle 同样为真）—— 盘面项无意义")
         if s.info.ok:
             st = s.snapshot()
-            print("  board: turn=%s cards=%d local_hand=%d enemy_hand=%d local_discard=%d"
-                  % (st.turn, len(st.cards), len(st.hand("local")), len(st.hand("enemy")),
-                     len(st.discard("local"))))
+            print("  board: turn=%s cards=%d my_side=%s hand[L/R]=%d/%d discard[L/R]=%d/%d"
+                  % (st.turn, len(st.cards), st.my_side_raw,
+                     len(st.hand(ESide.left)), len(st.hand(ESide.right)),
+                     len(st.discard(ESide.left)), len(st.discard(ESide.right))))
         s.close()
 
     print("\nSELFTEST RESULT: %s（%d 项失败）" % ("PASS" if not fails else "FAIL", len(fails)))
@@ -665,7 +682,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_state)
 
     p = sub.add_parser("hand", help="手牌")
-    p.add_argument("side", nargs="?", default="local", choices=("local", "enemy"))
+    p.add_argument("side", nargs="?", default="me", choices=SIDE_CHOICES,
+                   help="left/right = 绝对座位 1/2；me/opp = 本局我方/对方（入口处用 mySide 现算）")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_hand)
 
@@ -681,13 +699,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_effects)
 
     p = sub.add_parser("discard", help="弃牌堆")
-    p.add_argument("side", nargs="?", default="local", choices=("local", "enemy"))
+    p.add_argument("side", nargs="?", default="me", choices=SIDE_CHOICES,
+                   help="left/right = 绝对座位 1/2；me/opp = 本局我方/对方（入口处用 mySide 现算）")
     p.add_argument("--limit", type=int, default=30)
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_discard)
 
     p = sub.add_parser("deck", help="物理牌库（含同名多份）")
-    p.add_argument("side", nargs="?", default="local", choices=("local", "enemy"))
+    p.add_argument("side", nargs="?", default="me", choices=SIDE_CHOICES,
+                   help="left/right = 绝对座位 1/2；me/opp = 本局我方/对方（入口处用 mySide 现算）")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_deck)
 

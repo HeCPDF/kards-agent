@@ -21,13 +21,22 @@ KismetArray）。和 Kismet 那些通用库不同，**这些是游戏自己的�
     from kardsmem.cardnatives import CardNatives
     cn = CardNatives(board_state)          # board_api.BoardState
     cn.call("IsUnit", card)                # -> True/False
-    cn.call("IsSideActive", card, "local")
+    cn.call("IsSideActive", card, 1)       # side = ESideEnum 座位号（1/2）；没有 "local"/"enemy"
 """
 from __future__ import annotations
 
 import time
 
+from .gamemodel import ECardLocation, ESide
 from .kismetlib import Unimplemented
+
+# ★ 座位迁移（2026-10-03，docs/SEAT-MIGRATION.md）—— 本模块对外语义变更：
+#   * 不再有 "local"/"enemy"。座位一律是 ESideEnum 1/2（`ESide`，IntEnum，可与 int 互换）。
+#   * `BoardState.kredits / slots` 的键现在是 `ESide`（绝对座位）⇒ `getKreditBySide / getKreditSlotBySide`
+#     直接按座位取，**不再需要 my_seat**（以前要靠 my_seat 把座位翻成 local/enemy 才能取）。
+#   * `IsOwnedByClientSide`：卡座位 == `my_seat` 才为真；`my_seat` 缺省取 `board.my_side`，二者都没有 ⇒ 抛 Unimplemented。
+#   * 卡视图可以是 read_raw 的 dict（`side` 现在是 `ESide`、`side_enum` 仍是原始 1/2、`location` 仍是 read_raw 的位置名）
+#     或 `board.Card`（`Card.location` 已删；本模块从 `card.obj.Location` 派生）。
 
 # ECardLocationEnum 归一化后的位置名（见 board_api）
 ON_BOARD = ("frontline", "hq", "back")
@@ -105,6 +114,38 @@ def _stat(c, what, *keys):
     return _need(v, what)
 
 
+def _total_attack(c):
+    """`getTotalAttack`（IDA 0x144B14E90）= clamp(getAndDecryptAttack + getAndDecryptAttackBuff, 0, 99)。
+
+    ★ 2026-10-05（实机 bug：2nd RAIDING BRIGADE 的部署目标挑了 58th INFANTRY REGIMENT）：
+      58th 的「有冲击时 +2 攻」不是被动读数，而是 `ChangeAttack(self, 2, tempBuffGive)` 真写进 `attackBuff`
+      （`OnOtherCardAbilitiesChanged`）。旧实现走 `_stat(c, "attack", …)`：有 `records_raw` 时只解**基础**攻击
+      ⇒ 3 攻读成 1 攻 ⇒ 「攻击 ≤2」的目标门放行 ⇒ 游戏拒绝。现在两个记录都解码再相加再夹。
+    """
+    sh = F(c, "shadow_stats")             # 组 D：同一次空跑里 setAndEncrypt* 写过的字段，读侧先看到
+    rec = F(c, "records_raw")
+    if isinstance(rec, dict) and "attack" in rec:
+        def _one(name, shadow_key):
+            if isinstance(sh, dict) and shadow_key in sh:
+                return int(sh[shadow_key])
+            row = rec.get(name)
+            if isinstance(row, (list, tuple)) and len(row) >= 5:
+                return _game_decrypt(name, F(c, "key"), row[0], row[1], row[3])
+            return None
+        base = _one("attack", "attack")
+        if base is not None:
+            buff = _one("attackBuff", "attackBuff")
+            if buff is None:
+                buff = int(F(c, "attack_buff") or 0)
+            return max(0, min(99, base + buff))
+    if isinstance(sh, dict) and "attack" in sh:
+        return max(0, min(99, int(sh["attack"]) + int(sh.get("attackBuff", F(c, "attack_buff") or 0))))
+    tv = F(c, "total_attack")
+    if tv is not None:
+        return tv
+    return _stat(c, "attack", "attack")
+
+
 def _dec_rec(c, rec_name, view_name=None):
     """§2 #4：加密解码读器（`getAndDecryptX`）——优先用原始记录按游戏公式（哨兵/向零取整）；
     没有 records_raw 时退回 view 字段（None ⇒ 抛，不猜）。
@@ -139,31 +180,61 @@ def _need(v, what):
     return v
 
 
+def _ctype(c):
+    """卡的类型名；**`type_enum == 0`（EType 的 NA：占位卡，如 `Side Effect Holder Left/Right`）读成 `"na"`**——
+    不属于任何单位/指令类型，所以 `IsUnit`/`IsGroundUnit`/… 都是假，而不是"读不到"。
+    原版：`IsUnit` 等是对类型枚举 3..10 的区间判（`BOARD-QUERY-NATIVES-1.60.md`），枚举 0 落在区间外 ⇒ 假。
+    ★ 触发点：卡里的循环若遍历到 `AllCardsInBattle` 里那两张占位卡（card_id 30000000），旧实现在 `card_type` 上抛 Unimplemented
+      （ARCTIC CONVOY / CASE BLUE / SHOCK TACTICS / YOUR COURAGE 的影子对账因此整张跳过）。
+      `type_enum` 本身也读不到（None）⇒ 仍抛（不猜）。"""
+    ct = F(c, "card_type")
+    if ct is None and F(c, "type_enum") == 0:
+        return "na"
+    return _need(ct, "card_type")
+
+
+def _total_kredit(c, clamp=True):
+    """`getTotalKreditCost`（IDA 0x144B15020）= clamp(kredit + kreditBuff, 0, 99)。视图给了 `total_kredit_cost`/`kredit_cost`/`kredit`
+    就直接用；**都没有**（`read_raw` 在记录 mult==0 时不解码，如 `AllCardsInBattle` 里的占位卡 `Side Effect Holder`）⇒ 按游戏公式解
+    原始记录：mult==0 的哨兵 `getAndDecryptKredit/KreditBuff = +100`（`_game_decrypt`，§12-U1）⇒ 两项相加夹到 99。
+    原先这里抛 `kredit_cost 读不到` ⇒ U-375 的影子对账整张跳过。记录也没有 ⇒ 照旧抛（不猜）。"""
+    v = F(c, "total_kredit_cost", "kredit_cost", "kredit")
+    if v is None:
+        rec = F(c, "records_raw")
+        if isinstance(rec, dict) and "kredit" in rec:
+            v = _dec_rec(c, "kredit", "kredit") + (_dec_rec(c, "kreditBuff", "kredit_buff") if "kreditBuff" in rec else 0)
+            clamp = True
+    v = _need(v, "kredit_cost")
+    return max(0, min(99, v)) if clamp else v
+
+
 def _fail(msg):
     """lambda 里不能写 `raise` —— 包一层函数调用。"""
     raise Unimplemented(msg)
 
 
 def _seat(x):
-    """归一成 **ESideEnum 的座位号 1/2** —— 求值器内部一律用引擎表示。
+    """归一成 **ESideEnum 的座位号 1/2**（返回 `ESide`，IntEnum，与 int 可互换）—— 求值器内部一律用引擎表示。
 
     ★ 2026-09-23 踩的坑：这里原先归一成 `'local'/'enemy'`，结果 `GetOppositeSide`
       把字符串还给字节码，下一条 `EqualEqual_ByteByte` 直接炸。
-      **`local/enemy` 是我们读侧的展示层，不能泄漏进求值器。**
+      2026-10-03：`local/enemy` 整个概念已删；这里**不再接受** "local"/"enemy" 字符串（抛 Unimplemented）。
 
-    ★ 座位 ≠ 阵营（§4.12）：1/2 只是座位，哪个座位是本地由回合奇偶推。
-      所以接受 `'local'/'enemy'` 时必须知道本地占哪个座位 —— 见 `CardNatives.my_seat`。
+    ★ 座位 ≠ 阵营（§4.12）：1/2 只是座位，哪个座位是本地由 `mySide` 定 —— 见 `CardNatives.my_seat`。
     """
     if isinstance(x, bool):
         raise Unimplemented("side 不该是 bool")
     if isinstance(x, int) and x in (1, 2):
-        return x
+        return ESide(x)
     s = str(x).split("::")[-1].lower()
     if s in ("1", "left"):
-        return 1
+        return ESide.left
     if s in ("2", "right"):
-        return 2
+        return ESide.right
     raise Unimplemented("认不出的 side=%r（要 ESideEnum 的 1/2）" % (x,))
+
+
+_ARITY_MEMO: dict = {}
 
 
 class CardNatives:
@@ -172,8 +243,10 @@ class CardNatives:
     def __init__(self, board=None, campaign: bool = False, view=None,
                  my_seat=None, ks=None):
         self.board = board
-        # 本地玩家占哪个座位（ESideEnum 1/2）。座位 != 阵营，见 §4.12：
-        # 它由回合奇偶推出来，`BoardState.my_side_raw` 就是它。
+        # 本地玩家占哪个座位（ESide）。座位 != 阵营，见 §4.12：即 `BoardState.my_side`（mySide）。
+        # 调用方不传时取 board.my_side（同一个值）；都没有 ⇒ None，需要它的原语抛 Unimplemented（不猜、不默认 1）。
+        if my_seat is None and board is not None:
+            my_seat = getattr(board, "my_side", None)
         self.my_seat = my_seat if my_seat is None else _seat(my_seat)
         self.campaign = campaign
         # 求值器里传来传去的是**卡对象指针**，而这里要的是带字段的视图。
@@ -221,10 +294,14 @@ class CardNatives:
         fn = _TABLE.get(name)
         if fn is None:
             raise Unimplemented("BaseCardObject::%s" % name)
+        hit = _ARITY_MEMO.get(name)
+        if hit is not None and hit[0] is fn:                 # 按函数对象身份记（`inspect.signature` 每次 ~0.1 ms）
+            return hit[1]
         try:
             n = len(inspect.signature(fn).parameters)
         except (TypeError, ValueError):                      # noqa: BLE001
             return 0
+        _ARITY_MEMO[name] = (fn, max(0, n - 2))
         return max(0, n - 2)          # 去掉 self 和 card
 
     # ---- 取字段 ----
@@ -240,7 +317,12 @@ class CardNatives:
         """
         if card is None:
             return None
-        get = card.get if isinstance(card, dict) else (lambda k: getattr(card, k, None))
+        if isinstance(card, dict):
+            get = card.get
+        else:
+            def get(k, _c=card):
+                v = getattr(_c, k, None)
+                return _card_derived(_c, k) if v is None else v
         for k in keys:
             v = get(k)
             if v is not None:
@@ -251,12 +333,37 @@ class CardNatives:
 F = CardNatives.f
 
 
+def _card_derived(card, key):
+    """`board.Card` 上没有的几个键，从原版 `card.obj`（BaseCardObject）派生（`Card.location` 已删）。
+    读不出 ⇒ None（调用方照旧抛 Unimplemented）。"""
+    obj = getattr(card, "obj", None)
+    if obj is None:
+        return None
+    if key == "location_enum":
+        return None if obj.Location is None else int(obj.Location)
+    if key == "type_enum":
+        t = getattr(obj, "Type", None)
+        return None if t is None else int(t)
+    if key == "side_enum":
+        return None if obj.side is None else int(obj.side)
+    if key == "location":
+        if obj.Location is None:
+            return None
+        if obj.IsHQ():
+            return "hq"
+        return {ECardLocation.Deck_Left: "deck", ECardLocation.Deck_Right: "deck", ECardLocation.Deck: "deck",
+                ECardLocation.Hand_Left: "hand", ECardLocation.Hand_Right: "hand",
+                ECardLocation.Board_HQLeft: "back", ECardLocation.Board_HQRight: "back",
+                ECardLocation.Board_Frontline: "frontline", ECardLocation.Discard: "discard"}.get(obj.Location)
+    return None
+
+
 # --------------------------------------------------------------------------
 # 类型判定 —— 依据 `Card.card_type`
 # --------------------------------------------------------------------------
 def _type_is(*types):
     def fn(self, card):
-        return _need(F(card, "card_type"), "card_type") in types
+        return _ctype(card) in types
     return fn
 
 
@@ -270,18 +377,14 @@ def _is_on_board(self, card):
 
 
 def _kredits(self, side):
-    """座位 `side`（ESideEnum 1/2）现在的指挥点。**需要 BoardState + my_seat**。
+    """座位 `side`（ESideEnum 1/2）现在的指挥点。**需要 BoardState**。
 
-    盘面把指挥点按 `local`/`enemy` 存，而字节码问的是座位号 ⇒ 要知道本地占哪个座位
-    才能翻译。缺任何一样都抛 —— 猜错一边会让费用判据整段反过来。
+    盘面的 `kredits` 键就是 `ESide`（绝对座位），字节码问的也是座位号 ⇒ 直接取，不需要 my_seat。
     """
     if self.board is None:
         raise Unimplemented("getKreditBySide 需要 BoardState")
-    if self.my_seat is None:
-        raise Unimplemented("getKreditBySide 需要知道本地占哪个座位（my_seat）")
     k = getattr(self.board, "kredits", None) or {}
-    v = k.get("local" if _seat(side) == self.my_seat else "enemy")
-    return _need(v, "kredits[%s]" % side)
+    return _need(k.get(_seat(side)), "kredits[%s]" % side)
 
 
 # --------------------------------------------------------------------------
@@ -350,11 +453,11 @@ def _opposite_side(self, card):
 
 
 def _card_seat(card) -> int:
-    """卡在哪个座位。`read_raw` 给 `side_enum`(1/2)，归一层给 `side`(local/enemy)。"""
-    raw = F(card, "side_enum")
+    """卡在哪个座位（`ESide`）。`read_raw` 给 `side_enum`(1/2) 与 `side`(ESide)，`board.Card` 给 `side`(ESide)。"""
+    raw = F(card, "side_enum", "side")
     if raw is not None:
         return _seat(raw)
-    raise Unimplemented("需要 side_enum（座位号）；只有归一后的 side 是不够的")
+    raise Unimplemented("需要卡的座位（side_enum / side）")
 
 
 # --------------------------------------------------------------------------
@@ -369,9 +472,9 @@ def _kw(card, name) -> bool:
 
 _TABLE = {
     # ---- 类型 ----
-    "IsUnit": lambda self, c: _need(F(c, "card_type"), "card_type") in UNIT_TYPES,
+    "IsUnit": lambda self, c: _ctype(c) in UNIT_TYPES,
     "IsAirUnit": _type_is(*AIR_TYPES),
-    "IsGroundUnit": lambda self, c: _need(F(c, "card_type"), "card_type") in GROUND_TYPES,
+    "IsGroundUnit": lambda self, c: _ctype(c) in GROUND_TYPES,
     "IsTank": _type_is("tank"),
     "IsFighter": _type_is("fighter"),
     "IsBomber": _type_is("bomber"),
@@ -473,20 +576,17 @@ _TABLE = {
     "HasCantBeAttackedBy": lambda self, c, t: (
         ("cantbeattackedby:" + str(t).lower())
         in _need(_abilities(c), "received_abilities")),
-    "IsOwnedByClientSide": lambda self, c: (
-        F(c, "side") == "local" if F(c, "side") is not None
-        else _card_seat(c) == _need(self.my_seat, "my_seat")),
+    "IsOwnedByClientSide": lambda self, c: _card_seat(c) == _need(self.my_seat, "my_seat"),
     "IsSideActive": _is_side_active,
     "IsSameSideUnit": lambda self, c, side: (
-        _need(F(c, "card_type"), "card_type") in UNIT_TYPES
+        _ctype(c) in UNIT_TYPES
         and _card_seat(c) == _seat(side)),
 
     # ---- 数值 ----
-    "getTotalAttack": lambda self, c: _stat(c, "attack", "total_attack", "attack"),
+    "getTotalAttack": lambda self, c: _total_attack(c),
     # §2 #1（IDA 0x144B14FB0）：clamp(getAndDecryptDefense, 0, 99) —— 未夹的原始值再夹。
     "getTotalDefense": lambda self, c: max(0, min(99, _defense_raw(c))),
-    "getTotalKreditCost": lambda self, c: _need(
-        F(c, "total_kredit_cost", "kredit_cost", "kredit"), "kredit_cost"),
+    "getTotalKreditCost": lambda self, c: _total_kredit(c, clamp=False),
     "getTotalOperationCost": lambda self, c: _need(F(c, "operation_cost"), "operation_cost"),
     "getAndDecryptAttack": lambda self, c: _stat(c, "attack", "attack"),  # 明文侧
     # §2 #4：四个解码读器都走原始记录（哨兵 +100/−100、向零取整）。
@@ -916,16 +1016,15 @@ def _kredit_like(self, side, field):
         return -100
     if self.board is None:
         raise Unimplemented("%s 需要 BoardState" % field)
-    me = _need_seat(self)
-    v = (getattr(self.board, field, None) or {}).get("local" if s == me else "enemy")
+    v = (getattr(self.board, field, None) or {}).get(s)      # 键 = ESide（绝对座位），不需要 my_seat
     return _need(v, "%s[%s]" % (field, s))
 
 
 def _opposite_side2(self, card):
     """UBaseCardObject::GetOppositeSide（IDA 0x144AF7700）：side@0x276==1→2，==2→1，否则**不写出参**⇒调用方变量保持零值 0。"""
-    raw = F(card, "side_enum")
+    raw = F(card, "side_enum", "side")
     if raw is None:
-        raise Unimplemented("需要 side_enum（座位号）；只有归一后的 side 是不够的")
+        raise Unimplemented("需要卡的座位（side_enum / side）")
     return _other(_sd(raw))
 
 
@@ -1053,7 +1152,7 @@ def _attr2(c, key, attr) -> bool:
 
 def _type_or(t, attr):
     def fn(self, c):
-        if _need(F(c, "card_type"), "card_type") == t:
+        if _ctype(c) == t:
             return True
         return _attr2(c, "custom_name1", attr)
     return fn
@@ -1192,8 +1291,7 @@ _TABLE.update({
     "getTotalOperationCost": lambda self, c: max(0, _need(F(c, "operation_cost"), "operation_cost")
                                                   + _need(F(c, "operation_cost_buff"), "operation_cost_buff")),
     # getTotalKreditCost（IDA 0x144B15020）= clamp(kredit+kreditBuff, 0, 99)
-    "getTotalKreditCost": lambda self, c: max(0, min(99, _need(
-        F(c, "total_kredit_cost", "kredit_cost", "kredit"), "kredit_cost"))),
+    "getTotalKreditCost": lambda self, c: _total_kredit(c),
     "getAttackTempBuffAmount": lambda self, c, iid: _temp_buff(c, iid, "attack_tempBuffGive"),
     "getKreditTempBuffAmount": lambda self, c, iid: _temp_buff(c, iid, "kredit_tempBuffGive"),
     "GetCombatKeywords": _combat_keywords,
@@ -1210,9 +1308,9 @@ _TABLE.update({
     "IsTank": _type_or("tank", "isAlsoTank"), "IsFighter": _type_or("fighter", "isAlsoFighter"),
     "IsBomber": _type_or("bomber", "isAlsoBomber"), "IsInfantry": _type_or("infantry", "isAlsoInfantry"),
     "IsArtillery": _type_or("artillery", "isAlsoArtillery"),
-    "IsArmorUnit": lambda self, c: (_need(F(c, "card_type"), "card_type") in ("tank", "tankdestroyer")
+    "IsArmorUnit": lambda self, c: (_ctype(c) in ("tank", "tankdestroyer")
                                     or _attr2(c, "custom_name1", "isArmorUnit")),
-    "IsGunUnit": lambda self, c: _need(F(c, "card_type"), "card_type") in ("artillery", "antiair", "antitank"),
+    "IsGunUnit": lambda self, c: _ctype(c) in ("artillery", "antiair", "antitank"),
     "CanMoveAndAttackInTheSameTurn": lambda self, c: (self.call("IsArmorUnit", c)
                                                       or _attr2(c, "custom_name1", "CanMoveAndAttackInTheSameTurn")),
     "CustomName1HasAttribute": lambda self, c, a: _attr2(c, "custom_name1", a),
@@ -1302,7 +1400,7 @@ _TABLE.update({
     "EnumCompareSide": _enum_compare, "EnumCompareCardLocation": _enum_compare,
     "EnumCompareFaction": _enum_compare, "EnumCompareType": _enum_compare,
     # GetStaticType/Kredits（IDA）：Type@0x68 / kredits@0x80；Faction@0x7C / Rarity@0x11C（IDA-shape）
-    "GetStaticType": lambda self, c, n: _ETYPE.get(_need(F(_static(self, n), "card_type"), "card_type"), 0),
+    "GetStaticType": lambda self, c, n: _ETYPE.get(_ctype(_static(self, n)), 0),
     "GetStaticKredits": lambda self, c, n: _need(F(_static(self, n), "kredits_plain", "kredit"), "kredits_plain"),
     "GetStaticFaction": lambda self, c, n: _need(F(_static(self, n), "faction_enum"), "faction_enum"),
     "GetStaticRarity": lambda self, c, n: _need(F(_static(self, n), "rarity_enum"), "rarity_enum"),
@@ -1358,85 +1456,10 @@ def implemented() -> set:
     return set(_TABLE)
 
 
-# --------------------------------------------------------------------------
-# 自检：合成一张卡，把**字段映射**钉住。
-# 这里不测"游戏规则对不对"（那要实机），只测"我有没有把字段接错"——
-# 接错的典型后果是把 hq 当成不在场上、把 enemy 当成 local，全是静默的错答案。
-# --------------------------------------------------------------------------
-class _Board:
-    def __init__(self, our_turn=True):
-        self.our_turn = our_turn
-
-
-_CARD = {
-    "card_type": "infantry", "location": "frontline", "side": "local",
-    "attack": 3, "defense": 4, "kredit_cost": 2, "operation_cost": 1,
-    "is_suppressed": False, "is_revealed": False, "side_enum": 1,
-    "keywords": ["has_blitz", "has_covert"],
-    # 复核后原语要的字段（read_raw 默认会给；合成卡要自己补）
-    "custom_name1": "", "custom_name2": "", "operation_cost_buff": 0, "received_abilities": [],
-    "gameplay_tags": [], "pinned_turns": 0, "custom_json_keys": [], "custom_json_nums": {},
-}
-
-
+# 自检（合成一张卡，把字段映射钉住）已搬到 cardnatives_selftest.py（P6 拆文件）；入口名不变。
 def selftest() -> int:
-    cn = CardNatives(_Board(our_turn=True))
-    c = dict(_CARD)
-    cases = [
-        ("IsUnit", ("IsUnit", c), True),
-        ("IsInfantry", ("IsInfantry", c), True),
-        ("IsTank 否", ("IsTank", c), False),
-        ("IsGroundUnit", ("IsGroundUnit", c), True),
-        ("IsAirUnit 否", ("IsAirUnit", c), False),
-        ("IsLocatedOnBoard(frontline)", ("IsLocatedOnBoard", c), True),
-        ("IsLocatedInHand 否", ("IsLocatedInHand", c), False),
-        ("IsOwnedByClientSide", ("IsOwnedByClientSide", c), True),
-        ("GetOppositeSide 返回座位号", ("GetOppositeSide", c), 2),
-        ("getTotalAttack", ("getTotalAttack", c), 3),
-        ("getHasBlitz", ("getHasBlitz", c), True),
-        ("getHasGuard 否", ("getHasGuard", c), False),
-        ("未揭示的隐蔽牌", ("IsUnrevealedCovertCard", c), True),
-        ("HasCampaignUpgrade(非战役, 空数组)", ("HasCampaignUpgrade", c), False),
-    ]
-    bad = 0
-    for name, (fn, card), want in cases:
-        got = cn.call(fn, card, *((1,) if fn == "HasCampaignUpgrade" else ()))
-        ok = got == want
-        bad += 0 if ok else 1
-        print("  [%s] %-28s got=%r want=%r" % ("PASS" if ok else "FAIL", name, got, want))
-
-    # ★ hq 和 back 也算"在场上"：Board_HQLeft/Right(5/6) 是整个后排，不是只有总部
-    for loc, want in (("hq", True), ("back", True), ("deck", False), ("discard", False)):
-        got = cn.call("IsLocatedOnBoard", dict(c, location=loc))
-        ok = got == want
-        bad += 0 if ok else 1
-        print("  [%s] IsLocatedOnBoard(%-9s) got=%r want=%r"
-              % ("PASS" if ok else "FAIL", loc, got, want))
-
-    # 轮次相关：必须跟着 BoardState 走，不能从卡对象猜
-    for ot, side, want in ((True, 1, True), (True, 2, False),
-                           (False, 1, False), (False, 2, True)):
-        got = CardNatives(_Board(ot), my_seat=1).call("IsSideActive", c, side)
-        ok = got == want
-        bad += 0 if ok else 1
-        print("  [%s] IsSideActive(our_turn=%-5s,%-5s) got=%r want=%r"
-              % ("PASS" if ok else "FAIL", ot, side, got, want))
-
-    # 缺字段必须**抛**，不能当 False
-    for name, card, why in (
-            ("IsUnit", {"card_type": None}, "card_type 缺"),
-            ("getHasBlitz", {"keywords": None}, "keywords 缺"),
-            ("IsSideActive", c, "没有 BoardState")):
-        try:
-            (cn if why != "没有 BoardState" else CardNatives(None)).call(
-                name, card, *((1,) if name == "IsSideActive" else ()))
-            print("  [FAIL] %s 没抛（%s）" % (name, why))
-            bad += 1
-        except Unimplemented:
-            print("  [PASS] %s 缺字段时抛 Unimplemented（%s）" % (name, why))
-
-    print("cardnatives selftest: %s（%d 项失败）" % ("PASS" if not bad else "FAIL", bad))
-    return 1 if bad else 0
+    from .cardnatives_selftest import selftest as _selftest
+    return _selftest()
 
 
 if __name__ == "__main__":

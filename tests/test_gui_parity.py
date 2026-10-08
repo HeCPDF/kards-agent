@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""面板功能清单（参照 OCR-Kards-Auto 面板）的纯函数层（gui/core.py、gui/update_check.py）+ 面板冒烟（建窗口刷一次）。"""
+"""面板功能清单（参照 OCR-Kards-Auto 面板）的纯函数层（`gui/core.py`、`gui/update_check.py`）+ 面板冒烟。
+
+★ 面板冒烟**默认不跑**（2026-10-04，用户要求：跑测试绝不许弹窗口）：那一段会真建一个 Tk
+顶层窗口并 `update()`，在**有显示器**的机器上每跑一次测试就弹一次窗口。
+现在只有显式设了 `KARDS_TEST_GUI_WINDOW=1` 才走 —— 没设时连那个模块都不 import（见 `main()` 末尾）。
+纯函数两部分（`gui/core.py` / `gui/update_check.py`）**无条件照跑**，不受这个开关影响。
+"""
 import json
 import os
 import sys
@@ -132,21 +138,34 @@ def main():
     r = U.check("x", None, git=fake_git)
     chk("更新：git 远端 HEAD 不同 ⇒ 有更新（不自动拉）", r["ok"] and r["has_update"] and "不自动拉取" in r["msg"], str(r))
 
-    # ---- 面板冒烟：建窗口、刷一次、读状态 ----
-    import tkinter
-    try:
-        from gui import app as A
-        a = A.App()
-        a.update()
-        a._tick()
-        a.update()
-        chk("面板冒烟：建窗口 + 刷新一次不抛", a.pill.cget("text") != "" and set(a.kv) >= {"kre", "board", "act", "rounds", "opts"})
-        a.v_sw["attack"].set(False)
-        s = a._settings()
-        chk("面板：取消“攻击”勾选 ⇒ 设置里 forbid=attack", s["forbid"] == ["attack"], str(s))
-        a.destroy()
-    except tkinter.TclError as e:                             # 没有显示器（CI）时跳过
-        print("  [SKIP] 面板冒烟：无显示 (%s)" % e)
+    # ---- 面板冒烟：建窗口、刷一次、读状态（**显式 opt-in；默认不建窗口**）----
+    # ★ 为什么默认不跑：`A.App()` 会**真建一个 Tk 顶层窗口**摆到桌面上 —— 在有显示器的机器上
+    #   跑一次测试就弹一次窗口（用户明确要求：跑测试绝不许弹窗 ✗）。
+    #   所以只有显式设了 KARDS_TEST_GUI_WINDOW=1 才走这段；默认分支里**根本不 import** 那个
+    #   模块（连 tkinter 都不碰）⇒ 代码路径上不可能建出窗口。
+    if os.environ.get("KARDS_TEST_GUI_WINDOW") == "1":
+        import tkinter
+        a = None
+        try:
+            from gui import app as A
+            a = A.App()
+            a.update()
+            a._tick()
+            a.update()
+            chk("面板冒烟：建窗口 + 刷新一次不抛", a.pill.cget("text") != "" and set(a.kv) >= {"kre", "board", "act", "rounds", "opts"})
+            a.v_sw["attack"].set(False)
+            s = a._settings()
+            chk("面板：取消“攻击”勾选 ⇒ 设置里 forbid=attack", s["forbid"] == ["attack"], str(s))
+        except tkinter.TclError as e:                         # 没有显示器（CI）时跳过
+            print("  [SKIP] 面板冒烟：无显示 (%s)" % e)
+        finally:                                              # 窗口一定要关（哪怕上面的断言自己抛了）
+            if a is not None:
+                try:
+                    a.destroy()
+                except tkinter.TclError:
+                    pass
+    else:
+        print("  [SKIP] 面板冒烟：默认不建窗口（设 KARDS_TEST_GUI_WINDOW=1 才跑）")
     print("失败 %d 项" % fails)
     return fails
 

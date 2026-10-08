@@ -22,7 +22,7 @@ def in_match(sess):
     主菜单：战斗 GameState 在、但 kredits 全 None ⇒ False（正因为如此不能用 `in_battle`）。
 
     ★★ 2026-10-02 三次修正（牌组页也会 `match_active=True`）：实机在**牌组页**读到
-    `kredits={'local':0,'enemy':1}`（上一局残留的 GameState）⇒ 单用 `match_active` 会把
+    `kredits={ESide.left:0, ESide.right:1}`（上一局残留的 GameState）⇒ 单用 `match_active` 会把
     "牌组页"判成对局中，闸门永远拦着、一局都开不了。改成**组合判据**：
     `match_active` 为真时，再看旁证——`sess.history()` 读得到动作流 / 快照 `turn>0` / 场上有牌；
     三个旁证**全都明确说"没有对局"**才允许开局（其余情况一律拦，保守方向=拦）。

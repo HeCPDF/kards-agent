@@ -22,11 +22,24 @@ from base import paths as _P
 
 FLAG = _P.HOT_RELOAD_FLAG
 LOG = _P.HOT_RELOAD_LOG
-# ★ 2026-10-03：boardeval 已拆成分层包（sim/evaluation/policy）——按依赖顺序（下层在前）重载，门面 boardeval 最后，
-#   否则改了 `sim/engine.py` 热重载后 `policy.boardeval` 里还是旧函数。
-DEFAULT_MODULES = ["ops", "ops.inject", "semantics.effectvm", "sim.state", "sim.prompt", "sim.dispatch", "sim.chain", "sim.effects",
+# ★ 2026-10-03：boardeval 已拆成分层包（sim/evaluation/policy）——按依赖顺序（下层在前）重载。
+# ★ 2026-10-04（P5）：门面 `policy.boardeval` **已删** ⇒ 从重载清单里去掉。留着的话每次热重载都会记一条
+#   `policy.boardeval: 异常 No module named …`（逐模块 catch、不中断，但**必报错**，日志会被噪声污染 ✗）。
+# ★ 2026-10-03（D1）：`ops/inject.py` 拆成 mixin 模块——方法在 `ops.<mixin>` 里，`Injector` 自己的类字典几乎是空的，
+#   所以 mixin 模块必须**先于** `ops.inject` 重载（`reload_module` 把新方法并回各自的旧 mixin 类，旧 `Injector` 实例继承的就是旧 mixin 类）。
+# ★ 2026-10-03（P2）：`engine/` 是真实现（natives/state/dispatch），`sim/*` 里有的是 re-export 壳
+#   —— engine 模块必须排在用它的 sim 模块**之前**重载，否则壳里还绑着旧函数对象。
+# ★ 2026-10-06（P6）：`engine.triggers` 拆成 `triggers_specs`（数据表）/ `triggers` / `triggers_families`（钩子族）——
+#   顺序固定 specs → triggers → families（families 末尾把新函数写回 `engine.triggers`）。
+#   `semantics.triggers` / `semantics.effectvm` 是同一模块对象别名（sys.modules），只重载 engine 侧即可。
+DEFAULT_MODULES = ["ops", "ops.consts", "ops.support", "ops.conn", "ops.world", "ops.gesture", "ops.query", "ops.play",
+                   "ops.choices", "ops.flow", "ops.cli", "ops.inject",
+                   "engine.state", "engine.dispatch", "engine.natives.board", "engine.natives.damage",
+                   "engine.natives.status", "engine.natives.kredits", "engine.natives.cards",
+                   "engine.chain", "engine.triggers_specs", "engine.triggers", "engine.triggers_families", "engine.effectvm", "engine.adapter",
+                   "sim.state", "sim.prompt", "sim.dispatch", "sim.chain", "sim.effects",
                    "sim.engine", "sim.adapter", "evaluation.value", "policy.plan", "policy.answer", "policy.forced",
-                   "policy.search", "policy.boardeval", "agent.promptinfo", "agent.ops_result", "player.rule", "player.play", "agent.session",
+                   "policy.search", "agent.promptinfo", "agent.ops_result", "player.rule", "player.play", "agent.session",
                    "kardsmem.rng", "semantics.forecast", "player.loop", "player.play_guard"]
 
 
@@ -69,6 +82,9 @@ def reload_module(name: str) -> str:
     mod = sys.modules.get(name)
     if mod is None:
         return "%s: 未导入，跳过" % name
+    if getattr(sys, "frozen", False):
+        # 冻结的 exe 包：代码在 PYZ 里、没有 .py 可重读，热重载不适用（改代码要重新打包）。
+        return "%s: 冻结包不支持热重载，跳过" % name
     path = getattr(mod, "__file__", None)
     if path:
         try:

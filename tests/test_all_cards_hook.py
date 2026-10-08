@@ -12,6 +12,8 @@ from types import SimpleNamespace as NS
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import semantics.effectvm as EV                                   # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _cards import ME, OPP, mk_card                               # noqa: E402
 
 fails = 0
 
@@ -24,14 +26,15 @@ def chk(name, ok, extra=""):
 
 
 def card(ptr, side, loc, defense, ctype="infantry", kws=(), revealed=True):
-    return NS(raw={"ptr": ptr}, side=side, location=loc, defense=defense, card_type=ctype,
-              keywords=list(kws), is_revealed=revealed)
+    # ctype 参数沿用旧写法：HQ 用 loc="hq"
+    return mk_card(ptr, side, loc, ctype if loc != "hq" else "infantry", 1, defense, 0, 0, "c%d" % ptr,
+                   keywords=kws, ptr=ptr, is_revealed=revealed)
 
 
 def main():
-    cs = [card(1, "local", "frontline", 3), card(2, "enemy", "back", 2),
-          card(3, "enemy", "hq", 20, "hq"), card(4, "local", "back", 0),
-          card(5, "local", "hand", 2), card(6, "enemy", "back", 2, kws=["covert"], revealed=False)]
+    cs = [card(1, ME, "frontline", 3), card(2, OPP, "back", 2),
+          card(3, OPP, "hq", 20, "hq"), card(4, ME, "back", 0),
+          card(5, ME, "hand", 2), card(6, OPP, "back", 2, kws=["covert"], revealed=False)]
     st = NS(cards=cs, turn=3, my_side_raw=1, slots={}, kredits={})
     hooks = EV.make_read_hooks(st, 1)
     vm = NS(s=None)

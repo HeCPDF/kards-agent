@@ -23,7 +23,6 @@ import sys
 
 import _bootstrap                                              # noqa: F401,E402
 from base import paths as P                                   # noqa: E402
-os.environ.setdefault("KARDS_BUILD", "launcher_default")
 
 KEEP_SETS = {1, 8, 9, 10, 12, 13, 15, 16, 17, 18, 19, 20, 21}   # 见 docstring 的 switch 表
 UNIT_TYPES = {3, 4, 5, 6, 7, 8, 9, 10}                         # ETypeEnum：坦克/战斗机/轰炸机/步兵/炮兵/…

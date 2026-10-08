@@ -22,6 +22,7 @@ from typing import Callable, Optional
 from base import paths as _paths
 
 TIMEOUT = 8.0
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)     # 打包版（窗口子系统）起 git 不闪黑窗
 
 
 def parse_ver(v: str) -> tuple:
@@ -41,7 +42,8 @@ def _http_json(url: str) -> dict:
 
 
 def _git(args: list, cwd: str) -> str:
-    r = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True, timeout=TIMEOUT + 4)
+    r = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True, timeout=TIMEOUT + 4,
+                       creationflags=_NO_WINDOW)
     if r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).strip()[:160] or "git 退出码 %s" % r.returncode)
     return r.stdout
