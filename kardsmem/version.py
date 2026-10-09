@@ -119,8 +119,19 @@ class _PE32(ctypes.Structure):
                 ("szExeFile", ctypes.c_char * 260)]
 
 
+def exe_names(exe: str = GAME_EXE) -> tuple:
+    """可接受的进程/模块名（小写）：原名与私服补丁版 `<stem>.patched.exe`。"""
+    want = exe.lower()
+    return (want, (want[:-4] if want.endswith(".exe") else want) + ".patched.exe")
+
+
 def game_pids(exe: str = GAME_EXE) -> list:
-    """按**进程名**找游戏主进程（不看 SizeOfImage）。"""
+    """按**进程名**找游戏主进程（不看 SizeOfImage）。
+
+    放行 `<stem>.patched.exe`（私服补丁版，与 `kardsmem.board._name_matches` 同一条策略：只换了两个等长字面量，
+    `SizeOfImage` 不变 ⇒ 偏移照样有效）。以前这里是精确匹配，补丁版会被 `precheck` 判成“没有活着的 kards 进程”。
+    """
+    names = exe_names(exe)
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.CreateToolhelp32Snapshot.restype = wt.HANDLE
     snap = k32.CreateToolhelp32Snapshot(0x2, 0)
@@ -132,7 +143,7 @@ def game_pids(exe: str = GAME_EXE) -> list:
         e.dwSize = ctypes.sizeof(_PE32)
         ok = k32.Process32First(snap, ctypes.byref(e))
         while ok:
-            if e.szExeFile.decode("mbcs", "replace").lower() == exe.lower():
+            if e.szExeFile.decode("mbcs", "replace").lower() in names:
                 out.append(e.th32ProcessID)
             ok = k32.Process32Next(snap, ctypes.byref(e))
     finally:
@@ -222,6 +233,7 @@ def game_module(pid: int, exe: str = GAME_EXE):
     k32.CreateToolhelp32Snapshot.restype = wt.HANDLE
     k32.Module32FirstW.argtypes = [wt.HANDLE, ctypes.POINTER(_ME32W)]
     k32.Module32NextW.argtypes = [wt.HANDLE, ctypes.POINTER(_ME32W)]
+    names = exe_names(exe)                                  # 同 game_pids：放行私服补丁版
     snap = k32.CreateToolhelp32Snapshot(0x8 | 0x10, pid)
     if snap in (None, -1, ctypes.c_void_p(-1).value):
         return None
@@ -230,7 +242,7 @@ def game_module(pid: int, exe: str = GAME_EXE):
         e.dwSize = ctypes.sizeof(_ME32W)
         ok = k32.Module32FirstW(snap, ctypes.byref(e))
         while ok:
-            if e.szModule.lower() == exe.lower():
+            if e.szModule.lower() in names:
                 return (e.modBaseAddr or 0, e.modBaseSize, e.szExePath)
             ok = k32.Module32NextW(snap, ctypes.byref(e))
     finally:

@@ -83,6 +83,7 @@ def find_game_windows(exe: str = GAME_EXE) -> list:
     """游戏进程的顶层可见窗口 → `[{"hwnd", "pid", "w", "h"}]`（客户区尺寸，面积大的在前）。"""
     out = []
     exe = exe.lower()
+    names = (exe, (exe[:-4] if exe.endswith(".exe") else exe) + ".patched.exe")     # 同 kardsmem.version.exe_names：放行私服补丁版
 
     @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
     def cb(hwnd, _lp):
@@ -90,7 +91,7 @@ def find_game_windows(exe: str = GAME_EXE) -> list:
             return True
         pid = wt.DWORD()
         _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if _exe_of_pid(pid.value) != exe:
+        if _exe_of_pid(pid.value) not in names:
             return True
         r = wt.RECT()
         _user32.GetClientRect(hwnd, ctypes.byref(r))
