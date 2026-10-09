@@ -65,6 +65,7 @@
 | D4 | P6：拆 `player/rule.py`（约 3.3k 行）、`kardsmem/cli.py`、`kardsmem/board.py`；OPS 余下步骤（各动词改返回 `Result`、`answer_prompt` 接真动词） | 待做 | `docs/OPS-ARCHITECTURE.md` |
 | D5 | P7：RVA S2 其余版本需对应游戏在跑做对账，之后 S4（表迁 `tests/fixtures/golden_rva.json`、缓存目录进 `.gitignore`）；H3 能力探测（只做被点名的） | 待做 | `docs/ARCH-RELEASE-VCS.md` |
 | D6 | M5 类型化状态变更（Recorder 直接产出，字典仅给日志）；`policy/search.py` 里 24 叶 + 剪枝拆 `paths.py` | 长期 | `docs/ARCHITECTURE.md` |
+| D7 | **分层目标（用户 2026-10-09 的判断）**：agent = eval + sim（决策层），依赖或包含 ops；ops = 对局内的各种操作及相关内容；ops 与并列项目（如 `D:\Kards\card-export\` 卡图出图）**共同依赖的底层**，有机会提取成独立的库。**已知的共享面**（card-export 目前直接伸手去拿的）：`kardsmem`（`MemRO.read_exact`、`names` 名字池、`version.exe_names`、进程/模块定位）、`ops/conn.py` 的原语（`instance_of_class` / `uclass_of_instance` / `find_fn` / `call0` / `peek` / `poke` / `_bp_lib_fn`——后者带下划线，是私有名）、`ops/primitives.call_ufunction`、`agent/precheck._ensure()`（拿注入器）、常驻监听器的命令/日志通道（`base/paths.py` LIVE_CMD/LIVE_LOG）、`base/winapi` 的 PrintWindow 截图。提取时先把这些收成一个**稳定的公开面**（去掉下划线私有名、给监听器通道一个客户端类），再谈搬家 | 待做（有机会再做；先别动）| `docs/ARCHITECTURE.md`、`D:\Kards\card-export\README.md` |
 
 ## 已拍板
 1. B1 不允许降束搜索参数。
