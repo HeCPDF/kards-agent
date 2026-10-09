@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import build as B
+from . import exes as X
 
 TABLES_JSON = Path(__file__).with_name("build_tables.json")
 
@@ -47,17 +48,17 @@ TABLES_JSON = Path(__file__).with_name("build_tables.json")
 BUILD_SOURCES = {
     "current": {
         "sdk": "1.60.27292.Steam",
-        "tree": r"D:\SteamLibrary\steamapps\common\KARDS\kards\Binaries\Win64",
+        "tree": X.STEAM_TREE,
         "ref": None,                      # 自己就是参照（GWorld 直接取 dump 里的值）
     },
     "launcher_default": {
         "sdk": "1.60.27292.launcher",
-        "tree": r"D:\Kards\game-installs\1.60.27292.launcher\kards\Binaries\Win64",
+        "tree": X.install_tree("1.60.27292.launcher"),
         "ref": "current",                 # dump 里 GWorld=0 ⇒ 用 Steam 的指令模式迁移
     },
     "launcher_157_orig": {
         "sdk": "1.57.26586.launcher",
-        "tree": r"D:\Kards\game-installs\1.57.26586.launcher\kards\Binaries\Win64",
+        "tree": X.install_tree("1.57.26586.launcher"),
         "ref": None,
     },
 }

@@ -29,10 +29,11 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-DEFAULT_EXPORTS = os.path.join(os.path.dirname(ROOT), "reverse-data",
+from kardsmem import build as B                        # noqa: E402  工作区根（`KARDS_WORKSPACE` 可覆盖）
+
+DEFAULT_EXPORTS = os.path.join(str(B.WORKSPACE), "reverse-data",
                                "exports-1.60.27292.launcher-only-decompiled-BP", "kards",
                                "Content", "Blueprints", "Cards")
-ALT_EXPORTS = r"D:\Kards\reverse-data\exports-1.60.27292.launcher-only-decompiled-BP\kards\Content\Blueprints\Cards"
 
 from engine.deferred import PLAYTIME_HOOKS            # noqa: E402  单一来源（rule 与本工具共用）
 _ORDER_LIKE = ("order",)
@@ -229,7 +230,7 @@ def main(argv=None) -> int:
     ap.add_argument("--exports", default=None)
     ap.add_argument("--out", default=os.path.join(ROOT, "docs", "DEFERRED-EFFECTS-CENSUS.md"))
     ns = ap.parse_args(argv)
-    exp = ns.exports or (DEFAULT_EXPORTS if os.path.isdir(DEFAULT_EXPORTS) else ALT_EXPORTS)
+    exp = ns.exports or DEFAULT_EXPORTS
     if not os.path.isdir(exp):
         print("找不到导出目录：%s（--exports 指定）" % exp)
         return 2

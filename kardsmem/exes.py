@@ -31,6 +31,7 @@ import json
 import os
 import struct
 import sys
+from pathlib import Path
 from typing import Optional
 
 from . import build as B
@@ -43,20 +44,31 @@ from . import build as B
 #   `HKCU\SOFTWARE\XSOLLA\…\default :: prefix` 指着它，删了 launcher 会重下 8 GB。
 #   所以 default 与 game-installs\1.58.27125.launcher 是**同一份的两个副本**，
 #   下面都列出来，免得"多出来一份"又变成悬案。
+# 路径可用环境变量覆盖（换机器/换盘不用改代码）：
+#   KARDS_GAME_INSTALLS  收编的安装树根目录，默认 `<工作区>\game-installs`（工作区见 `build.WORKSPACE`）
+#   KARDS_STEAM_DIR      Steam 版 exe 所在目录（`…\kards\Binaries\Win64`）
+#   KARDS_LAUNCHER_DIR   Xsolla launcher 原地那份（`…\default\game\kards\Binaries\Win64`）
+# 后两者的默认值只是作者本机的位置，别处用请设环境变量。
+GAME_INSTALLS = Path(os.environ.get("KARDS_GAME_INSTALLS") or (B.WORKSPACE / "game-installs"))
+STEAM_TREE = os.environ.get("KARDS_STEAM_DIR") or r"D:\SteamLibrary\steamapps\common\KARDS\kards\Binaries\Win64"
+LAUNCHER_DEFAULT_TREE = os.environ.get("KARDS_LAUNCHER_DIR") or (
+    r"D:\Program Files\KARDS - The WWII Card Game\Games\KARDS\default\game\kards\Binaries\Win64")
+
+
+def install_tree(name: str) -> str:
+    r"""收编安装树里 exe 所在目录：`<GAME_INSTALLS>\<版本>.<渠道>\kards\Binaries\Win64`（没有 `game\` 层）。"""
+    return str(GAME_INSTALLS / name / "kards" / "Binaries" / "Win64")
+
+
 KNOWN_TREES = [
-    ("steam", r"D:\SteamLibrary\steamapps\common\KARDS\kards\Binaries\Win64"),
+    ("steam", STEAM_TREE),
     # ★ 2026-09-25 修正路径：收编进 game-installs 的树**没有 `game\` 那一层**
     #   （`<版本目录>\kards\Binaries\Win64`）；以前写成 `…\game\kards\…` ⇒ 一直报"目录不存在"。
-    ("1.57.26586.launcher", r"D:\Kards\game-installs\1.57.26586.launcher"
-                            r"\kards\Binaries\Win64"),
-    ("1.58.27125.launcher", r"D:\Kards\game-installs\1.58.27125.launcher"
-                            r"\kards\Binaries\Win64"),
-    ("1.60.27292.launcher", r"D:\Kards\game-installs\1.60.27292.launcher"
-                            r"\kards\Binaries\Win64"),
-    ("1.60.27292.Steam(副本)", r"D:\Kards\game-installs\1.60.27292.Steam"
-                               r"\kards\Binaries\Win64"),
-    ("launcher(default, 原地副本)", r"D:\Program Files\KARDS - The WWII Card Game"
-                                    r"\Games\KARDS\default\game\kards\Binaries\Win64"),
+    ("1.57.26586.launcher", install_tree("1.57.26586.launcher")),
+    ("1.58.27125.launcher", install_tree("1.58.27125.launcher")),
+    ("1.60.27292.launcher", install_tree("1.60.27292.launcher")),
+    ("1.60.27292.Steam(副本)", install_tree("1.60.27292.Steam")),
+    ("launcher(default, 原地副本)", LAUNCHER_DEFAULT_TREE),
 ]
 
 # ★ 用**子串**匹配，不用精确文件名：同一棵树下出现过 `kards-Win64-Shipping2.exe`

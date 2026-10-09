@@ -43,7 +43,6 @@
 | C1 | 崩溃相关：`obj_alive` 偏移与效果的实机验证；ProcDump 不抓 frida 自己的第一次机会 AV、清理旧转储；CLI `watch` 默认含 0x4000 与 termination | 待做 | `tools/crashdump.py` |
 | C2 | 攻击修复后续清理：`ops/inject.py` 里 `pc_hover_rewritten` / `arrow_under_written` 两处已知无因果的写入，逐项删、逐项回归（后台 + 窗外 ≥12 次攻击）；带目标出牌/选目标/选手牌目标是否也依赖 `LocationUnderCursor/RowUnderCursor`；`move_up` 清箭头目标、`pick_candidates` 快速路径、回合开始 2 s 等待与横幅重试 | 待做 | |
 | C3 | exe 未签名，杀软可能误报；发布前按 `v<版本>` 打标签再 `build_exe.py` | 待做 | `tools/build_exe.py` |
-| C4 | 代码里残留的开发机绝对路径（`D:\Kards\game-installs\…`、`D:\SteamLibrary\…` 的 `path_hint` / `exes.py` 搜索表）：改成环境变量或相对 `base.paths` | 待做（不阻塞） | `kardsmem/{build,buildsrc,exes}.py` |
 
 ## A. 评估与模拟
 | # | 事项 | 状态 | 要点 |
