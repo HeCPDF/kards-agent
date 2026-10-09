@@ -14,6 +14,11 @@
 | S3 | **多游戏实例**。**线索（代码里现成的钩子）**：① `base/paths.py` 的 `LIVE_DIR`（命令/日志通道）、`GUI_DIR`、`DATA` 都已能用环境变量 `KARDS_LIVE_DIR` / `KARDS_GUI_DIR` / `KARDS_DATA_DIR` 覆盖——**按实例各给一个目录**就能先把通道与日志分开，不用改代码；② `kardsmem/proc.py::attach(pid=…)` 已支持指定 pid，但 `_default` 是**进程级单例**（`pid is None` 时复用）、`reuse` 默认真；③ `gui/watcher.py::pids()` 按 `--listener` 找监听器进程，没有“监听器 ↔ 游戏 pid”的映射；④ `ops/support.py` 的 `ops_inject_cache.json`、`kardsmem/locres.py::_CACHE`、`rendered.py` 的名字缓存、RVA 缓存都是全局的；⑤ frida 临时目录与 `play_guard` 闸门按进程。**待办**：监听器启动参数 `--pid`；`_default` 改成 `{pid: Session}`；缓存键加 pid；面板里实例选择；多窗口截图按 hwnd。先做“环境变量分目录 + 每个监听器各绑一个 pid”的最小版 | 待做（线索已齐，未设计）。注册表是进程外共享的：多实例若靠写注册表指定凭据会互相覆盖，故倾向 S2 的钩 `GetValue` 方案 | `base/paths.py`、`kardsmem/proc.py`、`gui/watcher.py` |
 | S4 | **用私服造局面做验证**：S1 之后，下面 V 组里“需要特定牌/特定局面”的条目改用造出来的局面验证 | 待做 | |
 
+## K. 卡图导出：渲染好的整张卡（用户 2026-10-09 要求：所有游戏内出现的卡牌）
+| # | 事项 | 状态 | 指针 |
+|---|---|---|---|
+| K1 | **用游戏自己的调试渲染器出图**：`BP_RenderedCardCache::OpenRenderDebug()` 打开 `WBP_DebugRenderer`（下拉框 = `GetStaticCardNames()` 全部卡名；`Card_widget` 的 `Card Name` + `Reload()` 画出整张卡）。做法：① 常驻监听器里找到缓存与调试面板实例（只读）；② 打开面板；③ 对每个卡名设置 `Card_widget` 的卡名并 `Reload()`，等游戏画完；④ 后台截图（`PrintWindow`，不置前、不动鼠标）并裁出卡面区域存 PNG；⑤ 逐张核对（卡名、数值与静态卡数据一致，全是同一张图就停手）。**只在私服版游戏（补丁版 exe、训练/AI 环境，不连官方服务器）里做**；输出写到伞目录 `D:\Kards\card-images\`（不入库、不属于 kards-agent 发布物，**不分发游戏资源**）。第一步只做 3 张卡的可行性验证，成功后再全量。风险：游戏线程安全（走现有“游戏线程派发”）；调试面板在发行版里可能缺依赖（`Map_CardRenderScene` 就不存在），要实机看 | 进行中（第一步：可行性）| `reverse-data/reports/report/CARD-IMAGE-EXPORT-POSTMORTEM.md`、`ops/conn.py` |
+
 ## V. 只差实机的验证（代码已落地）
 | # | 事项 | 状态 | 指针 |
 |---|---|---|---|
