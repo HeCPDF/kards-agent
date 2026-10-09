@@ -9,6 +9,7 @@
 |---|---|
 | `live_session.py` | 常驻监听器：一个进程、一次 attach，按命令文件逐条执行（面板的“启动监听器”就是起它） |
 | `gui_main.py` | 打包版 `kards-agent.exe` 的唯一入口（面板 / `--listener`）；开发布局下也能直接跑 |
+| `launch_with_credentials.py` | 用指定设备凭据启动指定的 `kards-Win64-Shipping*.exe`：写 `HKCU\Software\Kards` 的 `device_id` / `device_password`（凭据来自文件或环境变量，不进参数与输出），旧值备份到数据目录，不还原；竞态由调用方负责 |
 | `gui_closure.py` | 求面板运行所需代码的 import 闭包（供 `build_exe.py` 与 `gui_main.py` 自检） |
 | `build_exe.py` | 把面板打成免装 Python、免联网的 Windows x64 PyInstaller 包（onedir） |
 | `make_release.py` | 从已提交内容导出、打包，并在干净目录里跑离线测试 |
