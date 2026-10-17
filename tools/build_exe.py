@@ -62,8 +62,8 @@ KARDS Agent control panel (Windows x64, no Python needed) {ver}
    Double-click kards-agent.exe; the control panel opens.
 3. 点“启动监听器…”（会 attach 游戏进程；游戏必须已经在运行）。就绪后再点“开始”。
    Press the "start listener" button (it attaches to the running game), then "start".
-4. 只打 训练 / AI 对局（对手 player_id 为负）；开局前请目视确认“训练模式”已高亮。不要用于真人对战。
-   Training / AI matches ONLY. Visually confirm the "training mode" tab is highlighted before starting.
+4. 开局前请自行确认想打的模式已选中；程序不会替你切换模式，也不检查对手是否真人。
+   Pick the game mode yourself before starting; the program neither switches modes nor checks whether the opponent is human.
 5. 想停：先点面板的“停止监听器”（会让当前这局收手并正常退出，最多等 90 秒）。
    To stop: use the panel's stop-listener button (it waits up to 90 s).
    **不要在任务管理器里强杀监听器进程**——强杀会卸载 frida agent，曾导致游戏崩溃。
