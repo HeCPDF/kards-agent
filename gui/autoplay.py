@@ -210,18 +210,6 @@ def start_next(sess, precheck) -> dict:
     ok, im, why = _guard().safe_to_start(sess)
     if not ok:
         return {"ok": False, "why": why, "leave": lv}
-    # 模式必须是**训练**：对战模式下「开始」是灰的（卡组含未拥有卡），点了没反应；训练局也不会碰到真人对手
-    # （2026-10-05 实机：停在别的模式时 press_play 点了灰按钮 ⇒ 60 s 没进对局）。已是训练就不动。
-    try:
-        sm = precheck.call_read("selected_mode") or {}
-        if not (sm.get("selected") == 1 and sm.get("chosen") == 1):
-            mr = precheck.call_write("select_mode_by_label", "TRAINING", verbose=False) or {}
-            C.log_event("切到训练模式：%s" % ("ok" if mr.get("ok") else str(mr)[:120]))
-            if not mr.get("ok"):
-                return {"ok": False, "why": "切训练模式失败：%s" % str(mr.get("error") or mr)[:100], "leave": lv, "mode": mr}
-            precheck.call_write("settle", 1.0, 6)
-    except Exception as ex:                                  # noqa: BLE001
-        C.log_event("读/切模式出错（不阻断，沿用当前模式）：%s: %s" % (type(ex).__name__, ex))
     r = precheck.call_write("press_play", verbose=True) or {}
     if not r.get("ok"):
         return {"ok": False, "why": r.get("error") or "press_play 失败", "leave": lv, "press": r}

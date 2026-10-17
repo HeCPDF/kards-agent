@@ -3,8 +3,7 @@
 """`gui.autoplay` 开局前的两道保障（假 precheck / 假闸门，离线）：
 
 * `leave_result_page`：不在结算页、牌组页也没就绪 ⇒ 先点一次左侧『开始』（注入式），再按牌组页是否就绪继续；
-* `start_next`：模式不是训练（`selected_mode` 的 selected/chosen 不都是 1）⇒ 先 `select_mode_by_label('TRAINING')`，
-  切失败不点开始；已是训练不动模式。
+* `start_next`：不读也不切模式（用户在牌组页自己选），过闸门后直接点开始。
 """
 import os
 import sys
@@ -90,30 +89,18 @@ def main():
     nct = len([x for x in pre.log if x[:2] == ("w", "end_of_match_continue")])
     chk("陈旧结算页实例：3 次无进展后离开", r["left"] and r["deck_ready"] and nct <= 4, "n=%d %s" % (nct, r))
 
-    # ③ start_next：已是训练 ⇒ 不动模式
-    pre = FakePre()
-    pre.sidebar_pressed = True
+    # ③ start_next：不管当前是什么模式，都不碰模式（用户在牌组页自己选），直接点开始
     old_g, old_v = AP._guard, AP.verify_start
     AP._guard = lambda: FakeGuard
     AP.verify_start = lambda sess, precheck, **k: {"ok": True, "timeout_s": 0, "notify": []}
     try:
-        res = AP.start_next(None, pre)
-        chk("已是训练：不调 select_mode_by_label，直接点开始", res["ok"] and not any(
-            x[:2] == ("w", "select_mode_by_label") for x in pre.log) and any(x[:2] == ("w", "press_play") for x in pre.log),
-            str(pre.log))
-        # ④ 不是训练 ⇒ 先切再点开始（顺序）
-        pre = FakePre(mode={"selected": 1, "chosen": 0})
-        pre.sidebar_pressed = True
-        res = AP.start_next(None, pre)
-        order = [x[1] for x in pre.log if x[0] == "w"]
-        chk("非训练：先 select_mode_by_label 再 press_play",
-            res["ok"] and order.index("select_mode_by_label") < order.index("press_play"), str(order))
-        # ⑤ 切不动 ⇒ 不点开始
-        pre = FakePre(mode={"selected": 2, "chosen": 2}, mode_ok=False)
-        pre.sidebar_pressed = True
-        res = AP.start_next(None, pre)
-        chk("切训练失败：返回 ok=False 且没点开始", (not res["ok"]) and "切训练" in res["why"]
-            and not any(x[:2] == ("w", "press_play") for x in pre.log), str(res))
+        for mode in ({"selected": 1, "chosen": 1}, {"selected": 1, "chosen": 0}, {"selected": 2, "chosen": 2}):
+            pre = FakePre(mode=mode)
+            pre.sidebar_pressed = True
+            res = AP.start_next(None, pre)
+            chk("模式 %s：不读不切模式，直接点开始" % (mode,), res["ok"] and not any(
+                x[1] in ("select_mode_by_label", "selected_mode") for x in pre.log)
+                and any(x[:2] == ("w", "press_play") for x in pre.log), str(pre.log))
     finally:
         AP._guard, AP.verify_start = old_g, old_v
     print("失败 %d 项" % bad)
