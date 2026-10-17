@@ -2,6 +2,15 @@
 
 版本号见 `base/version.py`。
 
+## [0.1.1] — 2026-10-18
+
+* 进程名、模块名、窗口识别放行私服补丁版 `.patched.exe`。
+* 新增 `tools/launch_with_credentials.py`：指定凭据启动指定 exe。
+* 游戏安装树路径改读环境变量（`KARDS_GAME_INSTALLS`、`KARDS_STEAM_DIR`、`KARDS_LAUNCHER_DIR`）或相对工作区，不再写死开发机路径。
+* 控制面板开新局时不再自动切换到训练模式，模式由用户在牌组页自己选。
+* `resolve_target`：数字规格直接返回，不再取全量快照。
+* 文档：`TODO.md` 看板重写。
+
 ## [0.1.0] — 2026-10-08 首次公开发布
 
 KARDS 自动对局框架的第一个公开版本：只读进程内存拿实时盘面，在游戏进程内合成与真人等价的鼠标事件来出牌；
