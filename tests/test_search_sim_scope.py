@@ -10,7 +10,7 @@
      `_death_fx` / `_draw_fx` / `_attack_fx` 逐步完全相同，且步与步之间的结果**确实变了**（不是两边恒空）；
   2. **边界**：作用域外零影响；不跨作用域（下一步看到新值）；读失败不进共享表；容器字段共享的是**副本**
      （一次空跑就地改它，别的空跑看不到）；指针表/数值表在快照换了（不同列表对象 / 长度变）时失效；
-  3. **同批的两个跨作用域记忆**：`kismetlib.arity`/`CardNatives.arity`（按函数对象身份）、`choosespawn.legal_titles`
+  3. **同批的两个跨作用域记忆**：`kismetlib.arity`/`CardNatives.arity`（按函数对象身份）（`choosespawn.legal_titles` 已随官网 json 判据一并删除）
      （按文件 mtime+大小）——换实现 / 改文件必须立刻失效。
 """
 import os
@@ -227,16 +227,6 @@ def test_memos():
         chk("CardNatives.arity：换了函数对象立刻失效", (a1, a2) == (1, 2), (a1, a2))
     finally:
         CN._TABLE.pop(name, None)
-    d = tempfile.mkdtemp()
-    p = os.path.join(d, "api.json")
-    open(p, "w", encoding="utf-8").write('[{"json": {"title": {"en-EN": "Alpha"}}}]')
-    t1 = CS.legal_titles(p)
-    t1b = CS.legal_titles(p)
-    open(p, "w", encoding="utf-8").write('[{"json": {"title": {"en-EN": "Alpha"}}}, {"json": {"title": {"en-EN": "Beta card"}}}]')
-    t2 = CS.legal_titles(p)
-    chk("legal_titles：未改文件命中同一份；文件变了立刻重读", t1 == frozenset({"ALPHA"}) and t1b is t1
-        and t2 == frozenset({"ALPHA", "BETA CARD"}), (t1, t2))
-    chk("legal_titles：读不出 ⇒ None（不记）", CS.legal_titles(os.path.join(d, "nope.json")) is None)
 
 
 # ------------------------------------------------------------------ 7. 等价：一串盘面变化，开/不开作用域逐步相同

@@ -1067,9 +1067,513 @@ class RuleV2(StrategicRule):
     def _cs_pool(self, ttl: float = 60.0):
         """"洗牌型三选一"（好人寥寥那类）的池：USA 精英单位 ∩ 卡集过滤 ∩ **没进预备**。
 
-        只读：静态卡表（faction/rarity/类型/cardSet）+ 官方 API 的**本地缓存**
-        （`kards-data/api/kards_api_cards.json`，由 `tools/kards_api_reserved.py` 拉取；预备名单轮换时刷新）。
-        ★ 对局里**不发网络请求**：读不到缓存就返回 None（这类卡不留痕，不影响打牌）。
+        只读：静态卡表（faction/rarity/类型/cardSet）+ **游戏自己的预备数据**（`kardsmem.reserve`：
+        `cards_reserve_changes` + 静态卡 `isReserved`，不看官网 json）。读不到就返回 None（这类卡不留痕，不影响打牌）。
+        """
+        now = time.time()
+        c = getattr(self, "_cs_cache", None)
+        if c and now - c[0] < ttl:
+            return c[1]
+        out = None
+        km = self._km()
+        if km is not None:
+            try:
+                import struct as _struct
+                from kardsmem import reserve as _rs
+                _reserved = _rs.checker(km)
+                from kardsmem.gs import load as _load_gs
+                ids = _load_gs(km).deck_ids(_my_seat(st)) or []
+                by = {cr.obj.CardID: cr for cr in (getattr(st, "cards", None) or [])}
+                # "抽到时效果"：抵抗那类 `autoplay` 牌 = **抽到就免费打出** ⇒ 跑它自己的
+                # `OnPlayedFromHand`（游戏自己的字节码），把摘要挂成 `_on_draw` 交给 boardeval。
+                # 只对牌库顶前 `MAX_ON_DRAW` 张做（每张 0.6 s 上限；3 s 缓存）。
+                from kardsmem.cards import read_gameplay_tags
+                from kardsmem.rng import Stream, read_seed
+                from semantics import effectvm as EV
+                hooks = EV.make_read_hooks(st, st.my_side)
+                seed = read_seed(km)
+                for n_i, i in enumerate(ids):
+                    ids_out.append(i)
+                    cr = by.get(i)
+                    if cr is None:
+                        # ★ 认不出实例（AllCardsInBattle 里没有）也要**占位保留**：牌库长度必须与
+                        #   游戏一致 —— 否则 `ShuffleDeckBySide` 洗出来的排列会跟着错位
+                        #   （洗牌的抽取次数 = 牌库张数）。抽到占位牌由 boardeval 按 `draw_v` 估值。
+                        continue
+                    eff = {}
+                    if n_i < 3:
+                        try:
+                            ptr0 = (getattr(cr, "raw", None) or {}).get("ptr")
+                            od = {}
+
+                            def _merge(new):
+                                for kk, vv in (new or {}).items():
+                                    if isinstance(vv, (int, float)) and isinstance(
+                                            od.get(kk), (int, float)):
+                                        od[kk] += vv
+                                    else:
+                                        od[kk] = vv
+                            seat = st.my_side
+                            st_stream = Stream(seed) if seed is not None else None
+                            # ① `autoplay`（抵抗、预报第一段）：**抽到就免费打出** ⇒ 跑 OnPlayedFromHand
+                            is_auto = bool(ptr0 and "autoplay" in (read_gameplay_tags(km, ptr0) or []))
+                            if is_auto:
+                                # ★ 2026-10-02（用户两条口径）：
+                                #   ① "autoplay 就是进入手牌就打出" —— 这条链就是它的效果；
+                                #   ② **"预报特别一些，按九选一评估"** —— 预报是**两层**三选一
+                                #      （每层 3 个选项）⇒ 3×3=9 种组合，只有预报的第一层会影响
+                                #      第二层，所以必须**联合枚举**后取最好，不能逐层贪心
+                                #      （其它连续三选一彼此独立，才可逐层）。
+                                #      用户 2026-10-03 补充："autoplay 的三选一只存在于
+                                #      **预报第一段选中的那张牌**上" ⇒ 第一层（天气类型）由
+                                #      `choose_pick`/`fc_best_type` 做 9 路前瞻；这里展开的是
+                                #      第二层（被选中那张牌自己的三选一）。
+                                #   以前走 `record_effects` 单分支 ⇒ 抉择节点不展开、eff 为空；
+                                #   现在 `enumerate_effects(cap=9)` 把九种组合都跑出来，用
+                                #   `outcomes_mode="max"` 交给消费方（`boardeval._apply_eff` 已支持
+                                #   —— 抉择取最好分支、随机取期望）。
+                                r0 = EV.enumerate_effects(
+                                    km, ptr0, 0, False, hook="OnPlayedFromHand", my_side=seat,
+                                    cap=9, read_hooks=hooks, budget_s=0.6, rng_seed=seed,
+                                    # 盘面级原语（IsSideActive…）需要 BoardState
+                                    board=st, my_seat=seat)
+                                _outs = r0.get("outcomes") or []
+                                if len(_outs) == 1:
+                                    _merge(_outs[0][1])
+                                elif _outs:
+                                    od["outcomes"] = [(w, dict(e)) for w, e in _outs]
+                                    od["outcomes_mode"] = "max"
+                            # ② 自己被抽到（航母打击群那族）⇒ 跑它覆写的 OnCardDrawnFromDeck
+                            if ptr0:
+                                from kardsmem import kismet as _kismet
+                                from kardsmem.objects import ObjectArray as _OA
+                                uc0 = _OA(km).class_of(ptr0)
+                                fn0 = (_kismet.find_function(km, uc0, "OnCardDrawnFromDeck",
+                                                             inherited=False) if uc0 else None)
+                                if fn0:
+                                    r1 = EV.record_effects(
+                                        km, ptr0, 0, False, "OnCardDrawnFromDeck", seat, None,
+                                        read_hooks=hooks, timeout_s=0.6, rng_stream=st_stream,
+                                        args={"StartOfTurnDraw": False, "drawnSide": seat or 1},
+                                        board=st, my_seat=seat)
+                                    _merge(r1.get("eff"))
+                            if od:
+                                eff = {"_on_draw": od}
+                                if is_auto:
+                                    eff["_autoplay"] = True       # 原版：入 autoplay 队列、动作边界冲刷（sim.chain.flush_autoplay）
+                        except Exception:                         # noqa: BLE001
+                            eff = {}
+                    cards_out[cr.obj.CardID] = _H(
+                        cr.obj.CardID, getattr(cr, "name", "?"),
+                        int(getattr(cr, "kredit_cost", 0) or 0),
+                        getattr(cr, "card_type", None) or "order",
+                        int(getattr(cr, "attack", 0) or 0),
+                        int(getattr(cr, "defense", 0) or 0),
+                        self._kw(cr), eff)
+            except Exception:                                     # noqa: BLE001
+                return None, {}
+        else:
+            return None, {}
+        self._deckstate_cache = (now, ids_out, cards_out)
+        return list(ids_out), dict(cards_out)
+
+    @staticmethod
+    def _fatigue(st) -> int:
+        """我方当前的**疲劳计数**（快照 `BoardState.fatigue[local]`；读不到 = 0）。
+
+        ★ 2026-10-02（用户）：空库继续抽 = 游戏自己的 `ApplyFatigueDamage` ——
+        伤害 = **当前**计数，然后计数 +1（BP 里 increment 在伤害之后）。
+        """
+        f = getattr(st, "fatigue", None) or {}
+        try:
+            return int(f.get(st.my_side) or 0)
+        except Exception:                                         # noqa: BLE001
+            return 0
+
+    def _rk(self, v: float, cost: float) -> float:
+        """排序键。A：v/花费；B：v 已含指挥点变化（调用方给的 v 是 delta 或已扣 kred_w*cost）。"""
+        if self.P["rank"] == "resource" or self.P["search"]:
+            return v
+        return v / max(cost, 0.5)
+
+    def _order_v(self, base: float, cost: float) -> float:
+        """启发式估值的指令：方案 B 下扣掉花费的机会价值，保持与 delta 同一口径。"""
+        return base - (self.P["kred_w"] * cost if self.P["rank"] == "resource" else 0.0)
+
+    # ------------------------------------------------------------ 状态切片
+    @staticmethod
+    def _split(st):
+        mine, theirs = _my_seat(st), st.other_side
+        me = [c for c in st.cards if c.obj.side == mine and _is_field_unit(c)]
+        foes = [c for c in st.cards if c.obj.side == theirs and _is_field_unit(c)]
+        ehq = _hq_of(st.cards, theirs)
+        return me, foes, ehq
+
+    @staticmethod
+    def _tkind(t) -> str:
+        o = t.obj
+        return "hq" if o.IsHQ() else "front" if o.InFrontline() else "support" if o.InSupportLine() else "?"
+
+    def _table_ok(self, a, t) -> bool:
+        """OCR 用户确认的"兵种×所在行"表。只当排序信号，不当否决。"""
+        at, tk = self.utype(a), self._tkind(t)
+        if at in GROUND:
+            return tk == "front" if _is_support_unit(a) else tk in ("support", "hq")
+        return tk in ("front", "support", "hq")
+
+    # ---- 跨步缓存（同一回合内；局面签名没变的单位/配对不重问游戏）----
+    _FP_ATTRS = ("attack", "attackBuff", "defense", "attackLeft", "hasAttackedThisTurn", "Location", "isSuppressed",
+                 "isBeingGuarded", "enterPlayOnTurn", "kredits", "kreditsBuff", "operationCost", "operationCostBuff")
+
+    @classmethod
+    def _card_fp(cls, c) -> tuple:
+        o = getattr(c, "obj", None)
+        return tuple(repr(getattr(o, a, None)) for a in cls._FP_ATTRS) + (repr(getattr(c, "can_act", None)),)
+
+    @staticmethod
+    def _step_sig(st, kred=None) -> tuple:
+        """整盘粗签名：回合 + 指挥点 + 每张牌 (id, 位置)。出牌/部署/移动/死亡/抽牌都会改它；
+        只有"不改位置也不死人"的动作（单纯的攻击）后它不变。"""
+        if kred is None:
+            try:
+                kred = (getattr(st, "kredits", None) or {}).get(getattr(st, "my_side", None))
+            except Exception:                                     # noqa: BLE001
+                kred = None
+        return (getattr(st, "turn", None), kred,
+                tuple(sorted((repr(c.obj.CardID), repr(getattr(c.obj, "Location", None))) for c in st.cards)))
+
+    def _xc_get(self, kind, ids, sig, fps):
+        v = self.__dict__.setdefault("_xcache", {}).get((kind,) + ids)
+        if v is not None and v[0] == sig and v[1] == fps:
+            self.__dict__["_xc_hits"] = self.__dict__.get("_xc_hits", 0) + 1
+            return v[2]
+        return None
+
+    def _xc_put(self, kind, ids, sig, fps, val):
+        self.__dict__.setdefault("_xcache", {})[(kind,) + ids] = (sig, fps, val)
+
+    def _actionable(self, st, u) -> bool:
+        """这个单位现在能不能动 —— **问游戏自己**（`BP_Logic::CanCardDoAnything`），
+        不看闪击、不看进场回合（2026-09-30 用户：闪击只是其中一种原因，游戏有这个函数）。
+        问不到（None）→ 退回内存里的 `can_act` 字段；再不行就放行，让攻击闸门去裁决。"""
+        key = ("act", u.obj.CardID, self._epoch)
+        if key in self._act_cache:
+            return self._act_cache[key]
+        _sig = self._step_sig(st) if getattr(st, "cards", None) is not None else None
+        _fp = (self._card_fp(u),)
+        if _sig is not None:
+            _hit = self._xc_get("act", (u.obj.CardID,), _sig, _fp)
+            if _hit is not None:
+                self._act_cache[key] = _hit
+                return _hit
+        r = None
+        try:
+            self.__dict__["_rpc_n"] = self.__dict__.get("_rpc_n", 0) + 1
+            r = self.act_fn(u)
+        except Exception:                                         # noqa: BLE001
+            r = None
+        if r is None:
+            r = getattr(u, "can_act", None)
+        ok = r is not False
+        self._act_cache[key] = ok
+        if _sig is not None:
+            self._xc_put("act", (u.obj.CardID,), _sig, _fp, ok)
+        return ok
+
+    def _playable(self, c, cost, kred) -> bool:
+        """这张手牌现在能不能打 —— **问游戏自己的总闸**（`CanPlayCardFromHand`：含指挥点、
+        支援线满、天气/自定义能力、卡自身的 `CanPlayFromHand`）。
+
+        ★ 2026-09-30 用户纠正：指挥点要**实时读**、槽可以被加减，不能拿"第 n 回合 = n 点"
+          或我自己的 `cost > kred` 去筛。只有闸门给不出答案（None）时才退回费用比较。
+        """
+        key = ("playable", c.obj.CardID, self._epoch)
+        if key in self._act_cache:
+            return self._act_cache[key]
+        try:
+            r = self.sess.can_play(c)
+        except Exception:                                         # noqa: BLE001
+            r = {}
+        can = r.get("can")
+        ok = (cost <= kred) if can is None else bool(can)
+        self._act_cache[key] = ok
+        return ok
+
+    def _default_act(self, u):
+        from agent import precheck
+        d = precheck.can_do_anything(u)
+        return d.get("can") if d.get("ok") else None
+
+    # ------------------------------------------------------------ 候选：攻击
+    def _attack_cands(self, st, me, foes, ehq, kred):
+        P, out = self.P, []
+        targets = list(foes) + ([ehq] if ehq is not None else [])
+        interceptors = [f for f in foes if _is_support_unit(f) and self.utype(f) == "fighter"
+                        and getattr(f, "is_revealed", True) is not False]
+        actors = [a for a in me if _atk(a) > 0 and self._actionable(st, a)]
+        hitters = [a for a in actors
+                   if ehq is not None and self._table_ok(a, ehq)
+                   and not getattr(ehq, "is_being_guarded", False)
+                   and not (self.utype(a) == "bomber" and interceptors)]
+        lethal = ehq is not None and hitters and \
+            sum(_atk(a) for a in hitters) >= _def(ehq) and \
+            sum(_opcost(a) for a in hitters) <= kred
+        for a in actors:
+            at = self.utype(a)
+            for t in targets:
+                key = ("attack", a.obj.CardID, t.obj.CardID)
+                if key in self._tried or key in self._bad:
+                    continue
+                if getattr(t, "is_being_guarded", False):        # 游戏必拒（OCR 白拖 4 次）
+                    continue
+                tk = self._tkind(t)
+                if at == "bomber" and interceptors and tk in ("hq", "support"):
+                    continue
+                if tk == "hq":
+                    v = self._d(_en.sim_attack(self._sim, a.obj.CardID, None, hq=True))
+                    if lethal and a in hitters:
+                        v += P["lethal"]
+                else:
+                    v = self._d(_en.sim_attack(self._sim, a.obj.CardID, t.obj.CardID))
+                    if "guard" in self.plan(t).kw:
+                        v += 0.5                                  # 先清守护单位
+                if not self._table_ok(a, t):
+                    v *= P["soft_penalty"] if v > 0 else 1.0
+                if v < P["min_attack_value"] and v < P["lethal"] / 2:
+                    continue
+                out.append((self._rk(v, _opcost(a)), v, key,
+                            {"kind": "attack", "card": a.obj.CardID, "target": t.obj.CardID,
+                             "note": "规则2：%s→%s v=%.2f" % (a.name, t.name, v)},
+                            _opcost(a)))
+        return out
+
+    # ------------------------------------------------------------ 候选：指向
+    def _target_cands(self, st, c, plan: Plan, me, foes, ehq, limit=3):
+        """这张牌（带目标出）的候选目标 → [(收益, 目标卡)]，按收益降序。
+
+        两侧**都**列进来 —— 谁合法由游戏的 `CanPlayFromHand` 在确认阶段说了算；这里的
+        倾向（plan.side）只影响分数：倾向一致 ×1，倾向相反 ×-0.5，未知时偏敌方。
+        """
+        P = self.P
+        pools = [(REL_FOE, list(foes) + ([ehq] if ehq is not None else [])),
+                 (REL_FRIEND, [u for u in me if u.obj.CardID != c.obj.CardID])]
+        scored = []
+        for side, pool in pools:
+            if plan.side is None:
+                mult = 0.7 if side == REL_FOE else 0.4
+            else:
+                mult = 1.0 if (side == REL_FOE) == (plan.side == REL_FOE) else -0.5
+            for t in pool:
+                if ("play", c.obj.CardID, t.obj.CardID) in self._bad:
+                    continue                                      # 游戏说过不行
+                if side == REL_FOE:
+                    if self._tkind(t) == "hq":
+                        v = P["hq_dmg"] * (plan.damage or 2)
+                    elif plan.damage is not None:
+                        v = self.worth(t) if plan.damage >= _def(t) else                             P["dmg_part"] * plan.damage
+                    else:
+                        v = 0.6 * self.worth(t)                   # 移除类：折算
+                else:
+                    v = 0.3 * self.worth(t) + (0.5 if self._actionable(st, t) else 0.0)
+                scored.append((v * mult, t))
+        scored.sort(key=lambda x: -x[0])
+        return scored[:limit]
+
+    # ------------------------------------------------------------ 候选：出牌
+    def _play_cands(self, st, kred, me, foes, ehq):
+        P, out = self.P, []
+        for c in st.hand():
+            cost = _n(getattr(c, "kredit_cost", None), 99)
+            if not self._playable(c, cost, kred):
+                continue                     # 指挥点够不够 + 牌自己现在能不能打：问游戏
+            if c.name in self.avoid:
+                continue
+            pl = self.plan(c)
+            if pl.type == "gotcha":
+                continue                                          # 反制：另开动词，暂不打
+            unit = self.is_unit(c)
+            if unit:
+                base = self._d(_en.sim_deploy(self._sim, -c.obj.CardID, int(_atk(c)), int(_def(c)),
+                                             int(cost), getattr(c, "card_type", None),
+                                             self.plan(c).kw)) * P["deploy_mult"]
+            else:
+                base = self._order_v(P["order_mult"] * max(cost, 1), cost)
+            if pl.needs_target:
+                cands = self._target_cands(st, c, pl, me, foes, ehq)
+                if not cands and unit:
+                    key = ("play", c.obj.CardID, None)
+                    if key not in self._tried and key not in self._bad:
+                        out.append((self._rk(base * 0.9, cost), base * 0.9, key,
+                                    {"kind": "play_unit", "card": c.obj.CardID,
+                                     "note": "规则2：部署 %s（无可指向目标）" % c.name}, cost))
+                for tv, t in cands:
+                    key = ("play", c.obj.CardID, t.obj.CardID)
+                    if key in self._tried or key in self._bad:
+                        continue
+                    v = base + P["order_target_mult"] * tv
+                    if not unit and tv <= 0:
+                        continue                                  # 指令打不出收益：留着
+                    kind = "play_unit_target" if unit else "play_event_target"
+                    out.append((self._rk(v, cost), v, key,
+                                {"kind": kind, "card": c.obj.CardID, "target": t.obj.CardID,
+                                 "note": "规则2：%s → %s" % (c.name, t.name)}, cost))
+            else:
+                key = ("play", c.obj.CardID, None)
+                if key in self._tried or key in self._bad:
+                    continue
+                out.append((self._rk(base, cost), base, key,
+                            {"kind": "play_unit" if unit else "play_event", "card": c.obj.CardID,
+                             "note": "规则2：%s %s" % ("部署" if unit else "指令", c.name)}, cost))
+        return out
+
+    # ------------------------------------------------------------ 候选：上线
+    def _move_cands(self, st, me, foes, ehq, kred, attackers):
+        P, out = self.P, []
+        if getattr(st, "frontline_owner", None) == st.other_side:
+            return out                                            # 前线被占：上不去
+        for u in me:
+            if not _is_support_unit(u) or self.utype(u) not in GROUND:
+                continue
+            if u.obj.CardID in attackers or not self._actionable(st, u) or _atk(u) <= 0:
+                continue
+            if _is_pinned(u):
+                continue                      # 被压制 ⇒ 移动必被拒（见 _is_pinned 注释）：不提议
+            key = ("move", u.obj.CardID, None)
+            if key in self._tried or key in self._bad:
+                continue
+            v = self._d(_en.sim_move(self._sim, u.obj.CardID))
+            out.append((self._rk(v, _opcost(u)), v, key,
+                        {"kind": "move_up", "card": u.obj.CardID,
+                         "note": "规则2：上线 %s（下回合可打支援线/总部）" % u.name}, _opcost(u)))
+        return out
+
+    # ------------------------------------------------------------ 搜索路径
+    # 用户 2026-09-30：带目标的牌，「能不能指向某个目标」游戏有对应的函数 ⇒ 每个（牌, 目标）
+    # 各自是一条可用走法；效果未知的牌不存在 ⇒ 效果一律先让 VM 空跑（枚举随机结果），
+    # 跑不了才退回字节码里的常量，两个都没有就记成覆盖缺口（不悄悄猜）。
+    _KW_COVERED = frozenset({"alpine", "ambush", "blitz", "fury", "guard", "immune", "shock", "smokescreen"})
+
+    def _kw(self, c) -> frozenset:
+        """关键词：以**游戏 getter**（`getHas*`）为准，内存旗标位只是一路来源（被授予的能力，
+        如伞兵的冲击，不在那一位上）。这里**不发 RPC**：只读 `prefetch_kw` 预先批量取好的缓存，
+        没有就退回内存旗标（`base`）。"""
+        base = frozenset(str(k).lower()[3:] if str(k).lower().startswith("has") else str(k).lower()
+                         for k in (getattr(c, "keywords", None) or []))
+        got = self._kw_cache.get((c.obj.CardID, self._epoch))
+        out = base if got is None else frozenset((base - self._KW_COVERED) | got)
+        return out | self._move_attack_kw(c)
+
+    @staticmethod
+    def _move_attack_kw(c) -> frozenset:
+        """原版 `CanMoveAndAttackInTheSameTurn`：装甲单位，或 customName1 带该属性（掷弹兵、意大利骑兵…）。
+        sim 里用伪关键词 `move_attack` 表示，`sim_move` / `sim_attack` 据此决定“上线后还能不能打”。"""
+        raw = getattr(c, "raw", None)
+        cn = getattr(c, "custom_name1", None) or (raw.get("custom_name1") if isinstance(raw, dict) else None) or ""
+        segs = {x.strip() for x in str(cn).split(";")}
+        if segs & {"CanMoveAndAttackInTheSameTurn", "isArmorUnit"}:
+            return frozenset({"move_attack"})
+        return frozenset()
+
+    def prefetch_kw(self, st) -> None:
+        """一次 RPC 把场上和手牌所有牌的关键词问完（`card_keywords_many`），按 (牌, epoch) 缓存。
+        epoch 在每个已执行的动作后 +1，所以动作之后下一步会重取（关键词可能被授予/移除）。"""
+        need = [c for c in st.cards
+                if _is_field_unit(c) or c.obj.InHand()
+                and (c.obj.CardID, self._epoch) not in self._kw_cache
+                and (getattr(c, "raw", None) or {}).get("ptr")]
+        if not need:
+            return
+        try:
+            from agent import precheck
+            r = precheck.call_read("card_keywords_many", [c.raw["ptr"] for c in need])
+        except Exception:                                         # noqa: BLE001
+            return
+        if not r or not r.get("keywords"):
+            return
+        for c in need:
+            v = r["keywords"].get(int(c.raw["ptr"]))
+            if v is not None:
+                self._kw_cache[(c.obj.CardID, self._epoch)] = frozenset(v)
+        if len(self._kw_cache) > 600:                             # 别无限长
+            for k in list(self._kw_cache)[:300]:
+                self._kw_cache.pop(k, None)
+
+    def _km(self):
+        try:
+            return self.sess._kardsmem()
+        except Exception:                                         # noqa: BLE001
+            return None
+
+    def _rng_seed(self):
+        """游戏卡牌随机流（`cardsRandomStream`）的**当前 Seed**。一步之内读一次（0.3 s 缓存），免得每张牌都读内存。
+        `P["use_rng"]=False` 关掉（返回 None，随机退回枚举——离线测试用）。
+
+        ★ 2026-10-03（用户）：**读不到种子时不退回枚举**——记缺口，并**换一个随机种子**，让模拟照算法和这个种子给出（确定的）结果；
+          评估层从不见随机。假种子**每回合固定一个**（同一回合内各次建模拟一致），`self.seed_fake=True`，
+          `probe.gaps["__rng_seed__"]` 如实写明"结果仅供参考"。"""
+        if not self.P.get("use_rng", True):
+            return None
+        now = time.time()
+        cache = getattr(self, "_rng_cache", None)
+        if cache and now - cache[0] < 0.3:
+            return cache[1]
+        km = self._km()
+        v = None
+        if km is not None:
+            try:
+                from kardsmem import rng as _rng
+                v = _rng.read_seed(km)
+            except Exception:                                     # noqa: BLE001
+                v = None
+        if v is None and km is not None:
+            import random as _random
+            turn = getattr(getattr(self, "_st", None), "turn", None)
+            fs = self.__dict__.setdefault("_fake_seed_by_turn", {})
+            v = fs.setdefault(turn, _random.getrandbits(32))
+            self.seed_fake = True
+            self.gaps["__rng_seed__"] = "读不到随机种子：按随机种子 %d 模拟，随机相关结果（抽牌/洗牌/三选一候选）仅供参考" % v
+        else:
+            self.seed_fake = False
+            self.gaps.pop("__rng_seed__", None)
+        self._rng_cache = (now, v)
+        return v
+
+    def _fc_paths(self, ttl: float = 0.5):
+        """预报 9 条路径（3 天气 × light/medium/heavy 变体），从当前活种子一次算出。
+
+        返回 `{天气: {"light": 变体内部名, "medium": …, "heavy": …}, "seed": N}`；
+        读不到（不在对局 / 没种子 / 池子读不出）⇒ None。0.5 s 缓存，桶表只读一次。
+        """
+        now = time.time()
+        c = getattr(self, "_fc_cache", None)
+        if c and now - c[0] < ttl:
+            return c[1]
+        out = None
+        km, seed = self._km(), self._rng_seed()
+        if km is not None and seed is not None:
+            try:
+                from kardsmem.forecast_pool import (predict_ptrs, read_weather_buckets,
+                                                    strip_serial)
+                b = getattr(self, "_fc_buckets", None)
+                if not b:
+                    b = read_weather_buckets(km)
+                    self._fc_buckets = b
+                pool = km.names_pool()
+                out = {}
+                for w, row in predict_ptrs(seed, b).items():
+                    out[w] = {t: fc_norm(strip_serial(pool.fname_of(row[t]) or ""))
+                              for t in ("light", "medium", "heavy")}
+                out["seed"] = seed
+            except Exception:                                     # noqa: BLE001
+                out = None
+        self._fc_cache = (now, out)
+        return out
+
+    def _cs_pool(self, ttl: float = 60.0):
+        """"洗牌型三选一"（好人寥寥那类）的池：USA 精英单位 ∩ 卡集过滤 ∩ **没进预备**。
+
+        只读：静态卡表（faction/rarity/类型/cardSet）+ **游戏自己的预备数据**（`kardsmem.reserve`：
+        `cards_reserve_changes` + 静态卡 `isReserved`，不看官网 json）。读不到就返回 None（这类卡不留痕，不影响打牌）。
         """
         now = time.time()
         c = getattr(self, "_cs_cache", None)
@@ -1112,7 +1616,7 @@ class RuleV2(StrategicRule):
                         continue
                     if km.m.u8(p + 0x130) not in CS_KEEP_SETS:
                         continue
-                    if (ftext_at(km.m, p, OFF_CARD_TITLE) or "").upper() not in legal:
+                    if _reserved(p, n.split("_C_")[0]):
                         continue
                     out.append(n.split("_C_")[0])
                 if not out:
