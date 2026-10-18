@@ -64,6 +64,8 @@ def lines(eff: dict, names: Optional[Callable[[str], str]] = None,
         "buff": lambda v: pair(v, "buff %s/%s -> target"),
         "armor": lambda v: ["armor %s" % _n(v)],
         "opcost": lambda v: ["opcost %s" % _n(v)],
+        "forecast": lambda v: ["forecast"],                        # 预报牌：弹两层选择（模拟里 `forecast` 走一步列出候选，再 spawn 选）
+        "choose_spawn": lambda v: ["choose_spawn"],                # 三选一（模拟里用 spawn 命令回答）
         "heal_hq": lambda v: ["defense %s -> own_hq" % _n(v)],
         "heal_opp_hq": lambda v: ["defense %s -> enemy_hq" % _n(v)],
         "kredit": lambda v: ["kredit %s" % _n(v)],

@@ -191,7 +191,12 @@ class Frame:
         self.self_obj = self_obj
         self.locals = dict(args or {})
         self.out = {}
-        # 被 Let 改写过的实例字段：写到这里，不写回进程
+        # 被 Let 改写过的实例字段：写到这里，不写回进程。
+        # ★ 2026-10-19：真正生效的那份在 **VM 级** `vm.instance_shadow`（同一 VM 的帧/子 VM 共用）——
+        #   实例字段是"这张牌自己的状态"，不跟着某一次函数调用走。以前放在帧级，父函数（ubergraph）
+        #   `Let(chosenMaxAttack, 6)` 写进去、子函数 `getPossibleCardsFromStaticCards` 读时新帧里没有，
+        #   读到 CDO 默认值 0 ⇒ 实机 SEABORNE INVASION 的候选池从几百张缩成 1 张、加不了那两个步兵。
+        #   这个 dict 只在没有挂 VM 时兜底（老调用方/测试）。
         self.shadow = {}
 
     def get(self, ref: _Ref, vm):
@@ -208,11 +213,14 @@ class Frame:
             #   （CRUISER SCOUTS / STRETCH THE LINE 的 `SetCardsSeenByCipher` 链）。
             return (ref.obj or {}).get(ref.name)
         key = (id(ref.obj) if ref.obj is not None else None, ref.name)
+        sh = getattr(vm, "instance_shadow", None)
+        if sh is not None and key in sh:
+            return sh[key]
         if key in self.shadow:
             return self.shadow[key]
         return vm.read_field(ref.obj if ref.obj is not None else self.self_obj, ref.name)
 
-    def set(self, ref: _Ref, value):
+    def set(self, ref: _Ref, value, vm=None):
         if ref.kind == "out":
             self.out[ref.name] = value
         elif ref.kind == "local":
@@ -220,7 +228,9 @@ class Frame:
         elif ref.kind == "struct" and isinstance(ref.obj, dict):
             ref.obj[ref.name] = value
         else:
-            self.shadow[(id(ref.obj) if ref.obj is not None else None, ref.name)] = value
+            key = (id(ref.obj) if ref.obj is not None else None, ref.name)
+            sh = getattr(vm, "instance_shadow", None) if vm is not None else None
+            (sh if sh is not None else self.shadow)[key] = value
 
 
 class VM:
@@ -244,6 +254,7 @@ class VM:
         self.trace = []
         self.depth = 0
         self.persist = {}                   # 持久帧（事件桩 → ubergraph 共享；子 VM 共用同一个 dict）
+        self.instance_shadow = {}           # 被 Let 改写的**实例字段**影子（同一 VM 的帧/子 VM 共用；不写回进程）
         self.deadline = None                # time.time() 截止；超了如实停下（子 VM 共用）
 
     # ---- 读字段 ----
@@ -348,19 +359,19 @@ class VM:
         if op in ("Let", "LetBool", "LetObj", "LetWeakObjPtr", "LetDelegate",
                   "LetMulticastDelegate"):
             ref = self.lvalue(e.kids[0], f)
-            f.set(ref, self.eval(e.kids[1], f))
+            f.set(ref, self.eval(e.kids[1], f), self)
             return None
         if op == "StructConst":
             return None      # 语句位置的结构体常量没有效果
         if op in ("SetArray", "SetSet"):
             # 数组/集合字面量赋值：kids[0] 是目标位置，其后是各个元素。
             ref = self.lvalue(e.kids[0], f)
-            f.set(ref, [self.eval(k, f) for k in e.kids[1:]])
+            f.set(ref, [self.eval(k, f) for k in e.kids[1:]], self)
             return None
         if op == "SetMap":
             ref = self.lvalue(e.kids[0], f)
             ks = [self.eval(k, f) for k in e.kids[1:]]
-            f.set(ref, {ks[i]: ks[i + 1] for i in range(0, len(ks) - 1, 2)})
+            f.set(ref, {ks[i]: ks[i + 1] for i in range(0, len(ks) - 1, 2)}, self)
             return None
         if op == "LetValueOnPersistentFrame":
             # ★ 2026-09-30 实机（effectvm 空跑手牌）：OnPlayedFromHand 这类 ubergraph 型钩子
@@ -368,7 +379,7 @@ class VM:
             #   解析器把目标属性放在 args["dest"]、右值放在 kids[0]。持久帧对纯求值来说就是
             #   这次调用自己的影子变量：写进影子堆（不碰游戏内存），之后按同名读回来。
             v = self.eval(e.kids[0], f)
-            f.set(_Ref("local", e.args["dest"]), v)
+            f.set(_Ref("local", e.args["dest"]), v, self)
             self.persist[e.args["dest"]] = v
             return None
         # 其余当表达式求值（调用、上下文调用……）
@@ -403,7 +414,7 @@ class VM:
                 #   实机：CRUISER SCOUTS / STRETCH THE LINE 的 `Let` 停在这。
                 base = {}
                 try:
-                    f.set(self.lvalue(base_expr, f), base)
+                    f.set(self.lvalue(base_expr, f), base, self)
                 except Exception:                             # noqa: BLE001
                     pass
             if isinstance(base, dict):
@@ -542,7 +553,7 @@ class VM:
             else:
                 box = list(cur) if isinstance(cur, (list, tuple)) else []
             ret = _ARRAY_MUT[name](box, *args[1:])
-            f.set(ref, box)
+            f.set(ref, box, self)
             return ret
         # 1c) `Set_ToArray(Target, &Result)`（IDA 0x1439E19F0，D2）：**不清空 Result**，
         #     按集合槽序**追加**（我们这边用 dict 保序近似）。
@@ -553,7 +564,7 @@ class VM:
             r0 = f.get(r_ref, self)
             out = list(r0) if isinstance(r0, (list, tuple)) else []
             out.extend(list(s0.keys()) if isinstance(s0, dict) else list(s0))
-            f.set(r_ref, out)
+            f.set(r_ref, out, self)
             return None
 
         # 2) 游戏自有原语（UBaseCardObject::*）
@@ -724,16 +735,16 @@ class VM:
         if isinstance(value, NativeOut) or type(value).__name__ == "NativeOut":
             for k, v in zip(refs, value[1]):
                 f.set(_Ref("out" if k.op == "LocalOutVariable" else "local",
-                           k.args["prop"]), v)
+                           k.args["prop"]), v, self)
             return
         if isinstance(value, tuple):
             for k, v in zip(refs, value):
                 f.set(_Ref("out" if k.op == "LocalOutVariable" else "local",
-                           k.args["prop"]), v)
+                           k.args["prop"]), v, self)
             return
         k = refs[-1]
         f.set(_Ref("out" if k.op == "LocalOutVariable" else "local",
-                   k.args["prop"]), value)
+                   k.args["prop"]), value, self)
 
     _PARM, _OUTPARM, _RETPARM = 0x80, 0x100, 0x400
 
@@ -793,6 +804,7 @@ class VM:
             sub.depth = self.depth
             sub._stack = self._stack
             sub.persist = self.persist
+            sub.instance_shadow = self.instance_shadow
             sub.deadline = self.deadline
             # ★ 形参与实参**按位置**对应，不能按名字。
             #   调用点上的变量叫 `CallFunc_CanSelectAsTarget_canIt`，

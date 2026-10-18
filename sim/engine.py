@@ -1371,7 +1371,11 @@ def prompt_of(sim: Sim, a: A):
         return Prompt("select_card_to_draw", tuple(Option(c["name"], label=c["name"], payload=c) for c in sim.spawn_pick[a.src]),
                       source=a.src, layer=1, meta={"spawn": True})
     if _forecast_pending(sim, a):
-        return Prompt("select_card_to_draw", tuple(Option(w) for w in ("sunny", "rain", "storm") if w in sim.forecast),
+        # 第一层是**三张固定的类型卡**（蓝天/薄雾/狂风），答案 key 就用卡自己的内部名；预测出的第二层 9 张
+        # **不在这里提前列**——列出来玩家就不需要跑 `forecast` 那一步了（用户 2026-10-19 要求）。
+        from kardsmem.forecast_pool import L1_CARDS
+        return Prompt("select_card_to_draw",
+                      tuple(Option(L1_CARDS[w], label=L1_CARDS[w]) for w in ("sunny", "rain", "storm") if w in sim.forecast),
                       source=a.src, layer=1, meta={"forecast": True})
     return None
 
@@ -1435,7 +1439,10 @@ def run(sim: Sim, a: A):
     else:
         apply_clean = lambda: _apply_action(_without_forecast(sim, a), a)   # noqa: E731
 
-    def layer1(w):
+    def layer1(key):
+        # 第一层的答案是**类型卡内部名**（`kardsmem.forecast_pool.L1_CARDS`）；也兼容直接给天气名（旧调用/测试）。
+        from kardsmem.forecast_pool import L1_CARDS
+        w = {v: k for k, v in L1_CARDS.items()}.get(key, key)
         row = sim.forecast[w]
         pr2 = Prompt("select_card_to_draw", tuple(Option(t, label=row[t][0], payload=row[t]) for t in ("light", "medium", "heavy") if t in row),
                      source=a.src, layer=2, meta={"forecast": True, "weather": w})

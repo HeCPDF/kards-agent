@@ -7,6 +7,7 @@
 功能清单参照 OCR-Kards-Auto 面板（致谢，见 NOTICE）（见 `gui/core.py` 头注释的对照表）：功能选择、开始/停止、状态胶囊（运行中/空闲/已停止+退出码提示）、
 实时状态（局数/费用/盘面/最近动作/问题数/在等窗口）、日志查看（着色 + 只看关键行 + 自动滚动/到底部 + 按文件指纹刷新）、
 检测更新（手动 + 开机静默 + 留痕）、窗口尺寸位置记忆、关面板时优雅带走**自己启动的**监听器、`--selftest`。
+手牌效果预览、盘面模拟不是页签，而是顶栏按钮打开的**独立窗口**：页签高度被主窗口钉死、内容没法滚，大面板塞进去只会被压扁。
 """
 from __future__ import annotations
 
@@ -151,6 +152,7 @@ class App(tk.Tk):
         self._play_t0 = None
         self._upd_url = ""
         self._toast_after = None
+        self._tools = {}               # 打开着的工具窗口：key -> {"win": Toplevel, "panel": Panel}
         self._build()
         self._load_control_into_widgets()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -190,6 +192,12 @@ class App(tk.Tk):
         self.btn_go.pack(side="right", padx=2)
         self.btn_update = ttk.Button(hdr, text="检测更新", command=self.on_update)
         self.btn_update.pack(side="right", padx=8)
+        # 手牌效果预览 / 盘面模拟是**独立窗口**，不进主面板页签：页签高度被主窗口钉死，里面的布局（可拖的上下
+        # 分隔条、卡块画布）没法随内容长，看着挤又滚不动；独立窗口能最大化、能自己滚。点按钮打开、再点只是提到前面。
+        self.btn_effect = ttk.Button(hdr, text="手牌效果预览", command=self.open_effect)
+        self.btn_effect.pack(side="right", padx=2)
+        self.btn_whatif = ttk.Button(hdr, text="盘面模拟", command=self.open_whatif)
+        self.btn_whatif.pack(side="right", padx=2)
 
         body = ttk.Frame(self, padding=(8, 0))
         body.pack(fill="x")
@@ -289,13 +297,70 @@ class App(tk.Tk):
         nb.add(self.ev_view, text="事件日志")
         self.live_view = LogView(nb, lambda: LIVE_LOG, "监听器输出（live_log.txt）")
         nb.add(self.live_view, text="监听器输出")
-        # 手牌效果预览：只在切到这一页时才读游戏（只读内存，不注入）；平时不读、不跑 VM
-        from . import effect_oracle as EO
-        self.fx_panel = EO.Panel(nb, None if os.environ.get("KARDS_GUI_SELFTEST_EXIT_MS", "").isdigit() else EO.LiveSource())
-        nb.add(self.fx_panel, text="手牌效果预览")
-        nb.bind("<<NotebookTabChanged>>", lambda e: self.fx_panel.start()
-                if nb.select() == str(self.fx_panel) else self.fx_panel.stop())
+        # 手牌效果预览 / 盘面模拟不在这里：它们是顶栏按钮打开的独立窗口（见 _open_tool），
+        # 因为页签内容既不能长、也不能滚，大面板塞进去只会被压扁。
+        self.nb = nb
         self.toast_lbl = tk.Label(self, text="", bg="#222", fg="white", padx=12, pady=8, justify="left", wraplength=520)
+
+    @staticmethod
+    def _make_whatif():
+        from agent import session as S
+        from player.whatif import WhatIf
+        return WhatIf(S.AgentSession(translate=False, warm=False))
+
+    # ---------------- 工具窗口（独立 Toplevel，不进主面板页签） ----------------
+    def open_effect(self):
+        """手牌效果预览：独立窗口（只读内存、不注入；游戏不在对局里时窗口照开，状态栏说读不到）。"""
+        return self._open_tool("effect", "KARDS 手牌效果预览", self._make_effect_panel, (900, 620))
+
+    def open_whatif(self):
+        """盘面模拟：独立窗口（基于当前盘面只模拟，不向游戏发动作）。"""
+        return self._open_tool("whatif", "KARDS 盘面模拟", self._make_whatif_panel, (1080, 860))
+
+    def _make_effect_panel(self, master):
+        from . import effect_oracle as EO
+        headless = os.environ.get("KARDS_GUI_SELFTEST_EXIT_MS", "").isdigit()
+        return EO.Panel(master, None if headless else EO.LiveSource())
+
+    def _make_whatif_panel(self, master):
+        from . import whatif_panel as WP
+        headless = os.environ.get("KARDS_GUI_SELFTEST_EXIT_MS", "").isdigit()
+        return WP.Panel(master, None if headless else self._make_whatif())
+
+    def _open_tool(self, key: str, title: str, factory, size):
+        """打开工具窗口；已经开着就提到前面（不重复开）。关窗口只停掉那个面板的轮询。"""
+        d = self._tools.get(key)
+        if d is not None and d["win"].winfo_exists():
+            d["win"].deiconify()
+            d["win"].lift()
+            d["win"].focus_set()
+            return d["panel"]
+        win = tk.Toplevel(self)
+        win.title(title)
+        x, y = K.clamp_to_screen(self.winfo_rootx() + 40, self.winfo_rooty() + 40, size[0], size[1])
+        win.geometry("%dx%d%+d%+d" % (size[0], size[1], x, y))
+        win.minsize(720, 480)          # 面板内部自己滚/拖分隔条；窗口能拉大就行
+        if os.environ.get("KARDS_GUI_SELFTEST_EXIT_MS", "").isdigit():
+            win.withdraw()             # 无头冒烟：真建窗口但不映射到桌面
+        panel = factory(win)
+        panel.pack(fill="both", expand=True)
+        self._tools[key] = {"win": win, "panel": panel}
+        win.protocol("WM_DELETE_WINDOW", lambda k=key: self._close_tool(k))
+        panel.start()                  # source 为 None（无头）时 start() 自己不动
+        return panel
+
+    def _close_tool(self, key: str):
+        d = self._tools.pop(key, None)
+        if d is None:
+            return
+        try:
+            d["panel"].stop()
+        except Exception:                                 # noqa: BLE001
+            pass
+        try:
+            d["win"].destroy()
+        except Exception:                                 # noqa: BLE001
+            pass
 
     # ---------------- 小部件 ----------------
     def toast(self, msg: str, ms: int = 3200):
@@ -446,11 +511,9 @@ class App(tk.Tk):
             self._pids = W.pids()
 
     def _on_close(self):
-        """关面板：记窗口几何；若监听器是**本面板启动的**，优雅带走它（不强杀、不碰别人起的监听器）。"""
-        try:
-            self.fx_panel.stop()
-        except Exception:                                     # noqa: BLE001
-            pass
+        """关面板：带走工具窗口、记窗口几何；若监听器是**本面板启动的**，优雅带走它（不强杀、不碰别人起的监听器）。"""
+        for _k in list(self._tools):
+            self._close_tool(_k)
         try:
             K.save_win_state(self.winfo_width(), self.winfo_height(), self.winfo_x(), self.winfo_y())
         except Exception:                                     # noqa: BLE001

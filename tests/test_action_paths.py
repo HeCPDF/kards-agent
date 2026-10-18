@@ -99,9 +99,9 @@ def main():
     simf.forecast = table
     a0 = [a for a in _gen_actions(simf) if a.src == 20][0]
     r = run(simf, a0)
-    chk("预报：run 挂起第一层（3 种天气），不预先决定", isinstance(r, Suspended) and r.prompt.layer == 1
-        and [o.key for o in r.prompt.options] == ["sunny", "rain", "storm"])
-    r2 = r.resume("rain")
+    chk("预报：run 挂起第一层（3 张类型卡：蓝天/薄雾/狂风），不预先决定", isinstance(r, Suspended) and r.prompt.layer == 1
+        and [o.key for o in r.prompt.options] == ["card_event_sunny1_blue_sky", "card_event_rain1_mist", "card_event_storm1_gale"])
+    r2 = r.resume("card_event_rain1_mist")
     chk("第一层选 rain ⇒ 第二层 3 个变体（候选来自按种子预测的确定表）", isinstance(r2, Suspended) and r2.prompt.layer == 2
         and [o.key for o in r2.prompt.options] == ["light", "medium", "heavy"])
     d = r2.resume("medium")
@@ -109,10 +109,11 @@ def main():
         and d.state.pending_cards == [("card_event_rain_medium", 4.0)])
     chk("叶路径一共 9 条", len(leaves(run(simf, a0))) == 9)
     acts = [a for a in gen_actions(simf) if a.src == 20]
-    chk("预报牌在行动空间里是 9 个行动，路径 = (天气, 变体)", len(acts) == 9 and all(len(a.path) == 2 for a in acts), str(acts[:2]))
+    chk("预报牌在行动空间里是 9 个行动，路径 = (类型卡, 变体)", len(acts) == 9 and all(len(a.path) == 2 for a in acts), str(acts[:2]))
     vals = {a.path: evaluate(apply(simf, a)) for a in acts}
     best = max(vals, key=vals.get)
-    chk("评估（含 pending_cards 的估值）取分最高的路径 = storm/heavy", best == ("storm", "heavy"), str(best))
+    chk("评估（含 pending_cards 的估值）取分最高的路径 = storm/heavy",
+        best == ("card_event_storm1_gale", "heavy"), str(best))
     chk("apply 带 path 的行动 == 手工 resume 到底", abs(evaluate(apply(simf, acts[0])) - evaluate(
         run(simf, a0).resume(acts[0].path[0]).resume(acts[0].path[1]).state)) < 1e-9)
     nof = mk([fc], [me])

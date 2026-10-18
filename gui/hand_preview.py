@@ -165,6 +165,8 @@ class LiveSource:
             return ["choose_spawn (prediction failed: %s)" % str(ex)[:80]]
         if p.get("stopped"):
             return ["choose_spawn 1 of (?)  [%s]" % p["stopped"][:90]]
+        if not p["names"] and not p.get("pool"):
+            return ["(nothing to pick: candidate pool is empty, e.g. the deck has no cards)"]      # 此时原版打不出这张牌
         return ["choose_spawn 1 of (%s)" % ", ".join(names(n) for n in p["names"])]
 
     def _forecast(self, km, seed, names) -> list:

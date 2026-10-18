@@ -51,6 +51,11 @@ WEATHERS = ("sunny", "rain", "storm")
 TIERS = ("light", "medium", "heavy")
 TIER_TAG = {"light": "subtype.lightWeather", "medium": "subtype.mediumWeather",
             "heavy": "subtype.heavyWeather"}
+#: 预报**第一层**的三张「类型卡」（固定，不抽随机数，实机核对过：`player/rule.py::FC_TYPES` 同一份事实）：
+#: 第一层玩家选的就是这三张之一（蓝天 / 薄雾 / 狂风），选完天气后第二层才抽 light/medium/heavy 三张。
+L1_CARDS = {"sunny": "card_event_sunny1_blue_sky",
+            "rain": "card_event_rain1_mist",
+            "storm": "card_event_storm1_gale"}
 
 
 def strip_serial(name: str) -> str:

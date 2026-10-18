@@ -263,13 +263,13 @@ def _n(v, dash="?"):
 
 
 def _stat(c) -> str:
-    """攻/防。攻击带 buff 时写成 `3(+2)`。"""
+    """攻/防。攻击带 buff 时写成 `(3+2)/4`（括号把整个攻数值包起来，免得和分母混成一个数）。"""
     a, d = c.attack, c.defense
     if a is None and d is None:
         return "?/?"
     b = c.obj.attackBuff or 0          # 原版字段（S3'：不再读 Card.attack_buff 别名）
     at = "%s%s" % (_n(a), ("+%d" % b) if b else "")
-    return "%s/%s" % (at, _n(d))
+    return "%s/%s" % (("(%s)" % at) if b else at, _n(d))
 
 
 def _marks(c, guarded: dict, pinned: Optional[bool] = None) -> str:

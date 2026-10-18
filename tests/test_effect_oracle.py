@@ -153,9 +153,23 @@ def main():
         app._close()
         from gui import app as MAIN
         main = MAIN.App()
-        tabs = [main.nametowidget(t) for t in main.fx_panel.master.tabs()]
-        chk("主面板里有“手牌效果预览”页签", main.fx_panel in tabs
-            and main.fx_panel.master.tab(main.fx_panel, "text") == "手牌效果预览")
+        tabs = [main.nb.tab(t, "text") for t in main.nb.tabs()]
+        chk("主面板页签里没有“手牌效果预览”（大面板不塞进页签，页签里滚不动）",
+            "手牌效果预览" not in tabs and "盘面模拟" not in tabs, str(tabs))
+        chk("顶栏有打开它的按钮", str(main.btn_effect.cget("text")) == "手牌效果预览"
+            and str(main.btn_whatif.cget("text")) == "盘面模拟")
+        main.btn_effect.invoke()
+        d = main._tools.get("effect")
+        chk("点按钮 ⇒ 开独立窗口，面板就在里面",
+            d is not None and d["win"].winfo_class() == "Toplevel" and isinstance(d["panel"], O.Panel), str(d))
+        p1 = d["panel"]
+        main.btn_effect.invoke()
+        chk("再点一次只是把窗口提到前面，不重复开", main._tools["effect"]["panel"] is p1)
+        main._close_tool("effect")
+        chk("关工具窗口 ⇒ 面板 stop 并从表里清掉", "effect" not in main._tools and not p1.winfo_exists())
+        main.open_whatif()
+        chk("盘面模拟同样开成独立窗口", "whatif" in main._tools
+            and main._tools["whatif"]["win"].winfo_class() == "Toplevel")
         main.destroy()
     finally:
         os.environ.pop("KARDS_GUI_SELFTEST_EXIT_MS", None)

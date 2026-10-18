@@ -22,6 +22,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Optional
 
+from . import textutil as TU
 from .hand_preview import LiveSource
 
 APP_NAME = "KARDS 手牌效果预览"
@@ -32,7 +33,7 @@ POLL_S = 1.5
 # 窗口
 # ---------------------------------------------------------------------------
 class Panel(ttk.Frame):
-    """可嵌入任何 Notebook / 窗口的预览面板。`start()` 才开始读游戏，`stop()` 停；不看的时候不读、不跑 VM。"""
+    """可嵌进任意容器（主面板把它放进独立窗口）的预览面板。`start()` 才开始读游戏，`stop()` 停；不看的时候不读、不跑 VM。"""
 
     def __init__(self, master, source=None):
         super().__init__(master)
@@ -44,7 +45,7 @@ class Panel(ttk.Frame):
         self.after(200, self._tick)
 
     def _build(self):
-        self.status = ttk.Label(self, text="未启动（切到本页签才读游戏）")
+        self.status = ttk.Label(self, text="未启动")
         self.status.pack(fill="x", padx=8, pady=(8, 2))
         paned = ttk.PanedWindow(self, orient="vertical")
         paned.pack(fill="both", expand=True, padx=8, pady=4)
@@ -55,7 +56,8 @@ class Panel(ttk.Frame):
             self.tree.column(k, width=w, anchor="w")
         self.tree.bind("<<TreeviewSelect>>", lambda *_: self._show_detail())
         paned.add(self.tree, weight=3)
-        self.detail = tk.Text(paned, height=8, state="disabled", wrap="word", font=("Microsoft YaHei UI", 10))
+        self.detail = TU.make_readonly(tk.Text(paned, height=8, wrap="word", font=("Microsoft YaHei UI", 10)))
+        self.tree.bind("<Control-c>", self._copy_row)
         paned.add(self.detail, weight=2)
         ttk.Label(self, foreground="#8a8f98", wraplength=860,
                   text="只读游戏内存。前提：下一个抽随机数的就是这张牌；对手或别的效果先抽了，结果会自动重算。"
@@ -106,10 +108,16 @@ class Panel(ttk.Frame):
             text = r["name"] + "\n" + "\n".join("· " + s for s in r["lines"])
             if r.get("gaps"):
                 text += "\n\n缺口：" + r["gaps"]
-        self.detail.configure(state="normal")
-        self.detail.delete("1.0", "end")
-        self.detail.insert("end", text)
-        self.detail.configure(state="disabled")
+        TU.set_text(self.detail, text)
+
+    def _copy_row(self, _e=None):
+        """Ctrl+C：复制选中那一行的内容（名字 + 效果）。"""
+        sel = self.tree.selection()
+        if sel:
+            r = self.rows[int(sel[0])]
+            self.clipboard_clear()
+            self.clipboard_append(r["name"] + "\n" + "\n".join(r["lines"]))
+        return "break"
 
     def _tick(self):
         try:
