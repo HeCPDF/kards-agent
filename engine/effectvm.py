@@ -1518,6 +1518,21 @@ def record_effects(km, card_ptr: int, target_ptr: int = 0, has_target: bool = Fa
             if not _sptr:
                 raise Unimplemented("新生成的牌 %s 没有静态卡对象，读不了字段 %s" % (_sp["name"], name))
             return _base(_sptr, name)
+        _gf_in = _gf
+
+        def _gf(obj, name, _base=_gf_in, _rec=rec):                # noqa: F811
+            """脚本里**先后顺序**的副作用要被后面的读看见：`LoseKreditSlot(side)`（`BP_CardFunctions.cpp:2387-2391`）里除了
+            `ChangeKreditSlotsBySide(side,-1)` 还有 `GameState.updateKreditSlotsLostBySide(side,-1)`；我们只**记录**这个动词、不执行它的
+            蓝图体，所以随后 `getKreditSlotsLostBySide`（读 `KreditSlotsLost_Left/Right`，取绝对值）仍读到打出前的值——
+            SHINYO MOTORBOATS（先失一槽、再打「本战已失槽数 + 1」）因此少算 1（实机：屏幕写 (2)，我们算 1）。
+            这里把本次空跑里已记录的 `LoseKreditSlot` 按座位叠加到这两个字段上（ESide 1=Left、2=Right，与 `getKreditSlotsLostBySide` 的 switch 一致）。"""
+            v = _base(obj, name)
+            if name in ("KreditSlotsLost_Left", "KreditSlotsLost_Right") and isinstance(v, int):
+                want = 1 if name.endswith("Left") else 2
+                n = sum(1 for r in _rec.records if r.get("verb") == "LoseKreditSlot"
+                        and (r.get("args") or [None])[0] == want)
+                return v - n                                       # 游戏里记成负数累加，读取时取绝对值
+            return v
         if field_overrides:
             _ov = dict(field_overrides)
 
