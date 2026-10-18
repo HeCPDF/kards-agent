@@ -289,6 +289,12 @@ class App(tk.Tk):
         nb.add(self.ev_view, text="事件日志")
         self.live_view = LogView(nb, lambda: LIVE_LOG, "监听器输出（live_log.txt）")
         nb.add(self.live_view, text="监听器输出")
+        # 手牌效果预览：只在切到这一页时才读游戏（只读内存，不注入）；平时不读、不跑 VM
+        from . import effect_oracle as EO
+        self.fx_panel = EO.Panel(nb, None if os.environ.get("KARDS_GUI_SELFTEST_EXIT_MS", "").isdigit() else EO.LiveSource())
+        nb.add(self.fx_panel, text="手牌效果预览")
+        nb.bind("<<NotebookTabChanged>>", lambda e: self.fx_panel.start()
+                if nb.select() == str(self.fx_panel) else self.fx_panel.stop())
         self.toast_lbl = tk.Label(self, text="", bg="#222", fg="white", padx=12, pady=8, justify="left", wraplength=520)
 
     # ---------------- 小部件 ----------------
@@ -441,6 +447,10 @@ class App(tk.Tk):
 
     def _on_close(self):
         """关面板：记窗口几何；若监听器是**本面板启动的**，优雅带走它（不强杀、不碰别人起的监听器）。"""
+        try:
+            self.fx_panel.stop()
+        except Exception:                                     # noqa: BLE001
+            pass
         try:
             K.save_win_state(self.winfo_width(), self.winfo_height(), self.winfo_x(), self.winfo_y())
         except Exception:                                     # noqa: BLE001

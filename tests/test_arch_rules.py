@@ -85,7 +85,7 @@ LAYERS = {
     "agent": {"base", "kardsmem", "ops", "semantics"},
     "player": {"base", "kardsmem", "ops", "semantics", "sim", "evaluation", "policy", "agent"},
     "interfaces": {"base", "kardsmem", "agent"},
-    "gui": {"base", "kardsmem", "agent", "player"},
+    "gui": {"base", "kardsmem", "agent", "player", "semantics", "engine"},
 }
 
 

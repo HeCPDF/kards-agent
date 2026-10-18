@@ -115,9 +115,8 @@ def predict(km, card_ptr: int, seed: Optional[int], st=None, timeout_s: float = 
     try:
         from kardsmem import reserve as RS
         reserved = RS.checker(km)
-    except Exception as ex:                                       # noqa: BLE001
-        out["stopped"] = "游戏里的预备变更表读不出（%s），池子的“没进预备”无法判定" % str(ex)[:80]
-        return out
+    except Exception:                                             # noqa: BLE001
+        reserved = None            # 只有需要全卡池的牌才用得到；pool_hooks 拿不到判据会返回 {}，VM 停在原语上，原因进 stopped
     from semantics import effectvm as EV
     try:
         table = static_cards(km)
@@ -142,11 +141,19 @@ def predict(km, card_ptr: int, seed: Optional[int], st=None, timeout_s: float = 
         return out
     keep = bool(o.get("keeporder"))
     out["keep_order"], out["pool"] = keep, len(cards)
-    ptrs = [c for c in cards if isinstance(c, int) and c in by_ptr]
+    # 元素有两种：静态卡指针（从全卡池里取牌的那类）、**对局里的卡实例指针**（AIR, LAND & SEA 这类从己方牌库里取牌）。
+    # 以前只认前一种，后一种全被丢掉 ⇒ 候选恒为空（2026-10-18 实机）。名字一律按 FName 取（去掉 `_C_<序号>`）。
+    ptrs = [c for c in cards if isinstance(c, int) and c]
+    names_pool = km.names_pool()
+
+    def _name(p):
+        if p in by_ptr:
+            return by_ptr[p][0]
+        return (names_pool.fname_of(p) or "").split("_C_")[0] or None
     if keep:
         pick = list(range(min(3, len(ptrs))))
         out["draws"] = int(r.get("draws") or 0)
     else:
         pick, out["draws"] = shuffle_pick(seed, len(ptrs))
-    out["names"] = [by_ptr[ptrs[i]][0] for i in pick]
+    out["names"] = [n for n in (_name(ptrs[i]) for i in pick) if n]
     return out
